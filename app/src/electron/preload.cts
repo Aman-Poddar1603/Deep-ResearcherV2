@@ -9,6 +9,7 @@ electron.contextBridge.exposeInMainWorld("electron", {
     closeWindow: () => ipcSend("closeWindow"),
     minimizeWindow: () => ipcSend("minimizeWindow"),
     maximizeWindow: () => ipcSend("maximizeWindow"),
+    toggleDevTools: () => ipcSend("toggleDevTools"),
 } satisfies Window['electron'])
 
 function ipcSend<Key extends keyof EventPayloadMapping>(key: Key) {

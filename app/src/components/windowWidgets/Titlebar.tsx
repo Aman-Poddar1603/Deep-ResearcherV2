@@ -19,9 +19,20 @@ const Titlebar = () => {
         window.electron.closeWindow();
     }
 
+    React.useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
+                e.preventDefault();
+                window.electron.toggleDevTools();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     return (
         <div
-            className='w-full h-10 bg-background/80 backdrop-blur-md flex items-center justify-between px-4 border-b border-border select-none z-50'
+            className='w-full h-10 bg-background/80 backdrop-blur-md flex items-center justify-between px-4  select-none z-50'
             style={{ WebkitAppRegion: 'drag' } as DraggableStyle}
         >
             <div className='flex items-center gap-2'>

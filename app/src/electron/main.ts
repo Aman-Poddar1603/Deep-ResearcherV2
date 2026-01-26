@@ -43,4 +43,8 @@ app.on("ready", () => {
             mainWindow.maximize();
         }
     });
+
+    ipcMain.on("toggleDevTools", () => {
+        mainWindow.webContents.toggleDevTools();
+    });
 })

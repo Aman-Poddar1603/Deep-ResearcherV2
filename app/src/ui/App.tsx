@@ -2,21 +2,20 @@ import { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import reactLogo from './assets/react.svg'
 import './App.css'
-import Titlebar from '@/components/windowWidgets/Titlebar'
+import { GlobalLayout } from '@/components/layout'
 
 function App() {
     const [count, setCount] = useState(0)
 
     return (
-        <div className='flex flex-col h-screen bg-background text-foreground overflow-hidden'>
-            <Titlebar />
-            <div className='flex-1 overflow-auto p-8'>
+        <GlobalLayout>
+            <div className='p-8 max-w-4xl mx-auto'>
                 <div className='text-center'>
                     <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl mb-4">
-                        Electron + Vite + React
+                        Deep Researcher
                     </h1>
                     <p className="text-xl text-muted-foreground mb-8">
-                        Custom Title Bar Implementation Successful
+                        Premium Layout with shadcn/ui Sidebar
                     </p>
 
                     <div className='flex justify-center items-center my-8'>
@@ -34,9 +33,9 @@ function App() {
                             Count: {count}
                         </Button>
 
-                        <p className="max-w-md mx-auto text-muted-foreground leading-relaxed">
-                            The window frame has been removed and replaced with a custom React component.
-                            You can now drag the window using the title bar and use the custom controls.
+                        <p className="max-w-md mx-auto text-muted-foreground leading-relaxed italic">
+                            "The sidebar is now powered by shadcn/ui.
+                            The layout is managed globally, and the content floats in a borderless rounded area."
                         </p>
                     </div>
 
@@ -55,7 +54,7 @@ function App() {
                     </div>
                 </div>
             </div>
-        </div>
+        </GlobalLayout>
     )
 }
 

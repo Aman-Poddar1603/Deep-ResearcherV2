@@ -18,6 +18,7 @@ type EventPayloadMapping = {
     closeWindow: void;
     minimizeWindow: void;
     maximizeWindow: void;
+    toggleDevTools: void;
 }
 
 interface Window {
@@ -27,5 +28,6 @@ interface Window {
         closeWindow: () => void;
         minimizeWindow: () => void;
         maximizeWindow: () => void;
+        toggleDevTools: () => void;
     }
 }
