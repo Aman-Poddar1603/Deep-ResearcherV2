@@ -1,13 +1,16 @@
-import { Outlet } from "react-router-dom"
+import { Outlet, useLocation } from "react-router-dom"
 import { GlobalLayout } from "@/components/layout"
 import Composer from "@/components/widgets/Composer"
 
 export function Layout() {
+    const location = useLocation();
+    const isHome = location.pathname === '/';
+
     return (
-        <GlobalLayout>
+        <GlobalLayout contentClassName={isHome ? "hide-scrollbar-entrance" : ""}>
             <div className="flex flex-col h-full relative">
                 {/* Scrollable Content Area */}
-                <div className="flex-1 overflow-y-auto p-8 pt-12 pb-32">
+                <div className="flex-1 overflow-y-auto p-8 pt-12 pb-32 no-scrollbar">
                     <Outlet />
                 </div>
 

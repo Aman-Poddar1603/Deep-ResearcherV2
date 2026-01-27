@@ -1,12 +1,14 @@
 import React from 'react'
 import { Square, X, Minus } from 'lucide-react'
 import { ThemeSwitcher } from '../ThemeSwitcher'
+import { useInternalLogo } from '@/ui/components/GetLogo'
 
 interface DraggableStyle extends React.CSSProperties {
     WebkitAppRegion: 'drag' | 'no-drag';
 }
 
 const Titlebar = () => {
+    const internalLogo = useInternalLogo()
     const handleMinimize = () => {
         window.electron.minimizeWindow();
     }
@@ -32,11 +34,11 @@ const Titlebar = () => {
 
     return (
         <div
-            className='w-full h-10 bg-background/80 backdrop-blur-md flex items-center justify-between px-4  select-none z-50'
+            className='w-full h-10 bg-background/80 backdrop-blur-md flex items-center justify-between px-4 select-none z-50'
             style={{ WebkitAppRegion: 'drag' } as DraggableStyle}
         >
             <div className='flex items-center gap-2'>
-                <div className='w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]' />
+                <img src={internalLogo} alt="" className='h-5 w-5' />
                 <h1 className='text-xs font-medium tracking-tight text-muted-foreground uppercase'>Deep Researcher</h1>
             </div>
             <div className='flex items-center gap-1' style={{ WebkitAppRegion: 'no-drag' } as DraggableStyle}>

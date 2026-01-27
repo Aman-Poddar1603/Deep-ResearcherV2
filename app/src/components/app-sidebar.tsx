@@ -62,7 +62,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     const internalLogo = useInternalLogo()
     return (
         <Sidebar collapsible="icon" className="border-none bg-background mt-10" {...props}>
-            <SidebarHeader className="p-4 bg-background">
+            <SidebarHeader className="p-4 bg-background animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: '100ms' }}>
                 <div className="flex items-center gap-3">
                     <div className="flex skeleton-sidebar-icon size-10 shrink-0 items-center justify-center rounded-lg bg-background text-primary-foreground group-data-[collapsible=icon]:size-8">
                         <img
@@ -79,11 +79,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarHeader>
             <SidebarContent className="bg-background">
                 <SidebarGroup>
-                    <SidebarGroupLabel>Application</SidebarGroupLabel>
+                    <SidebarGroupLabel className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: '200ms' }}>Application</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
-                            {data.navMain.map((item) => (
-                                <SidebarMenuItem key={item.title}>
+                            {data.navMain.map((item, index) => (
+                                <SidebarMenuItem key={item.title} className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: `${300 + index * 100}ms` }}>
                                     <SidebarMenuButton
                                         asChild={!('isDev' in item)}
                                         tooltip={item.title}

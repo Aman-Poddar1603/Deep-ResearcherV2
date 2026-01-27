@@ -30,7 +30,7 @@ const Composer = () => {
     }
 
     return (
-        <div className="w-full max-w-4xl mx-auto px-4">
+        <div className="w-full max-w-4xl mx-auto px-4 animate-in fade-in slide-in-from-bottom-4 duration-1000 fill-mode-both" style={{ animationDelay: '900ms' }}>
             <div className="relative group transition-all duration-300">
                 <div className="relative bg-[#1a1a1a] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)] rounded-[30px] p-2 pr-3 transition-all duration-300">
                     <div className="px-3 pt-2">

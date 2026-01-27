@@ -47,4 +47,10 @@ app.on("ready", () => {
     ipcMain.on("toggleDevTools", () => {
         mainWindow.webContents.toggleDevTools();
     });
+
+    mainWindow.webContents.on('before-input-event', (_, input) => {
+        if (input.type === 'keyDown' && input.key === 'F5') {
+            mainWindow.webContents.reload();
+        }
+    });
 })
