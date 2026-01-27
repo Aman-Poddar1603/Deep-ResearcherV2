@@ -20,6 +20,8 @@ import {
     SidebarRail,
 } from "@/components/ui/sidebar"
 
+import { useInternalLogo } from "../ui/components/GetLogo"
+
 const data = {
     navMain: [
         {
@@ -57,13 +59,14 @@ const data = {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+    const internalLogo = useInternalLogo()
     return (
         <Sidebar collapsible="icon" className="border-none bg-background mt-10" {...props}>
             <SidebarHeader className="p-4 bg-background">
                 <div className="flex items-center gap-3">
                     <div className="flex skeleton-sidebar-icon size-10 shrink-0 items-center justify-center rounded-lg bg-background text-primary-foreground group-data-[collapsible=icon]:size-8">
                         <img
-                            src="/brand/DeepResearcherAgentModeAdvance.png"
+                            src={internalLogo}
                             alt="Logo"
                             className="h-full w-full object-contain"
                         />
