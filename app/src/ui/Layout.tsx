@@ -14,12 +14,14 @@ export function Layout() {
                     <Outlet />
                 </div>
 
-                {/* Floating Composer Area at the bottom */}
-                <div className="absolute bottom-0 left-0 w-full pb-8 pt-4 px-4 bg-linear-to-t from-background via-background/80 to-transparent pointer-events-none z-20">
-                    <div className="pointer-events-auto">
-                        <Composer />
+                {/* Floating Composer Area at the bottom - Only on Home */}
+                {isHome && (
+                    <div className="absolute bottom-0 left-0 w-full pb-8 pt-4 px-4 bg-linear-to-t from-background via-background/80 to-transparent pointer-events-none z-20">
+                        <div className="pointer-events-auto">
+                            <Composer />
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </GlobalLayout>
     )
