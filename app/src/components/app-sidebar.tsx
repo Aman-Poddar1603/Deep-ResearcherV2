@@ -33,33 +33,21 @@ import {
 
 import { useInternalLogo } from "../ui/components/GetLogo"
 
+import { Link } from "react-router-dom"
+
 const data = {
     navMain: [
-        {
-            title: "Data",
-            icon: Database,
-            items: [
-                {
-                    title: "Databases",
-                    url: "#/data/databases",
-                },
-                {
-                    title: "Bucket",
-                    url: "#/data/bucket",
-                },
-            ],
-        },
         {
             title: "Workspaces",
             icon: FolderOpen,
             items: [
                 {
                     title: "Create new Workspace",
-                    url: "#/workspaces/new",
+                    url: "/workspaces/new",
                 },
                 {
                     title: "View All Workspaces",
-                    url: "#/workspaces/all",
+                    url: "/workspaces/all",
                 },
             ],
         },
@@ -69,11 +57,11 @@ const data = {
             items: [
                 {
                     title: "Start new Research",
-                    url: "#/researches/new",
+                    url: "/researches/new",
                 },
                 {
                     title: "View All Researches",
-                    url: "#/researches/all",
+                    url: "/researches/all",
                 },
             ],
         },
@@ -83,23 +71,37 @@ const data = {
             items: [
                 {
                     title: "Start new Chat",
-                    url: "#/chat/new",
+                    url: "/chat/new",
                 },
                 {
                     title: "View All Chats",
-                    url: "#/chat/all",
+                    url: "/chat/all",
                 },
             ],
         },
         {
-            title: "Settings",
-            url: "#/settings",
-            icon: Settings,
+            title: "Data",
+            icon: Database,
+            items: [
+                {
+                    title: "Databases",
+                    url: "/data/databases",
+                },
+                {
+                    title: "Bucket",
+                    url: "/data/bucket",
+                },
+            ],
         },
         {
             title: "History",
-            url: "#/history",
+            url: "/history",
             icon: History,
+        },
+        {
+            title: "Settings",
+            url: "/settings",
+            icon: Settings,
         },
     ],
 }
@@ -151,9 +153,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                                         {item.items.map((subItem) => (
                                                             <SidebarMenuSubItem key={subItem.title}>
                                                                 <SidebarMenuSubButton asChild>
-                                                                    <a href={subItem.url}>
+                                                                    <Link to={subItem.url}>
                                                                         <span>{subItem.title}</span>
-                                                                    </a>
+                                                                    </Link>
                                                                 </SidebarMenuSubButton>
                                                             </SidebarMenuSubItem>
                                                         ))}
@@ -168,10 +170,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                 return (
                                     <SidebarMenuItem key={item.title} className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: `${300 + index * 100}ms` }}>
                                         <SidebarMenuButton asChild tooltip={item.title}>
-                                            <a href={item.url}>
+                                            <Link to={item.url}>
                                                 <item.icon />
                                                 <span>{item.title}</span>
-                                            </a>
+                                            </Link>
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>
                                 )

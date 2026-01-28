@@ -1,0 +1,1 @@
+export {default as Settings} from "@/ui/pages/settings/Settings"

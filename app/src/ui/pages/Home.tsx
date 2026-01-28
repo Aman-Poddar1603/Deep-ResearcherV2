@@ -5,7 +5,7 @@ export function Home() {
     return (
         <div className="max-w-4xl mx-auto text-center space-y-8">
             <div className="space-y-4">
-                <h1 className="text-5xl font-extrabold tracking-tight lg:text-6xl bg-linear-to-r from-white to-zinc-500 bg-clip-text text-transparent animate-in fade-in slide-in-from-bottom-4 duration-1000 fill-mode-both" style={{ animationDelay: '150ms' }}>
+                <h1 className="text-5xl py-3 font-extrabold tracking-tight lg:text-6xl bg-linear-to-r from-white to-zinc-500 bg-clip-text text-transparent animate-in fade-in slide-in-from-bottom-4 duration-1000 fill-mode-both" style={{ animationDelay: '150ms' }}>
                     Deep Researcher
                 </h1>
                 <p className="text-xl text-muted-foreground max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-1000 fill-mode-both" style={{ animationDelay: '300ms' }}>
