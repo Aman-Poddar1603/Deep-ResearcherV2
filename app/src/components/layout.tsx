@@ -45,6 +45,19 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
 
                             <Separator orientation="vertical" className="h-6" />
 
+                            {/* Home Button */}
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={handleHome}
+                                title="Go to home"
+                            >
+                                <Home className="h-4 w-4" />
+                            </Button>
+
+                            <Separator orientation="vertical" className="h-6" />
+
                             {/* Navigation Buttons */}
                             <div className="flex items-center gap-1">
                                 <Button
@@ -66,19 +79,6 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
                                     <ChevronRight className="h-4 w-4" />
                                 </Button>
                             </div>
-
-                            <Separator orientation="vertical" className="h-6" />
-
-                            {/* Home Button */}
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={handleHome}
-                                title="Go to home"
-                            >
-                                <Home className="h-4 w-4" />
-                            </Button>
 
                             <Separator orientation="vertical" className="h-6" />
 
