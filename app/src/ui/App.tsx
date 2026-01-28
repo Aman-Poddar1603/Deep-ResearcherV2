@@ -5,7 +5,7 @@ import "./App.css"
 import { Home } from "@/ui/pages/Home"
 
 // Workspaces
-import { CreateWorkspace, AllWorkspaces, EditWorkspace } from "@/ui/pages/workspaces"
+import { CreateWorkspace, AllWorkspaces, EditWorkspace, ViewWorkspace } from "@/ui/pages/workspaces"
 
 // Data / Store
 import { Databases, Tables, DataVisualizer, Bucket, BucketItems } from "@/ui/pages/store"
@@ -33,6 +33,7 @@ function App() {
                     <Route path="/workspaces/new" element={<CreateWorkspace />} />
                     <Route path="/workspaces/all" element={<AllWorkspaces />} />
                     <Route path="/workspaces/edit/:id" element={<EditWorkspace />} />
+                    <Route path="/workspaces/view/:id" element={<ViewWorkspace />} />
 
                     {/* Research Routes - TODO: Create these pages */}
                     <Route path="/researches/new" element={<NewResearch />} />
