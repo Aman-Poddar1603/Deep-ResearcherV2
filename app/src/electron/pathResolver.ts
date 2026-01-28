@@ -2,6 +2,7 @@ import { isDev } from "./util.js"
 import path from "path"
 import { app } from "electron"
 
+
 export function getPreloadPath() {
     return path.join(
         app.getAppPath(),
@@ -18,6 +19,6 @@ export function getIconPath() {
     return path.join(
         app.getAppPath(),
         isDev() ? './' : '../',
-        '/templateIcon.png'
+        '/public/brand/inner_logo_dr_light.png'
     )
 }

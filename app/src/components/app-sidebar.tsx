@@ -1,10 +1,12 @@
 import * as React from "react"
 import {
-    Home,
-    Search,
-    Layers,
-    Layout as LayoutIcon,
+    Database,
+    FolderOpen,
+    FileSearch,
+    MessageSquare,
     Settings,
+    History,
+    ChevronDown,
 } from "lucide-react"
 
 import {
@@ -17,43 +19,87 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     SidebarRail,
 } from "@/components/ui/sidebar"
+
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 
 import { useInternalLogo } from "../ui/components/GetLogo"
 
 const data = {
     navMain: [
         {
-            title: "Dashboard",
-            url: "#",
-            icon: Home,
+            title: "Data",
+            icon: Database,
+            items: [
+                {
+                    title: "Databases",
+                    url: "#/data/databases",
+                },
+                {
+                    title: "Bucket",
+                    url: "#/data/bucket",
+                },
+            ],
         },
         {
-            title: "Research",
-            url: "#",
-            icon: Search,
+            title: "Workspaces",
+            icon: FolderOpen,
+            items: [
+                {
+                    title: "Create new Workspace",
+                    url: "#/workspaces/new",
+                },
+                {
+                    title: "View All Workspaces",
+                    url: "#/workspaces/all",
+                },
+            ],
         },
         {
-            title: "Projects",
-            url: "#",
-            icon: Layers,
+            title: "Researches",
+            icon: FileSearch,
+            items: [
+                {
+                    title: "Start new Research",
+                    url: "#/researches/new",
+                },
+                {
+                    title: "View All Researches",
+                    url: "#/researches/all",
+                },
+            ],
         },
         {
-            title: "Templates",
-            url: "#",
-            icon: LayoutIcon,
+            title: "Chat",
+            icon: MessageSquare,
+            items: [
+                {
+                    title: "Start new Chat",
+                    url: "#/chat/new",
+                },
+                {
+                    title: "View All Chats",
+                    url: "#/chat/all",
+                },
+            ],
         },
         {
             title: "Settings",
-            url: "#",
+            url: "#/settings",
             icon: Settings,
         },
         {
-            title: "Dev Tools",
-            url: "#",
-            icon: LayoutIcon,
-            isDev: true
+            title: "History",
+            url: "#/history",
+            icon: History,
         },
     ],
 }
@@ -82,27 +128,54 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     <SidebarGroupLabel className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: '200ms' }}>Application</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
-                            {data.navMain.map((item, index) => (
-                                <SidebarMenuItem key={item.title} className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: `${300 + index * 100}ms` }}>
-                                    <SidebarMenuButton
-                                        asChild={!('isDev' in item)}
-                                        tooltip={item.title}
-                                        onClick={('isDev' in item) ? () => window.electron.toggleDevTools() : undefined}
-                                    >
-                                        {('isDev' in item) ? (
-                                            <button className="flex w-full items-center gap-2">
-                                                <item.icon />
-                                                <span>{item.title}</span>
-                                            </button>
-                                        ) : (
+                            {data.navMain.map((item, index) => {
+                                // Check if the item has sub-items
+                                if ('items' in item && item.items) {
+                                    return (
+                                        <Collapsible
+                                            key={item.title}
+                                            asChild
+                                            defaultOpen={false}
+                                            className="group/collapsible"
+                                        >
+                                            <SidebarMenuItem className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: `${300 + index * 100}ms` }}>
+                                                <CollapsibleTrigger asChild>
+                                                    <SidebarMenuButton tooltip={item.title}>
+                                                        <item.icon />
+                                                        <span>{item.title}</span>
+                                                        <ChevronDown className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+                                                    </SidebarMenuButton>
+                                                </CollapsibleTrigger>
+                                                <CollapsibleContent>
+                                                    <SidebarMenuSub>
+                                                        {item.items.map((subItem) => (
+                                                            <SidebarMenuSubItem key={subItem.title}>
+                                                                <SidebarMenuSubButton asChild>
+                                                                    <a href={subItem.url}>
+                                                                        <span>{subItem.title}</span>
+                                                                    </a>
+                                                                </SidebarMenuSubButton>
+                                                            </SidebarMenuSubItem>
+                                                        ))}
+                                                    </SidebarMenuSub>
+                                                </CollapsibleContent>
+                                            </SidebarMenuItem>
+                                        </Collapsible>
+                                    )
+                                }
+
+                                // Regular menu item without sub-items
+                                return (
+                                    <SidebarMenuItem key={item.title} className="animate-in fade-in slide-in-from-left-4 duration-1000 fill-mode-both" style={{ animationDelay: `${300 + index * 100}ms` }}>
+                                        <SidebarMenuButton asChild tooltip={item.title}>
                                             <a href={item.url}>
                                                 <item.icon />
                                                 <span>{item.title}</span>
                                             </a>
-                                        )}
-                                    </SidebarMenuButton>
-                                </SidebarMenuItem>
-                            ))}
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
+                                )
+                            })}
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
