@@ -18,7 +18,7 @@ const DUMMY_RESPONSE = `
 
 This table has **15 columns**. If your CSS is correct, it should show a horizontal scrollbar instead of breaking the layout or squishing the text unreadably.
 
-| ID | Ticker | Price (USD) | 24h Change | Momentum Formula | Volatility Index | $\\alpha$ (Alpha) | $\\beta$ (Beta) | $\\gamma$ (Gamma) | $\\delta$ (Delta) | $\\theta$ (Theta) | Market Cap | Volume (24h) | Hash | Notes |
+| ID | Ticker | Price (USD) | 24h Change | Momentum Formula | Volatility Index | $$\\alpha$$ (Alpha) | $$\\beta$$ (Beta) | $$\\gamma$$ (Gamma) | $$\\delta$$ (Delta) | $$\\theta$$ (Theta) | Market Cap | Volume (24h) | Hash | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **001** | \`BTC-X\` | **$94,320.50** | 🟢 +2.4% | $$P = P_0 e^{rt}$$ | High | $$\\alpha > 0.5$$ | $$\\beta \\approx 1.2$$ | $$\\gamma = \\frac{\\partial^2 V}{\\partial S^2}$$ | $$\\delta = 0.45$$ | $$\\theta = -0.05$$ | $1.8T | 45B | \`0x4d2...\` | Primary reserve asset. |
 | **002** | \`ETH-Q\` | **$4,102.10** | 🔴 -1.2% | $$v = \\frac{d}{t}$$ | Medium | $$\\alpha = 0.1$$ | $$\\beta = 0.9$$ | $$\\gamma \\to 0$$ | $$\\delta = 0.60$$ | $$\\theta = -0.12$$ | $450B | 12B | \`0x9a1...\` | Smart contract layer. |

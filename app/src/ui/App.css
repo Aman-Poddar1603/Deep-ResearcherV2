@@ -245,10 +245,19 @@
 /* Streamdown Table Styling */
 [data-streamdown="table"] {
   border-radius: 12px;
-  overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 3px hsl(var(--border));
   border-collapse: separate !important;
   border-spacing: 0 !important;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+/* Ensure table cells don't wrap */
+[data-streamdown="table-cell"],
+[data-streamdown="table-header-cell"] {
+  white-space: nowrap;
 }
 
 /* Remove inner borders */
