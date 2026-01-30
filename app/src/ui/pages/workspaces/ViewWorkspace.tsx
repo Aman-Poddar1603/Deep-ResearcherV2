@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,13 +26,14 @@ import {
   FileVideo,
   FileAudio,
   FileSpreadsheet,
+  Palette,
 } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { fetchLinkMetadata, type LinkMetadata } from '@/lib/utils'
+import { fetchLinkMetadata, type LinkMetadata, cn } from '@/lib/utils'
 
 // Mock workspace data
 const mockWorkspace = {
@@ -40,7 +41,7 @@ const mockWorkspace = {
   name: 'Market Analysis 2024',
   description: 'Deep dive into emerging tech markets and competitor landscape analysis.',
   icon: TrendingUp,
-  color: 'text-blue-400',
+  accentColor: 'purple-400', // Accent color for theming
   bannerImage: null,
   aiMode: 'auto',
   enableResearch: true,
@@ -228,15 +229,89 @@ const AI_MODE_INFO = {
   online: { icon: Globe, label: 'Online', description: 'Cloud-based models' },
 }
 
+// TEMPORARY: Accent color options for testing
+const ACCENT_COLORS = ['purple-400', 'blue-400', 'green-400', 'pink-400', 'orange-400'] as const
+
+// Complete class name mappings (Tailwind needs complete class names for JIT)
+const getAccentClasses = (color: string) => {
+  const classMap: Record<string, {
+    text: string
+    border: string
+    hoverText: string
+    hoverBg: string
+    selectionColor: string
+  }> = {
+    'purple-400': {
+      text: 'text-purple-400',
+      border: 'border-purple-400',
+      hoverText: 'hover:text-purple-400',
+      hoverBg: 'hover:bg-purple-400/10',
+      selectionColor: 'rgba(192, 132, 252, 0.3)',
+    },
+    'blue-400': {
+      text: 'text-blue-400',
+      border: 'border-blue-400',
+      hoverText: 'hover:text-blue-400',
+      hoverBg: 'hover:bg-blue-400/10',
+      selectionColor: 'rgba(96, 165, 250, 0.3)',
+    },
+    'green-400': {
+      text: 'text-green-400',
+      border: 'border-green-400',
+      hoverText: 'hover:text-green-400',
+      hoverBg: 'hover:bg-green-400/10',
+      selectionColor: 'rgba(74, 222, 128, 0.3)',
+    },
+    'pink-400': {
+      text: 'text-pink-400',
+      border: 'border-pink-400',
+      hoverText: 'hover:text-pink-400',
+      hoverBg: 'hover:bg-pink-400/10',
+      selectionColor: 'rgba(244, 114, 182, 0.3)',
+    },
+    'orange-400': {
+      text: 'text-orange-400',
+      border: 'border-orange-400',
+      hoverText: 'hover:text-orange-400',
+      hoverBg: 'hover:bg-orange-400/10',
+      selectionColor: 'rgba(251, 146, 60, 0.3)',
+    },
+  }
+  return classMap[color] || classMap['purple-400']
+}
+
 const ViewWorkspace = () => {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [accentColor, setAccentColor] = useState(mockWorkspace.accentColor)
   const WorkspaceIcon = mockWorkspace.icon
   const aiModeInfo = AI_MODE_INFO[mockWorkspace.aiMode as keyof typeof AI_MODE_INFO]
   const AiModeIcon = aiModeInfo.icon
 
+  // TEMPORARY: Toggle accent color
+  const toggleAccentColor = () => {
+    const currentIndex = ACCENT_COLORS.indexOf(accentColor as typeof ACCENT_COLORS[number])
+    const nextIndex = (currentIndex + 1) % ACCENT_COLORS.length
+    setAccentColor(ACCENT_COLORS[nextIndex])
+  }
+
+  // Get accent color classes
+  const accent = getAccentClasses(accentColor)
+
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Update selection color CSS variable (scoped to this workspace)
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.style.setProperty('--workspace-selection-color', accent.selectionColor)
+    }
+  }, [accent.selectionColor])
+
   return (
-    <div className="h-full overflow-y-auto animate-in fade-in duration-500">
+    <div
+      ref={containerRef}
+      className="h-full overflow-y-auto animate-in fade-in duration-500 workspace-theme-root"
+    >
       {/* Header with Banner */}
       <div className="relative">
         {/* Banner */}
@@ -261,14 +336,14 @@ const ViewWorkspace = () => {
             <CardContent className="p-6">
               <div className="flex flex-col md:flex-row gap-6 items-start">
                 {/* Icon */}
-                <div className={`p-6 rounded-2xl bg-secondary/30 ${mockWorkspace.color} border border-muted-foreground/10 shadow-lg`}>
+                <div className={cn("p-6 rounded-2xl bg-secondary/30 border border-muted-foreground/10 shadow-lg", accent.text)}>
                   <WorkspaceIcon className="w-12 h-12" />
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 space-y-3">
                   <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{mockWorkspace.name}</h1>
+                    <h1 className={cn("text-3xl font-bold tracking-tight", accent.text)}>{mockWorkspace.name}</h1>
                     <p className="text-muted-foreground text-lg mt-1">{mockWorkspace.description}</p>
                   </div>
 
@@ -291,6 +366,17 @@ const ViewWorkspace = () => {
 
                 {/* Actions */}
                 <div className="flex gap-2 shrink-0">
+                  {/* TEMPORARY: Color toggle button - REMOVE LATER */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleAccentColor}
+                    className={cn("gap-2", accent.text, accent.border, accent.hoverBg)}
+                    title="Toggle accent color (temporary)"
+                  >
+                    <Palette className="w-4 h-4" />
+                    Color
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -322,8 +408,8 @@ const ViewWorkspace = () => {
           <Card className="border-muted-foreground/20">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2 text-xs">
-                <FileText className="w-4 h-4" />
-                Researches
+                <FileText className={cn("w-4 h-4", accent.text)} />
+                <span className={cn(accent.text, "font-semibold")}>Researches</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -335,8 +421,8 @@ const ViewWorkspace = () => {
           <Card className="border-muted-foreground/20">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2 text-xs">
-                <MessageSquare className="w-4 h-4" />
-                Chats
+                <MessageSquare className={cn("w-4 h-4", accent.text)} />
+                <span className={cn("font-semibold", accent.text)}>Chats</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -348,8 +434,8 @@ const ViewWorkspace = () => {
           <Card className="border-muted-foreground/20">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2 text-xs">
-                <Files className="w-4 h-4" />
-                Files
+                <Files className={cn("w-4 h-4", accent.text)} />
+                <span className={cn("font-semibold", accent.text)}>Files</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -361,8 +447,8 @@ const ViewWorkspace = () => {
           <Card className="border-muted-foreground/20">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2 text-xs">
-                <Bot className="w-4 h-4" />
-                AI Queries
+                <Bot className={cn("w-4 h-4", accent.text)} />
+                <span className={cn("font-semibold", accent.text)}>AI Queries</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -377,10 +463,10 @@ const ViewWorkspace = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Configuration</CardTitle>
+                <CardTitle className={accent.text}>Configuration</CardTitle>
                 <CardDescription>Workspace settings and enabled features</CardDescription>
               </div>
-              <Button variant="ghost" size="sm" className="gap-2">
+              <Button variant="ghost" size="sm" className={cn("gap-2", accent.text)}>
                 <Settings className="w-4 h-4" />
                 Configure
               </Button>
@@ -390,7 +476,7 @@ const ViewWorkspace = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
                 <div className="flex items-center gap-2 mb-2">
-                  <AiModeIcon className="w-5 h-5 text-primary" />
+                  <AiModeIcon className={cn("w-5 h-5", accent.text)} />
                   <span className="font-medium">AI Mode</span>
                 </div>
                 <p className="text-sm text-muted-foreground">{aiModeInfo.description}</p>
@@ -399,8 +485,8 @@ const ViewWorkspace = () => {
               <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-primary" />
-                    <span className="font-medium">Research Agents</span>
+                    <FileText className={cn("w-5 h-5", accent.text)} />
+                    <span className={cn("font-medium", accent.text)}>Research Agents</span>
                   </div>
                   {mockWorkspace.enableResearch && (
                     <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">Active</span>
@@ -414,7 +500,7 @@ const ViewWorkspace = () => {
               <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-primary" />
+                    <MessageSquare className={cn("w-5 h-5", accent.text)} />
                     <span className="font-medium">Chat Agents</span>
                   </div>
                   {mockWorkspace.enableChat && (
@@ -436,10 +522,10 @@ const ViewWorkspace = () => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Recent Researches</CardTitle>
+                  <CardTitle className={accent.text}>Recent Researches</CardTitle>
                   <CardDescription>Latest research activities</CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
                   View All
                   <ChevronRight className="w-3 h-3" />
                 </Button>
@@ -477,10 +563,10 @@ const ViewWorkspace = () => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Recent Chats</CardTitle>
+                  <CardTitle className={accent.text}>Recent Chats</CardTitle>
                   <CardDescription>Latest conversations</CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
                   View All
                   <ChevronRight className="w-3 h-3" />
                 </Button>
@@ -516,10 +602,10 @@ const ViewWorkspace = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Resources</CardTitle>
+                <CardTitle className={accent.text}>Resources</CardTitle>
                 <CardDescription>Files and documents in this workspace</CardDescription>
               </div>
-              <Button variant="outline" size="sm" className="gap-2">
+              <Button variant="outline" size="sm" className={cn("gap-2", accent.text, accent.border, accent.hoverBg)}>
                 <Download className="w-4 h-4" />
                 Download All
               </Button>
@@ -534,7 +620,7 @@ const ViewWorkspace = () => {
                 >
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-md bg-primary/10">
-                      <FileText className="w-5 h-5 text-primary" />
+                      <FileText className={cn("w-5 h-5", accent.text)} />
                     </div>
                     <div>
                       <h4 className="font-medium text-sm">{file.name}</h4>
@@ -548,10 +634,18 @@ const ViewWorkspace = () => {
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn("h-8 w-8 p-0", accent.hoverText)}
+                    >
                       <Eye className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn("h-8 w-8 p-0", accent.hoverText)}
+                    >
                       <Download className="w-4 h-4" />
                     </Button>
                   </div>
@@ -568,10 +662,10 @@ const ViewWorkspace = () => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>References</CardTitle>
+                  <CardTitle className={accent.text}>References</CardTitle>
                   <CardDescription>External links and resources</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button variant="outline" size="sm" className={cn("gap-2", accent.text, accent.border, accent.hoverBg)}>
                   <Link className="w-4 h-4" />
                   Add Link
                 </Button>
@@ -626,7 +720,7 @@ const ViewWorkspace = () => {
                           onMouseLeave={handleMouseLeave}
                         >
                           <div className="p-2 rounded-md bg-primary/10 shrink-0">
-                            <Link className="w-4 h-4 text-primary" />
+                            <Link className={cn("w-4 h-4", accent.text)} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-medium text-sm line-clamp-1 group-hover:text-primary transition-colors">
@@ -691,10 +785,10 @@ const ViewWorkspace = () => {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Generated Content</CardTitle>
+                  <CardTitle className={accent.text}>Generated Content</CardTitle>
                   <CardDescription>AI-generated and exported files</CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
                   View All
                   <ChevronRight className="w-3 h-3" />
                 </Button>
@@ -705,19 +799,20 @@ const ViewWorkspace = () => {
                 {mockGeneratedBlobs.map((blob) => {
                   // Determine icon based on file type
                   const getFileIcon = () => {
+                    const iconClass = cn("w-5 h-5", accent.text)
                     switch (blob.type) {
                       case 'Image':
-                        return <FileImage className="w-5 h-5 text-purple-500" />
+                        return <FileImage className={iconClass} />
                       case 'Video':
-                        return <FileVideo className="w-5 h-5 text-green-500" />
+                        return <FileVideo className={iconClass} />
                       case 'Audio':
-                        return <FileAudio className="w-5 h-5 text-orange-500" />
+                        return <FileAudio className={iconClass} />
                       case 'Document':
-                        return <FileText className="w-5 h-5 text-blue-500" />
+                        return <FileText className={iconClass} />
                       case 'Spreadsheet':
-                        return <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
+                        return <FileSpreadsheet className={iconClass} />
                       default:
-                        return <FileCode className="w-5 h-5 text-primary" />
+                        return <FileCode className={iconClass} />
                     }
                   }
 
@@ -744,10 +839,18 @@ const ViewWorkspace = () => {
                         </div>
                       </div>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn("h-8 w-8 p-0", accent.hoverText)}
+                        >
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn("h-8 w-8 p-0", accent.hoverText)}
+                        >
                           <Download className="w-4 h-4" />
                         </Button>
                       </div>
@@ -764,3 +867,5 @@ const ViewWorkspace = () => {
 }
 
 export default ViewWorkspace
+
+

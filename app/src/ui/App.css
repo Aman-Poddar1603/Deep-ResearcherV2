@@ -173,6 +173,29 @@
   display: none !important;
   width: 0 !important;
   height: 0 !important;
+  animation: spin 1s linear infinite;
+}
+
+/* Global text selection styles */
+::selection {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+::-moz-selection {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* Workspace-specific themed selection */
+.workspace-theme-root ::selection {
+  background-color: var(--workspace-selection-color);
+  color: inherit;
+}
+
+.workspace-theme-root ::-moz-selection {
+  background-color: var(--workspace-selection-color);
+  color: inherit;
 }
 
 .no-scrollbar::-webkit-scrollbar {
