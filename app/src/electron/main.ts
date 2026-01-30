@@ -11,6 +11,8 @@ if (!PORT) throw new Error("PORT env variable is not set");
 
 app.on("ready", () => {
     const mainWindow = new BrowserWindow({
+        width: 1800,
+        height: 600,
         // Shouldn't add contextIsolate or nodeIntegration because of security vulnerabilities
         webPreferences: {
             preload: getPreloadPath(),

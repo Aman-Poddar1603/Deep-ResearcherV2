@@ -25,6 +25,7 @@ import {
   FileAudio,
   FileSpreadsheet,
   Palette,
+  Plus,
 } from 'lucide-react'
 import {
   Popover,
@@ -459,10 +460,16 @@ const ViewWorkspace = () => {
                   <CardTitle className={accent.text}>Recent Researches</CardTitle>
                   <CardDescription>Latest research activities</CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
-                  View All
-                  <ChevronRight className="w-3 h-3" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" className={cn("gap-1 text-xs font-semibold", accent.text)}>
+                    <Plus className="w-3 h-3" />
+                    New Research
+                  </Button>
+                  <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
+                    View All
+                    <ChevronRight className="w-3 h-3" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -500,10 +507,16 @@ const ViewWorkspace = () => {
                   <CardTitle className={accent.text}>Recent Chats</CardTitle>
                   <CardDescription>Latest conversations</CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
-                  View All
-                  <ChevronRight className="w-3 h-3" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" className={cn("gap-1 text-xs font-semibold", accent.text)}>
+                    <Plus className="w-3 h-3" />
+                    New Chat
+                  </Button>
+                  <Button variant="ghost" size="sm" className={cn("gap-1 text-xs", accent.text)}>
+                    View All
+                    <ChevronRight className="w-3 h-3" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -599,9 +612,9 @@ const ViewWorkspace = () => {
                   <CardTitle className={accent.text}>References</CardTitle>
                   <CardDescription>External links and resources</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" className={cn("gap-2", accent.text, accent.border, accent.hoverBg)}>
-                  <Link className="w-4 h-4" />
-                  Add Link
+                <Button variant="ghost" size="sm" className={cn("gap-2", accent.text, accent.border, accent.hoverBg)}>
+                  View All
+                  <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
             </CardHeader>
