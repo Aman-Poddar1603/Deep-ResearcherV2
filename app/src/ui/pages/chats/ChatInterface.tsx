@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
+import "katex/dist/katex.min.css";
 
 // Define a local type that matches expectations for this component's text-based logic
 interface ChatMessage {
@@ -13,39 +14,18 @@ import { FileText } from 'lucide-react'
 
 // Dummy markdown content for testing
 const DUMMY_RESPONSE = `
-# 🌩️ The Architect's Log: Rebuilding the Core Protocol
+# 📉 High-Dimensional Market Data (Responsiveness Test)
 
-**Date:** January 31, 2026
-**Status:** CRITICAL
-**Author:** pixelThreader
+This table has **15 columns**. If your CSS is correct, it should show a horizontal scrollbar instead of breaking the layout or squishing the text unreadably.
 
-\`\`\`python
-import numpy as np
-from system.core import QuantumState, EntropyError
-
-def stabilize_flux_matrix(tensor_input, dilation_factor=0.04):
-    """
-    Stabilizes the flux matrix by applying a reverse Fourier transform
-    on the destabilized energy vectors.
-    """
-    try:
-        # Calculate the Eigenvalues of the current state
-        eigen_values = np.linalg.eigvals(tensor_input)
-        
-        # Filter out imaginary components that cause instability
-        stable_vector = [x for x in eigen_values if np.isreal(x)]
-        
-        if len(stable_vector) < 3:
-            raise EntropyError("Critical mass destabilization imminent.")
-            
-        return np.mean(stable_vector) * dilation_factor
-        
-    except Exception as e:
-        print(f"CRITICAL FAILURE: {str(e)}")
-        return None
-\`\`\`
-
-> **Warning:** Do not attempt to restart the *legacy clusters* without manual approval from the SysAdmin. They are currently quarantined.
+| ID | Ticker | Price (USD) | 24h Change | Momentum Formula | Volatility Index | $\\alpha$ (Alpha) | $\\beta$ (Beta) | $\\gamma$ (Gamma) | $\\delta$ (Delta) | $\\theta$ (Theta) | Market Cap | Volume (24h) | Hash | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **001** | \`BTC-X\` | **$94,320.50** | 🟢 +2.4% | $$P = P_0 e^{rt}$$ | High | $$\\alpha > 0.5$$ | $$\\beta \\approx 1.2$$ | $$\\gamma = \\frac{\\partial^2 V}{\\partial S^2}$$ | $$\\delta = 0.45$$ | $$\\theta = -0.05$$ | $1.8T | 45B | \`0x4d2...\` | Primary reserve asset. |
+| **002** | \`ETH-Q\` | **$4,102.10** | 🔴 -1.2% | $$v = \\frac{d}{t}$$ | Medium | $$\\alpha = 0.1$$ | $$\\beta = 0.9$$ | $$\\gamma \\to 0$$ | $$\\delta = 0.60$$ | $$\\theta = -0.12$$ | $450B | 12B | \`0x9a1...\` | Smart contract layer. |
+| **003** | \`SOL-V\` | **$145.67** | 🟢 +5.8% | $$F = ma$$ | Extreme | $$\\alpha < 0$$ | $$\\beta > 2.0$$ | $$\\gamma = \\infty$$ | $$\\delta = 0.88$$ | $$\\theta = -0.99$$ | $78B | 4B | \`0x1f4...\` | High throughput chain. |
+| **004** | \`ATOM\` | **$12.45** | 🟡 0.0% | $$E = mc^2$$ | Low | $$\\alpha = 0$$ | $$\\beta = 1.0$$ | $$\\gamma = 1$$ | $$\\delta = 0.50$$ | $$\\theta = -0.01$$ | $5B | 200M | \`0x3c2...\` | Interchain connectivity. |
+| **005** | \`QNT-M\` | **$1,024.00** | 🟢 +12% | $$\\sum_{i=0}^{n} x_i$$ | High | $$\\alpha \\approx 1$$ | $$\\beta = 1.5$$ | $$\\gamma = \\pi$$ | $$\\delta = 0.33$$ | $$\\theta = -0.02$$ | $12B | 800M | \`0x7b9...\` | Enterprise gateway. |
+| **006** | \`LINK\` | **$18.90** | 🔴 -0.5% | $$\\sqrt{x^2 + y^2}$$ | Low | $$\\alpha = 0.2$$ | $$\\beta = 0.8$$ | $$\\gamma = 0.5$$ | $$\\delta = 0.12$$ | $$\\theta = -0.04$$ | $9B | 350M | \`0x2e8...\` | Oracle network. |
 `;
 
 const ChatInterface = () => {
@@ -150,9 +130,9 @@ const ChatInterface = () => {
                   message.role === 'user' ? "pl-12" : ""
                 )}
               >
-                <MessageContent className={message.role === 'user' ? "shadow-sm" : "bg-transparent px-0 py-0"}>
+                <MessageContent className={message.role === 'user' ? "shadow-sm" : "bg-transparent px-0 py-0 w-full text-justify"}>
                   <MessageResponse
-                    isAnimating={false}
+                    isAnimating={isLoading && message.role === 'assistant' && message.id === messages[messages.length - 1]?.id}
                   >
                     {message.content || (isLoading && message.role === 'assistant' ? "Thinking..." : "")}
                   </MessageResponse>
