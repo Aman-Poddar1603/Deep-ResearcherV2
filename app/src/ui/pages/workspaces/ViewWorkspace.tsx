@@ -3,8 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
-  ArrowLeft,
-  Settings,
   FileText,
   MessageSquare,
   Files,
@@ -240,6 +238,7 @@ const getAccentClasses = (color: string) => {
     hoverText: string
     hoverBg: string
     selectionColor: string
+    cardBg: string
   }> = {
     'purple-400': {
       text: 'text-purple-400',
@@ -247,6 +246,7 @@ const getAccentClasses = (color: string) => {
       hoverText: 'hover:text-purple-400',
       hoverBg: 'hover:bg-purple-400/10',
       selectionColor: 'rgba(192, 132, 252, 0.3)',
+      cardBg: 'bg-purple-400/10',
     },
     'blue-400': {
       text: 'text-blue-400',
@@ -254,6 +254,7 @@ const getAccentClasses = (color: string) => {
       hoverText: 'hover:text-blue-400',
       hoverBg: 'hover:bg-blue-400/10',
       selectionColor: 'rgba(96, 165, 250, 0.3)',
+      cardBg: 'bg-blue-400/10',
     },
     'green-400': {
       text: 'text-green-400',
@@ -261,6 +262,7 @@ const getAccentClasses = (color: string) => {
       hoverText: 'hover:text-green-400',
       hoverBg: 'hover:bg-green-400/10',
       selectionColor: 'rgba(74, 222, 128, 0.3)',
+      cardBg: 'bg-green-400/10',
     },
     'pink-400': {
       text: 'text-pink-400',
@@ -268,6 +270,7 @@ const getAccentClasses = (color: string) => {
       hoverText: 'hover:text-pink-400',
       hoverBg: 'hover:bg-pink-400/10',
       selectionColor: 'rgba(244, 114, 182, 0.3)',
+      cardBg: 'bg-pink-400/10',
     },
     'orange-400': {
       text: 'text-orange-400',
@@ -275,6 +278,7 @@ const getAccentClasses = (color: string) => {
       hoverText: 'hover:text-orange-400',
       hoverBg: 'hover:bg-orange-400/10',
       selectionColor: 'rgba(251, 146, 60, 0.3)',
+      cardBg: 'bg-orange-400/10',
     },
   }
   return classMap[color] || classMap['purple-400']
@@ -317,22 +321,9 @@ const ViewWorkspace = () => {
         {/* Banner */}
         <div className="h-48 bg-linear-to-br from-primary/20 via-primary/10 to-background border-b border-muted-foreground/20" />
 
-        {/* Back Button */}
-        <div className="absolute top-6 left-6">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/workspaces/all')}
-            className="gap-2 bg-background/80 backdrop-blur-sm"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </Button>
-        </div>
-
         {/* Workspace Info Overlay */}
         <div className="relative -mt-20 px-8 pb-8">
-          <Card className="border-muted-foreground/20 shadow-xl">
+          <Card className={cn("border-muted-foreground/20 shadow-xl backdrop-blur-2xl", accent.cardBg)}>
             <CardContent className="p-6">
               <div className="flex flex-col md:flex-row gap-6 items-start">
                 {/* Icon */}
@@ -457,63 +448,6 @@ const ViewWorkspace = () => {
             </CardContent>
           </Card>
         </div>
-
-        {/* Configuration */}
-        <Card className="border-muted-foreground/20">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className={accent.text}>Configuration</CardTitle>
-                <CardDescription>Workspace settings and enabled features</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" className={cn("gap-2", accent.text)}>
-                <Settings className="w-4 h-4" />
-                Configure
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
-                <div className="flex items-center gap-2 mb-2">
-                  <AiModeIcon className={cn("w-5 h-5", accent.text)} />
-                  <span className="font-medium">AI Mode</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{aiModeInfo.description}</p>
-              </div>
-
-              <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <FileText className={cn("w-5 h-5", accent.text)} />
-                    <span className={cn("font-medium", accent.text)}>Research Agents</span>
-                  </div>
-                  {mockWorkspace.enableResearch && (
-                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">Active</span>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {mockWorkspace.enableResearch ? 'Enabled' : 'Disabled'}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className={cn("w-5 h-5", accent.text)} />
-                    <span className="font-medium">Chat Agents</span>
-                  </div>
-                  {mockWorkspace.enableChat && (
-                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">Active</span>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {mockWorkspace.enableChat ? 'Enabled' : 'Disabled'}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Two Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
