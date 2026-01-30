@@ -41,11 +41,11 @@
   --sidebar-border: hsl(220 13% 91%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
 
-  /* Manual Shiki Theme Overrides for Dracula */
-  --shiki-light-bg: #f8f8f2;
-  --shiki-dark-bg: #282a36;
-  --shiki-light: #f8f8f2;
-  --shiki-dark: #f8f8f2;
+  /* Manual Shiki Theme Overrides for GitHub */
+  --shiki-light-bg: #ffffff;
+  --shiki-dark-bg: var(--background);
+  --shiki-light: #24292e;
+  --shiki-dark: #e6edf3;
 }
 
 .dark {
@@ -235,4 +235,79 @@
 
 .dark [data-streamdown="code-block-body"] {
   background-color: var(--shiki-dark-bg) !important;
+}
+
+/* Force Shiki syntax colors in dark mode - override inline styles */
+.dark [data-streamdown="code-block-body"] span[style*="--shiki-dark"] {
+  color: var(--shiki-dark) !important;
+}
+
+/* Streamdown Table Styling */
+[data-streamdown="table"] {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 3px hsl(var(--border));
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+/* Remove inner borders */
+[data-streamdown="table-cell"],
+[data-streamdown="table-header-cell"] {
+  border: none !important;
+}
+
+/* Keep header bottom border */
+[data-streamdown="table-header"] {
+  background-color: var(--accent) !important;
+}
+
+[data-streamdown="table-header"] th {
+  border-bottom: 3px solid hsl(var(--border)) !important;
+}
+
+/* Remove row borders */
+[data-streamdown="table-row"] {
+  border: none !important;
+}
+
+/* Apply background to body rows only */
+[data-streamdown="table-body"] [data-streamdown="table-row"] {
+  background-color: var(--background) !important;
+}
+
+/* Remove body dividers */
+[data-streamdown="table-body"] {
+  border: none !important;
+}
+
+[data-streamdown="table-header"] th:first-child {
+  border-top-left-radius: 12px;
+}
+
+[data-streamdown="table-header"] th:last-child {
+  border-top-right-radius: 12px;
+}
+
+[data-streamdown="table-body"] tr:last-child td:first-child {
+  border-bottom-left-radius: 12px;
+}
+
+[data-streamdown="table-body"] tr:last-child td:last-child {
+  border-bottom-right-radius: 12px;
+}
+
+[data-streamdown="table-row"]:hover {
+  background-color: hsl(var(--muted) / 0.6);
+  transition: background-color 150ms ease;
+}
+
+/* Fix LaTeX math rendering - hide MathML fallback */
+.katex .katex-mathml {
+  display: none !important;
+}
+
+/* Hide any fallback text that might appear after math */
+.katex-display+p:first-of-type {
+  display: none;
 }
