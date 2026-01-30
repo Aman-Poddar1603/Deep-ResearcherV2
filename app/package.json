@@ -33,6 +33,7 @@
 		"@streamdown/mermaid": "^1.0.1",
 		"@tailwindcss/typography": "^0.5.19",
 		"@tailwindcss/vite": "^4.1.18",
+		"ai": "^6.0.62",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"dotenv": "^17.2.3",
