@@ -1,12 +1,5 @@
 @import "../electron/themes/default/index.css";
-@import "../electron/themes/amethyst/index.css";
-@import "../electron/themes/bubblegum/index.css";
-@import "../electron/themes/caffeine/index.css";
-@import "../electron/themes/calude/index.css";
-@import "../electron/themes/clay/index.css";
-@import "../electron/themes/darkmatter/index.css";
-@import "../electron/themes/eleluxary/index.css";
-@import "../electron/themes/solardusk/index.css";
-@import "../electron/themes/supabase/index.css";
-@import "../electron/themes/t3chat/index.css";
-@import "../electron/themes/voiletbloom/index.css";
+@import "../electron/themes/coffee/index.css";
+@import "../electron/themes/fresh/index.css";
+@import "../electron/themes/nerd/index.css";
+@import "../electron/themes/smooth/index.css";

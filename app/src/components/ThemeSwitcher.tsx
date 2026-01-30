@@ -10,6 +10,14 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+const themeNames: Record<string, string> = {
+    default: "Default",
+    coffee: "Coffee",
+    fresh: "Fresh",
+    nerd: "Nerd",
+    smooth: "Smooth",
+}
+
 export function ThemeSwitcher() {
     const { theme, setTheme, isDark, setIsDark, availableThemes } = useTheme()
 
@@ -29,9 +37,9 @@ export function ThemeSwitcher() {
                         <DropdownMenuItem
                             key={t}
                             onClick={() => setTheme(t)}
-                            className="flex items-center justify-between capitalize"
+                            className="flex items-center justify-between"
                         >
-                            {t}
+                            {themeNames[t] || t}
                             {theme === t && <Check className="h-4 w-4" />}
                         </DropdownMenuItem>
                     ))}

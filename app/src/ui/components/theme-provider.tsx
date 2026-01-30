@@ -14,22 +14,16 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const availableThemes = [
     "default",
-    "amethyst",
-    "bubblegum",
-    "caffeine",
-    "calude",
-    "clay",
-    "darkmatter",
-    "eleluxary",
-    "solardusk",
-    "supabase",
-    "t3chat",
-    "voiletbloom",
+    "coffee",
+    "fresh",
+    "nerd",
+    "smooth",
 ];
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const [theme, setTheme] = useState<Theme>(() => {
-        return localStorage.getItem("ui-theme") || "default";
+        const stored = localStorage.getItem("ui-theme");
+        return stored && availableThemes.includes(stored) ? stored : "default";
     });
     const [isDark, setIsDark] = useState<boolean>(() => {
         return localStorage.getItem("ui-dark-mode") === "true";
@@ -39,8 +33,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         const root = window.document.documentElement;
 
         // Remove all previous theme classes
-        availableThemes.forEach((t) => {
-            root.classList.remove(`theme-${t}`);
+        const classes = Array.from(root.classList);
+        classes.forEach((c) => {
+            if (c.startsWith("theme-")) {
+                root.classList.remove(c);
+            }
         });
 
         // Add current theme class
