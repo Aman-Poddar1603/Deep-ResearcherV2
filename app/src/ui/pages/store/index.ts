@@ -3,3 +3,4 @@ export { default as BucketItems } from "@/ui/pages/store/BucketItems";
 export { default as Databases } from "@/ui/pages/store/Databases";
 export { default as DataVisualizer } from "@/ui/pages/store/DataVisualizer";
 export { default as Tables } from "@/ui/pages/store/Tables";
+export { default as Search } from "@/ui/pages/store/Search";

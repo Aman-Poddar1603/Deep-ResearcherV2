@@ -173,7 +173,7 @@ const AllWorkspaces = () => {
 
         {/* Existing Workspaces */}
         {mockWorkspaces.map((workspace) => (
-          <Card key={workspace.id} className="min-h-[300px] flex flex-col shadow-lg hover:shadow-2xl transition-shadow cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0">
+          <Card key={workspace.id} className="min-h-[300px] flex flex-col shadow-lg hover:shadow-2xl transition-shadow cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0" onClick={() => navigate(`/workspaces/view/${workspace.id}`)}>
             <CardHeader className="pt-6 pb-2 px-6">
               <div className="flex justify-between items-start gap-4">
                 <div className={`p-2 rounded-lg bg-secondary/30 ${workspace.color}`}>

@@ -10,7 +10,7 @@ export function Layout() {
         <GlobalLayout contentClassName={isHome ? "hide-scrollbar-entrance" : ""}>
             <div className="flex flex-col h-full relative">
                 {/* Scrollable Content Area */}
-                <div className="flex-1 overflow-y-auto p-8 no-scrollbar">
+                <div className="flex-1 overflow-y-auto no-scrollbar">
                     <Outlet />
                 </div>
 

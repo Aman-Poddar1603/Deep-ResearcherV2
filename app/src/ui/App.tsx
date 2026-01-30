@@ -5,10 +5,10 @@ import "./App.css"
 import { Home } from "@/ui/pages/Home"
 
 // Workspaces
-import { CreateWorkspace, AllWorkspaces, EditWorkspace, ViewWorkspace } from "@/ui/pages/workspaces"
+import { CreateEditWorkspace, AllWorkspaces, ViewWorkspace } from "@/ui/pages/workspaces"
 
 // Data / Store
-import { Databases, Tables, DataVisualizer, Bucket, BucketItems } from "@/ui/pages/store"
+import { Databases, Tables, DataVisualizer, Bucket, BucketItems, Search } from "@/ui/pages/store"
 
 // History
 import { History } from "@/ui/pages/history"
@@ -31,9 +31,9 @@ function App() {
                     <Route index element={<Home />} />
 
                     {/* Workspaces Routes */}
-                    <Route path="/workspaces/new" element={<CreateWorkspace />} />
+                    <Route path="/workspaces/new" element={<CreateEditWorkspace />} />
                     <Route path="/workspaces/all" element={<AllWorkspaces />} />
-                    <Route path="/workspaces/edit/:id" element={<EditWorkspace />} />
+                    <Route path="/workspaces/edit/:id" element={<CreateEditWorkspace />} />
                     <Route path="/workspaces/view/:id" element={<ViewWorkspace />} />
 
                     {/* Research Routes - TODO: Create these pages */}
@@ -45,6 +45,7 @@ function App() {
                     <Route path="/chat/all" element={<Chats />} />
 
                     {/* Data / Store Routes */}
+                    <Route path="/search" element={<Search />} />
                     <Route path="/data/databases" element={<Databases />} />
                     <Route path="/data/databases/:id/tables" element={<Tables />} />
                     <Route path="/data/databases/:id/visualizer" element={<DataVisualizer />} />

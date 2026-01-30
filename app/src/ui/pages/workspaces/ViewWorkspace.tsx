@@ -1,8 +1,765 @@
-import React from 'react'
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import {
+  ArrowLeft,
+  Settings,
+  FileText,
+  MessageSquare,
+  Files,
+  Calendar,
+  Clock,
+  TrendingUp,
+  Sparkles,
+  Cpu,
+  Globe,
+  Bot,
+  Download,
+  Trash2,
+  Edit,
+  Eye,
+  ChevronRight,
+  Link,
+  FileCode,
+  FileImage,
+  FileVideo,
+  FileAudio,
+  FileSpreadsheet,
+} from 'lucide-react'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { fetchLinkMetadata, type LinkMetadata } from '@/lib/utils'
+
+// Mock workspace data
+const mockWorkspace = {
+  id: '1',
+  name: 'Market Analysis 2024',
+  description: 'Deep dive into emerging tech markets and competitor landscape analysis.',
+  icon: TrendingUp,
+  color: 'text-blue-400',
+  bannerImage: null,
+  aiMode: 'auto',
+  enableResearch: true,
+  enableChat: true,
+  researchCount: 5,
+  chatCount: 12,
+  fileCount: 8,
+  createdAt: 'Jan 15, 2024',
+  lastUpdated: '2 mins ago',
+  stats: {
+    totalQueries: 127,
+    totalTokens: 45234,
+    avgResponseTime: '1.2s',
+  },
+}
+
+// Mock recent researches
+const mockRecentResearches = [
+  {
+    id: '1',
+    title: 'AI Market Trends Q1 2024',
+    status: 'completed',
+    date: '2 days ago',
+    summary: 'Comprehensive analysis of AI market trends in the first quarter.',
+  },
+  {
+    id: '2',
+    title: 'Competitor Product Analysis',
+    status: 'in-progress',
+    date: '5 hours ago',
+    summary: 'Detailed breakdown of competitor product features and pricing.',
+  },
+  {
+    id: '3',
+    title: 'Customer Sentiment Study',
+    status: 'completed',
+    date: '1 week ago',
+    summary: 'Analysis of customer feedback from social media and reviews.',
+  },
+]
+
+// Mock recent chats
+const mockRecentChats = [
+  {
+    id: '1',
+    title: 'Market sizing discussion',
+    lastMessage: 'Can you help me understand the TAM calculations?',
+    date: '1 hour ago',
+    messageCount: 23,
+  },
+  {
+    id: '2',
+    title: 'Competitor pricing strategy',
+    lastMessage: 'What are the pricing tiers for the main competitors?',
+    date: '3 hours ago',
+    messageCount: 15,
+  },
+  {
+    id: '3',
+    title: 'Feature comparison analysis',
+    lastMessage: 'Let\'s compare the key features across top 5 players.',
+    date: 'Yesterday',
+    messageCount: 42,
+  },
+]
+
+// Mock files/resources
+const mockFiles = [
+  {
+    id: '1',
+    name: 'Market_Research_Report_Q1.pdf',
+    type: 'PDF',
+    size: '2.4 MB',
+    uploadedAt: 'Jan 20, 2024',
+  },
+  {
+    id: '2',
+    name: 'Competitor_Analysis.xlsx',
+    type: 'Excel',
+    size: '1.1 MB',
+    uploadedAt: 'Jan 18, 2024',
+  },
+  {
+    id: '3',
+    name: 'Customer_Feedback_Summary.docx',
+    type: 'Word',
+    size: '856 KB',
+    uploadedAt: 'Jan 15, 2024',
+  },
+  {
+    id: '4',
+    name: 'Industry_Trends_2024.pdf',
+    type: 'PDF',
+    size: '3.2 MB',
+    uploadedAt: 'Jan 15, 2024',
+  },
+]
+
+// Mock references (links)
+const mockReferences = [
+  {
+    id: '1',
+    url: 'https://ui.shadcn.com',
+    addedAt: 'Jan 22, 2024',
+  },
+  {
+    id: '2',
+    url: 'https://nextjs.org',
+    addedAt: 'Jan 20, 2024',
+  },
+  {
+    id: '3',
+    url: 'https://vercel.com',
+    addedAt: 'Jan 18, 2024',
+  },
+  {
+    id: '4',
+    url: 'https://gemini.google.com',
+    addedAt: 'Jan 16, 2024',
+  },
+  {
+    id: '5',
+    url: 'https://www.youtube.com/watch?time_continue=108&v=mFkw3p5qSuA&embeds_referring_euri=https%3A%2F%2Fwww.google.com%2F&source_ve_path=MTM5MTE3LDI4NjYzLDEzOTExNywyODY2MywxMzc3MjEsMjg2NjY',
+    addedAt: 'Jan 15, 2024',
+  },
+]
+
+// Mock generated blobs (AI-generated/exported files)
+const mockGeneratedBlobs = [
+  {
+    id: '1',
+    name: 'Research_Summary_2024.pdf',
+    type: 'Document',
+    fileType: 'PDF',
+    size: '2.4 MB',
+    generatedAt: '2 hours ago',
+    generatedBy: 'AI (GPT-4)',
+    preview: 'https://via.placeholder.com/400x300/3b82f6/ffffff?text=PDF+Document',
+  },
+  {
+    id: '2',
+    name: 'Market_Analysis_Chart.png',
+    type: 'Image',
+    fileType: 'PNG',
+    size: '1.2 MB',
+    generatedAt: '1 day ago',
+    generatedBy: 'AI (DALL-E)',
+    preview: 'https://via.placeholder.com/400x300/8b5cf6/ffffff?text=Market+Chart',
+  },
+  {
+    id: '3',
+    name: 'Interview_Recording.mp3',
+    type: 'Audio',
+    fileType: 'MP3',
+    size: '8.7 MB',
+    generatedAt: '3 days ago',
+    generatedBy: 'User Export',
+    preview: '', // No preview for audio
+  },
+  {
+    id: '4',
+    name: 'Product_Demo.mp4',
+    type: 'Video',
+    fileType: 'MP4',
+    size: '45.3 MB',
+    generatedAt: '5 days ago',
+    generatedBy: 'AI (Runway)',
+    preview: 'https://via.placeholder.com/400x300/10b981/ffffff?text=Video+Preview',
+  },
+  {
+    id: '5',
+    name: 'Data_Export.xlsx',
+    type: 'Spreadsheet',
+    fileType: 'XLSX',
+    size: '512 KB',
+    generatedAt: '1 week ago',
+    generatedBy: 'User Export',
+    preview: 'https://via.placeholder.com/400x300/f59e0b/ffffff?text=Excel+File',
+  },
+]
+
+const AI_MODE_INFO = {
+  auto: { icon: Sparkles, label: 'Auto', description: 'Intelligent model switching' },
+  offline: { icon: Cpu, label: 'Offline', description: 'Local models only' },
+  online: { icon: Globe, label: 'Online', description: 'Cloud-based models' },
+}
 
 const ViewWorkspace = () => {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const WorkspaceIcon = mockWorkspace.icon
+  const aiModeInfo = AI_MODE_INFO[mockWorkspace.aiMode as keyof typeof AI_MODE_INFO]
+  const AiModeIcon = aiModeInfo.icon
+
   return (
-    <div>ViewWorkspace</div>
+    <div className="h-full overflow-y-auto animate-in fade-in duration-500">
+      {/* Header with Banner */}
+      <div className="relative">
+        {/* Banner */}
+        <div className="h-48 bg-linear-to-br from-primary/20 via-primary/10 to-background border-b border-muted-foreground/20" />
+
+        {/* Back Button */}
+        <div className="absolute top-6 left-6">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/workspaces/all')}
+            className="gap-2 bg-background/80 backdrop-blur-sm"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </Button>
+        </div>
+
+        {/* Workspace Info Overlay */}
+        <div className="relative -mt-20 px-8 pb-8">
+          <Card className="border-muted-foreground/20 shadow-xl">
+            <CardContent className="p-6">
+              <div className="flex flex-col md:flex-row gap-6 items-start">
+                {/* Icon */}
+                <div className={`p-6 rounded-2xl bg-secondary/30 ${mockWorkspace.color} border border-muted-foreground/10 shadow-lg`}>
+                  <WorkspaceIcon className="w-12 h-12" />
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight">{mockWorkspace.name}</h1>
+                    <p className="text-muted-foreground text-lg mt-1">{mockWorkspace.description}</p>
+                  </div>
+
+                  {/* Meta Info */}
+                  <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Created {mockWorkspace.createdAt}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      Updated {mockWorkspace.lastUpdated}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <AiModeIcon className="w-4 h-4" />
+                      {aiModeInfo.label} Mode
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate(`/workspaces/edit/${id}`)}
+                    className="gap-2"
+                  >
+                    <Edit className="w-4 h-4" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="px-8 pb-8 space-y-6">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="border-muted-foreground/20">
+            <CardHeader className="pb-3">
+              <CardDescription className="flex items-center gap-2 text-xs">
+                <FileText className="w-4 h-4" />
+                Researches
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{mockWorkspace.researchCount}</div>
+              <p className="text-xs text-muted-foreground mt-1">Active projects</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted-foreground/20">
+            <CardHeader className="pb-3">
+              <CardDescription className="flex items-center gap-2 text-xs">
+                <MessageSquare className="w-4 h-4" />
+                Chats
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{mockWorkspace.chatCount}</div>
+              <p className="text-xs text-muted-foreground mt-1">Conversations</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted-foreground/20">
+            <CardHeader className="pb-3">
+              <CardDescription className="flex items-center gap-2 text-xs">
+                <Files className="w-4 h-4" />
+                Files
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{mockWorkspace.fileCount}</div>
+              <p className="text-xs text-muted-foreground mt-1">Resources</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-muted-foreground/20">
+            <CardHeader className="pb-3">
+              <CardDescription className="flex items-center gap-2 text-xs">
+                <Bot className="w-4 h-4" />
+                AI Queries
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{mockWorkspace.stats.totalQueries}</div>
+              <p className="text-xs text-muted-foreground mt-1">Total queries</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Configuration */}
+        <Card className="border-muted-foreground/20">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Configuration</CardTitle>
+                <CardDescription>Workspace settings and enabled features</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <Settings className="w-4 h-4" />
+                Configure
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <AiModeIcon className="w-5 h-5 text-primary" />
+                  <span className="font-medium">AI Mode</span>
+                </div>
+                <p className="text-sm text-muted-foreground">{aiModeInfo.description}</p>
+              </div>
+
+              <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-primary" />
+                    <span className="font-medium">Research Agents</span>
+                  </div>
+                  {mockWorkspace.enableResearch && (
+                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">Active</span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {mockWorkspace.enableResearch ? 'Enabled' : 'Disabled'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-lg bg-muted/20 border border-muted-foreground/10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-5 h-5 text-primary" />
+                    <span className="font-medium">Chat Agents</span>
+                  </div>
+                  {mockWorkspace.enableChat && (
+                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full">Active</span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {mockWorkspace.enableChat ? 'Enabled' : 'Disabled'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Recent Researches */}
+          <Card className="border-muted-foreground/20">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Recent Researches</CardTitle>
+                  <CardDescription>Latest research activities</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                  View All
+                  <ChevronRight className="w-3 h-3" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {mockRecentResearches.map((research) => (
+                <div
+                  key={research.id}
+                  className="p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <h4 className="font-medium text-sm">{research.title}</h4>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${research.status === 'completed'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-yellow-500/20 text-yellow-400'
+                        }`}
+                    >
+                      {research.status === 'completed' ? 'Done' : 'In Progress'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{research.summary}</p>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <Clock className="w-3 h-3" />
+                    {research.date}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Recent Chats */}
+          <Card className="border-muted-foreground/20">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Recent Chats</CardTitle>
+                  <CardDescription>Latest conversations</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                  View All
+                  <ChevronRight className="w-3 h-3" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {mockRecentChats.map((chat) => (
+                <div
+                  key={chat.id}
+                  className="p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <h4 className="font-medium text-sm">{chat.title}</h4>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {chat.messageCount} msgs
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-1 italic">
+                    "{chat.lastMessage}"
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <Clock className="w-3 h-3" />
+                    {chat.date}
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Files/Resources */}
+        <Card className="border-muted-foreground/20">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Resources</CardTitle>
+                <CardDescription>Files and documents in this workspace</CardDescription>
+              </div>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Download className="w-4 h-4" />
+                Download All
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {mockFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-md bg-primary/10">
+                      <FileText className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-sm">{file.name}</h4>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                        <span>{file.type}</span>
+                        <span>•</span>
+                        <span>{file.size}</span>
+                        <span>•</span>
+                        <span>Uploaded {file.uploadedAt}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <Eye className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <Download className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Two Column Layout - References and Generated Blobs */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* References (Links) */}
+          <Card className="border-muted-foreground/20">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>References</CardTitle>
+                  <CardDescription>External links and resources</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Link className="w-4 h-4" />
+                  Add Link
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {mockReferences.map((reference) => {
+                const ReferenceCard = () => {
+                  const [isOpen, setIsOpen] = useState(false)
+                  const [metadata, setMetadata] = useState<LinkMetadata | null>(null)
+                  const [loading, setLoading] = useState(false)
+                  let hoverTimeout: number
+
+                  const handleMouseEnter = () => {
+                    clearTimeout(hoverTimeout)
+                    setIsOpen(true)
+                  }
+
+                  const handleMouseLeave = () => {
+                    hoverTimeout = setTimeout(() => {
+                      setIsOpen(false)
+                    }, 200)
+                  }
+                  // Fetch metadata when popover opens
+                  useEffect(() => {
+                    if (isOpen && !metadata && !loading) {
+                      setLoading(true)
+
+                      fetchLinkMetadata(reference.url)
+                        .then((data: LinkMetadata) => {
+                          console.log(data)
+                          setMetadata(data)
+                          setLoading(false)
+                        })
+                        .catch((err: Error) => {
+                          console.error('Failed to fetch metadata:', err)
+                          setMetadata({ title: reference.url, description: '', ogImage: '' })
+                          setLoading(false)
+                        })
+                    }
+                  }, [isOpen, metadata, loading])
+
+                  return (
+                    <Popover open={isOpen} onOpenChange={setIsOpen}>
+                      <PopoverTrigger asChild>
+                        <a
+                          href={reference.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-start gap-3 p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 hover:border-primary/30 transition-colors group"
+                          onMouseEnter={handleMouseEnter}
+                          onMouseLeave={handleMouseLeave}
+                        >
+                          <div className="p-2 rounded-md bg-primary/10 shrink-0">
+                            <Link className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-sm line-clamp-1 group-hover:text-primary transition-colors">
+                              {metadata?.title || reference.url}
+                            </h4>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                              {new URL(reference.url).hostname}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                              <Clock className="w-3 h-3" />
+                              Added {reference.addedAt}
+                            </div>
+                          </div>
+                        </a>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        side="right"
+                        className="max-w-md p-0 overflow-hidden"
+                        onMouseEnter={handleMouseEnter}
+                        onMouseLeave={handleMouseLeave}
+                      >
+                        {loading ? (
+                          <div className="p-6 flex items-center justify-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {metadata?.ogImage && (
+                              <img
+                                src={metadata.ogImage}
+                                alt={metadata.title}
+                                className="w-full h-32 object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none'
+                                }}
+                              />
+                            )}
+                            <div className="p-3 space-y-2">
+                              <h4 className="font-semibold text-sm">{metadata?.title || 'No title'}</h4>
+                              {metadata?.description && (
+                                <p className="text-xs text-muted-foreground line-clamp-6">
+                                  {metadata.description.slice(0, 400)}
+                                  {metadata.description.length > 400 ? '...' : ''}
+                                </p>
+                              )}
+                              <p className="text-xs text-primary font-medium">{new URL(reference.url).hostname}</p>
+                            </div>
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  )
+                }
+
+                return <ReferenceCard key={reference.id} />
+              })}
+            </CardContent>
+          </Card>
+
+          {/* Generated Blobs */}
+          <Card className="border-muted-foreground/20">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Generated Content</CardTitle>
+                  <CardDescription>AI-generated and exported files</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                  View All
+                  <ChevronRight className="w-3 h-3" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {mockGeneratedBlobs.map((blob) => {
+                  // Determine icon based on file type
+                  const getFileIcon = () => {
+                    switch (blob.type) {
+                      case 'Image':
+                        return <FileImage className="w-5 h-5 text-purple-500" />
+                      case 'Video':
+                        return <FileVideo className="w-5 h-5 text-green-500" />
+                      case 'Audio':
+                        return <FileAudio className="w-5 h-5 text-orange-500" />
+                      case 'Document':
+                        return <FileText className="w-5 h-5 text-blue-500" />
+                      case 'Spreadsheet':
+                        return <FileSpreadsheet className="w-5 h-5 text-emerald-500" />
+                      default:
+                        return <FileCode className="w-5 h-5 text-primary" />
+                    }
+                  }
+
+                  return (
+                    <div
+                      key={blob.id}
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-md bg-primary/10">
+                          {getFileIcon()}
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-sm">{blob.name}</h4>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                            <span>{blob.fileType}</span>
+                            <span>•</span>
+                            <span>{blob.size}</span>
+                            <span>•</span>
+                            <span>{blob.generatedBy}</span>
+                            <span>•</span>
+                            <span>{blob.generatedAt}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <Download className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
   )
 }
 

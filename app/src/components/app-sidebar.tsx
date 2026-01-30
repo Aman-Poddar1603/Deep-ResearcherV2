@@ -7,6 +7,7 @@ import {
     Settings,
     History,
     ChevronDown,
+    Search,
 } from "lucide-react"
 
 import {
@@ -92,6 +93,11 @@ const data = {
                     url: "/data/bucket",
                 },
             ],
+        },
+        {
+            title: "Search",
+            url: "/search",
+            icon: Search,
         },
         {
             title: "History",
