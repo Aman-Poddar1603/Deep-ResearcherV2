@@ -312,6 +312,7 @@ export const MessageResponse = memo(
         className
       )}
       plugins={{ code, mermaid, math, cjk }}
+      shikiTheme={['github-dark', 'github-light']}
       {...props}
     />
   ),

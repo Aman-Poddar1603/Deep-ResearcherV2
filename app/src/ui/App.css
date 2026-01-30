@@ -40,6 +40,12 @@
   --sidebar-accent-foreground: hsl(240 5.9% 10%);
   --sidebar-border: hsl(220 13% 91%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
+
+  /* Manual Shiki Theme Overrides for Dracula */
+  --shiki-light-bg: #f8f8f2;
+  --shiki-dark-bg: #282a36;
+  --shiki-light: #f8f8f2;
+  --shiki-dark: #f8f8f2;
 }
 
 .dark {
@@ -220,4 +226,13 @@
   to {
     overflow: auto;
   }
+}
+
+/* Force Shiki Background */
+[data-streamdown="code-block-body"] {
+  background-color: var(--shiki-light-bg) !important;
+}
+
+.dark [data-streamdown="code-block-body"] {
+  background-color: var(--shiki-dark-bg) !important;
 }
