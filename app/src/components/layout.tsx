@@ -39,7 +39,7 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
             <SidebarProvider defaultOpen={true}>
                 <div className="flex flex-1 overflow-hidden relative">
                     <AppSidebar />
-                    <SidebarInset className="flex flex-col p-4">
+                    <SidebarInset className="flex flex-col p-4 pt-14">
                         <header className="flex items-center gap-2 px-4 mb-2">
                             <SidebarTrigger />
 

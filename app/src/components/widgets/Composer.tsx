@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Plus, Paperclip, Palette, ChevronDown, Mic, ArrowUp } from 'lucide-react'
+import { Plus, Paperclip, Palette, ChevronDown, Mic, ArrowUp, Square } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import {
     DropdownMenu,
@@ -10,11 +10,31 @@ import {
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/ui/components/theme-provider"
 
-const Composer = () => {
-    const [message, setMessage] = useState('')
+interface ComposerProps {
+    value?: string
+    onChange?: (value: string) => void
+    onSend?: (value: string) => void
+    onStop?: () => void
+    isLoading?: boolean
+    placeholder?: string
+}
+
+const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: ComposerProps) => {
+    const [internalMessage, setInternalMessage] = useState('')
     const [isFocused, setIsFocused] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const { theme, setTheme, availableThemes } = useTheme()
+
+    const isControlled = value !== undefined
+    const message = isControlled ? value : internalMessage
+
+    const handleChange = (newValue: string) => {
+        if (isControlled) {
+            onChange?.(newValue)
+        } else {
+            setInternalMessage(newValue)
+        }
+    }
 
     // Auto-resize textarea logic
     useEffect(() => {
@@ -24,11 +44,50 @@ const Composer = () => {
         }
     }, [message])
 
+    // Global keyboard shortcuts
+    useEffect(() => {
+        const handleGlobalKeyDown = (e: KeyboardEvent) => {
+            // Check for "/" key
+            // Don't trigger if user is already typing in an input, textarea, or contentEditable element
+            const target = e.target as HTMLElement
+            const isTyping = target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable
+
+            if (e.key === '/' && !isTyping) {
+                e.preventDefault()
+                textareaRef.current?.focus()
+            }
+
+            // Check for Ctrl+K or Cmd+K
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault()
+                textareaRef.current?.focus()
+            }
+        }
+
+        window.addEventListener('keydown', handleGlobalKeyDown)
+        return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+    }, [])
+
+    const handleSend = () => {
+        if (!message.trim() || isLoading) return
+
+        if (onSend) {
+            onSend(message)
+        } else {
+            console.log('Sending message:', message)
+        }
+
+        if (!isControlled) {
+            setInternalMessage('')
+        }
+    }
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            console.log('Sending message:', message)
-            setMessage('')
+            handleSend()
         }
 
         if (e.key === 'Escape') {
@@ -53,13 +112,14 @@ const Composer = () => {
                         <textarea
                             ref={textareaRef}
                             value={message}
-                            onChange={(e) => setMessage(e.target.value)}
+                            onChange={(e) => handleChange(e.target.value)}
                             onKeyDown={handleKeyDown}
                             onFocus={() => setIsFocused(true)}
                             onBlur={() => setIsFocused(false)}
-                            placeholder="Ask Deep Researcher..."
+                            placeholder={placeholder || "Ask Deep Researcher..."}
                             rows={1}
                             className="w-full bg-transparent border-none resize-none outline-none text-lg leading-relaxed text-foreground placeholder:text-muted-foreground min-h-[44px] max-h-[350px] py-0 px-0"
+                            disabled={isLoading}
                         />
                     </div>
 
@@ -131,15 +191,20 @@ const Composer = () => {
 
                             <Button
                                 size="icon"
+                                onClick={isLoading && onStop ? onStop : handleSend}
                                 className={cn(
                                     "h-8 w-8 rounded-full ml-1 transition-all duration-500",
-                                    message.trim()
+                                    (message.trim() && !isLoading) || (isLoading && onStop)
                                         ? "bg-primary text-primary-foreground hover:opacity-90 shadow-lg scale-100"
                                         : "bg-muted text-muted-foreground cursor-not-allowed scale-95 opacity-50"
                                 )}
-                                disabled={!message.trim()}
+                                disabled={(!message.trim() && !isLoading) || (isLoading && !onStop)}
                             >
-                                <ArrowUp className="h-4.5 w-4.5" />
+                                {isLoading && onStop ? (
+                                    <Square className="h-3.5 w-3.5 fill-current" />
+                                ) : (
+                                    <ArrowUp className="h-4.5 w-4.5" />
+                                )}
                             </Button>
                         </div>
                     </div>

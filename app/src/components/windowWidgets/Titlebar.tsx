@@ -34,7 +34,7 @@ const Titlebar = () => {
 
     return (
         <div
-            className='w-full h-10 bg-background/80 backdrop-blur-md flex items-center justify-between px-4 select-none z-50'
+            className='fixed top-0 left-0 right-0 w-full h-10 bg-background/80 backdrop-blur-md flex items-center justify-between px-4 select-none z-50'
             style={{ WebkitAppRegion: 'drag' } as DraggableStyle}
         >
             <div className='flex items-center gap-2'>
