@@ -1,7 +1,7 @@
-import React from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Plus, FileText, MessageSquare, Files, Clock, Calendar, Briefcase, TrendingUp, Users, LucideIcon } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 // Mock Data Type
 interface Workspace {
@@ -54,11 +54,108 @@ const mockWorkspaces: Workspace[] = [
     icon: Briefcase,
     color: 'text-green-400',
   },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
+  {
+    id: '2',
+    title: 'Competitor Tracking',
+    description: 'Ongoing tracking of main competitors in the SaaS space.',
+    researchCount: 3,
+    chatCount: 8,
+    fileCount: 15,
+    createdAt: 'Dec 10, 2023',
+    lastUpdated: '1 hour ago',
+    icon: Users,
+    color: 'text-purple-400',
+  },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
+  {
+    id: '3',
+    title: 'User Feedback Loop',
+    description: 'Analyzing user feedback from Q4 surveys.',
+    researchCount: 8,
+    chatCount: 24,
+    fileCount: 42,
+    createdAt: 'Nov 20, 2023',
+    lastUpdated: '2 days ago',
+    icon: Briefcase,
+    color: 'text-green-400',
+  },
 ]
 
 const AllWorkspaces = () => {
+  const navigate = useNavigate();
   return (
-    <div className="p-8 space-y-8 h-full bg-background text-foreground animate-in fade-in duration-500 overflow-y-auto">
+    <div className="p-8 space-y-8 h-full text-foreground animate-in fade-in duration-500 overflow-y-auto">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight">Your Workspaces</h1>
         <p className="text-muted-foreground">Manage and organize your research projects.</p>
@@ -66,7 +163,7 @@ const AllWorkspaces = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10">
         {/* Create Workspace Card */}
-        <Card className="flex flex-col items-center justify-center min-h-[300px] border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0">
+        <Card className="flex flex-col items-center justify-center min-h-[300px] border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0" onClick={() => { navigate("/workspaces/new") }}>
           <div className="rounded-full bg-background p-4 mb-4 group-hover:scale-110 transition-transform shadow-sm border">
             <Plus className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
           </div>
@@ -76,7 +173,7 @@ const AllWorkspaces = () => {
 
         {/* Existing Workspaces */}
         {mockWorkspaces.map((workspace) => (
-          <Card key={workspace.id} className="min-h-[300px] flex flex-col hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0">
+          <Card key={workspace.id} className="min-h-[300px] flex flex-col shadow-lg hover:shadow-2xl transition-shadow cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0">
             <CardHeader className="pt-6 pb-2 px-6">
               <div className="flex justify-between items-start gap-4">
                 <div className={`p-2 rounded-lg bg-secondary/30 ${workspace.color}`}>

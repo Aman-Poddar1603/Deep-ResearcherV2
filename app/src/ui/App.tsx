@@ -15,6 +15,7 @@ import { History } from "@/ui/pages/history"
 
 // Settings
 import { Settings } from "@/ui/pages/settings"
+import NotFound from "@/ui/pages/settings/NotFound"
 
 // Research Pages
 import { AllResearches, NewResearch } from "@/ui/pages/Research"
@@ -55,6 +56,9 @@ function App() {
 
                     {/* Settings Route */}
                     <Route path="/settings" element={<Settings />} />
+
+                    {/* 404 Route */}
+                    <Route path="*" element={<NotFound />} />
                 </Route>
             </Routes>
         </HashRouter>

@@ -127,18 +127,52 @@
 
 /* Marker for clean state */
 
-/* Ensure textarea scrollbar is hidden or clean */
-textarea::-webkit-scrollbar {
-  width: 4px;
+/* Global Scrollbar Styles - Theme-adaptive and minimal */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground), transparent 80%) transparent;
 }
 
-textarea::-webkit-scrollbar-track {
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-textarea::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground), transparent 80%);
   border-radius: 10px;
+}
+
+/* Container hover - make thumb more visible */
+*:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground), transparent 60%);
+}
+
+/* Direct thumb hover - highlight effect */
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground), transparent 30%) !important;
+}
+
+/* Remove all scrollbar buttons and corners */
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:start,
+*::-webkit-scrollbar-button:end,
+*::-webkit-scrollbar-button:vertical:start:increment,
+*::-webkit-scrollbar-button:vertical:start:decrement,
+*::-webkit-scrollbar-button:vertical:end:increment,
+*::-webkit-scrollbar-button:vertical:end:decrement,
+*::-webkit-scrollbar-button:horizontal:start:increment,
+*::-webkit-scrollbar-button:horizontal:start:decrement,
+*::-webkit-scrollbar-button:horizontal:end:increment,
+*::-webkit-scrollbar-button:horizontal:end:decrement,
+*::-webkit-scrollbar-corner {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .no-scrollbar::-webkit-scrollbar {
