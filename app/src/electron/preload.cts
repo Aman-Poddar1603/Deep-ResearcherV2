@@ -5,6 +5,10 @@ electron.contextBridge.exposeInMainWorld("electron", {
         ipcOn("statistics", stats => {
             callback(stats);
         }),
+    subscribeWindowResize: (callback) =>
+        ipcOn("resizeWindow", isMaximized => {
+            callback(isMaximized);
+        }),
     getStaticData: () => ipcInvoke("getStaticData"),
     closeWindow: () => ipcSend("closeWindow"),
     minimizeWindow: () => ipcSend("minimizeWindow"),

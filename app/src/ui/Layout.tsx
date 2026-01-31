@@ -6,16 +6,17 @@ import { cn } from "@/lib/utils";
 export function Layout() {
     const location = useLocation();
     const isHome = location.pathname === '/';
+    const isChat = location.pathname === '/chat/:id';
 
     return (
         <GlobalLayout contentClassName={cn(
-            isHome ? "hide-scrollbar-entrance" : "overflow-hidden"
+            isHome || isChat ? "hide-scrollbar-entrance" : "overflow-hidden"
         )}>
             <div className="flex flex-col h-full relative">
                 {/* Scrollable Content Area */}
                 <div className={cn(
                     "flex-1 min-h-0",
-                    isHome ? "overflow-y-auto no-scrollbar p-8 pt-12 pb-32" : "h-full"
+                    isHome || isChat ? "overflow-y-auto no-scrollbar p-8 pt-12 pb-32" : "h-full"
                 )}>
                     <Outlet />
                 </div>

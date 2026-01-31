@@ -1,13 +1,15 @@
 import React from 'react'
-import { Square, X, Minus } from 'lucide-react'
+import { Square, Copy, X, Minus } from 'lucide-react'
 import { ThemeSwitcher } from '../ThemeSwitcher'
 import { useInternalLogo } from '@/ui/components/GetLogo'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface DraggableStyle extends React.CSSProperties {
     WebkitAppRegion: 'drag' | 'no-drag';
 }
 
 const Titlebar = () => {
+    const [isMaximized, setIsMaximized] = React.useState(true); // Default to true as we force maximize on start
     const internalLogo = useInternalLogo()
     const handleMinimize = () => {
         window.electron.minimizeWindow();
@@ -29,7 +31,15 @@ const Titlebar = () => {
             }
         };
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+
+        const unsubscribe = window.electron.subscribeWindowResize((maximized) => {
+            setIsMaximized(maximized);
+        });
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            unsubscribe();
+        }
     }, []);
 
     return (
@@ -42,30 +52,56 @@ const Titlebar = () => {
                 <h1 className='text-xs font-medium tracking-tight text-muted-foreground uppercase'>Deep Researcher</h1>
             </div>
             <div className='flex items-center gap-1' style={{ WebkitAppRegion: 'no-drag' } as DraggableStyle}>
-                <ThemeSwitcher />
-                <div className='flex items-center -mr-4'>
-                    <button
-                        onClick={handleMinimize}
-                        className='h-10 px-4 hover:bg-muted transition-colors flex items-center justify-center group'
-                        title='Minimize'
-                    >
-                        <Minus className='w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground' />
-                    </button>
-                    <button
-                        onClick={handleMaximize}
-                        className='h-10 px-4 hover:bg-muted transition-colors flex items-center justify-center group'
-                        title='Maximize'
-                    >
-                        <Square className='w-3 h-3 text-muted-foreground group-hover:text-foreground' />
-                    </button>
-                    <button
-                        onClick={handleClose}
-                        className='h-10 px-4 hover:bg-destructive hover:text-destructive-foreground transition-colors flex items-center justify-center group'
-                        title='Close'
-                    >
-                        <X className='w-4 h-4 text-muted-foreground group-hover:text-destructive-foreground' />
-                    </button>
-                </div>
+                <TooltipProvider disableHoverableContent>
+                    <ThemeSwitcher />
+                    <div className='flex items-center -mr-4'>
+                        <Tooltip delayDuration={700}>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={handleMinimize}
+                                    className='h-10 px-4 hover:bg-muted transition-colors flex items-center justify-center group'
+                                >
+                                    <Minus className='w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground' />
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" showArrow={false}>
+                                <p>Minimize</p>
+                            </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip delayDuration={700}>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={handleMaximize}
+                                    className='h-10 px-4 hover:bg-muted transition-colors flex items-center justify-center group'
+                                >
+                                    {isMaximized ? (
+                                        <Copy className='w-3 h-3 text-muted-foreground group-hover:text-foreground rotate-y-180' />
+                                    ) : (
+                                        <Square className='w-3 h-3 text-muted-foreground group-hover:text-foreground' />
+                                    )}
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" showArrow={false}>
+                                <p>{isMaximized ? 'Restore' : 'Maximize'}</p>
+                            </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip delayDuration={700}>
+                            <TooltipTrigger asChild>
+                                <button
+                                    onClick={handleClose}
+                                    className='h-10 px-4 hover:bg-destructive hover:text-destructive-foreground transition-colors flex items-center justify-center group'
+                                >
+                                    <X className='w-4 h-4 text-muted-foreground group-hover:text-destructive-foreground' />
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" showArrow={false}>
+                                <p>Close</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </div>
+                </TooltipProvider>
             </div>
         </div>
     )

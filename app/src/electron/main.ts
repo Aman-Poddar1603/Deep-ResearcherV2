@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron"
-import { ipcMainHandle, isDev } from "./util.js";
+import { ipcMainHandle, isDev, ipcWebContentsSend } from "./util.js";
 import { getPreloadPath, getUIPath, getIconPath } from "./pathResolver.js";
 import { getStaticData, pollResources } from "./test.js";
 import dotenv from "dotenv";
@@ -59,4 +59,7 @@ app.on("ready", () => {
             mainWindow.webContents.reload();
         }
     });
+
+    mainWindow.on('maximize', () => ipcWebContentsSend('resizeWindow', mainWindow.webContents, true));
+    mainWindow.on('unmaximize', () => ipcWebContentsSend('resizeWindow', mainWindow.webContents, false));
 })

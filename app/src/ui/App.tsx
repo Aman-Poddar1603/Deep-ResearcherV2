@@ -41,7 +41,7 @@ function App() {
                     <Route path="/researches/all" element={<AllResearches />} />
 
                     {/* Chat Routes - TODO: Create these pages */}
-                    <Route path="/chat/new" element={<ChatInterface />} />
+                    <Route path="/chat/:id" element={<ChatInterface />} />
                     <Route path="/chat/all" element={<Chats />} />
 
                     {/* Data / Store Routes */}

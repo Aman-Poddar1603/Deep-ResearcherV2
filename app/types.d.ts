@@ -18,12 +18,14 @@ type EventPayloadMapping = {
     closeWindow: void;
     minimizeWindow: void;
     maximizeWindow: void;
+    resizeWindow: boolean;
     toggleDevTools: void;
 }
 
 interface Window {
     electron: {
         subscribeStatistics: (callback: (statistics: Statistics) => void) => UnsubscribeFunction;
+        subscribeWindowResize: (callback: (isMaximized: boolean) => void) => UnsubscribeFunction;
         getStaticData: () => Promise<StaticData>;
         closeWindow: () => void;
         minimizeWindow: () => void;

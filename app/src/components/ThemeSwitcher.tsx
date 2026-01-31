@@ -1,6 +1,7 @@
 import { Moon, Sun, Palette, Check } from "lucide-react"
 import { useTheme } from "@/ui/components/theme-provider"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -24,12 +25,19 @@ export function ThemeSwitcher() {
     return (
         <div className="flex items-center gap-2">
             <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <Palette className="h-4 w-4" />
-                        <span className="sr-only">Switch theme</span>
-                    </Button>
-                </DropdownMenuTrigger>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Palette className="h-4 w-4" />
+                                <span className="sr-only">Switch theme</span>
+                            </Button>
+                        </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" showArrow={false}>
+                        <p>Switch Theme</p>
+                    </TooltipContent>
+                </Tooltip>
                 <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuLabel>Select Theme</DropdownMenuLabel>
                     <DropdownMenuSeparator />
