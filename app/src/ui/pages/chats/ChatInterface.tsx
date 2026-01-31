@@ -107,8 +107,8 @@ Testing the math engine's ability to render complex formulas during a text strea
 $$G_{\\mu\\nu} + \\Lambda g_{\\mu\\nu} = \\kappa T_{\\mu\\nu}$$
 
 **The Maxwell Equations:**
-- $\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}$
-- $\\nabla \\cdot \\mathbf{B} = 0$
+- $$\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}$$
+- $$\\nabla \\cdot \\mathbf{B} = 0$$
 
 ---
 
@@ -198,21 +198,30 @@ const ChatInterface = () => {
       content: ''
     }])
 
-    // Simulate streaming "word by word"
+    // Simulate streaming with batching to prevent UI lag
     const words = DUMMY_RESPONSE.split(/(\s+)/)
     let currentText = ''
+    let lastUpdateTime = Date.now()
 
     for (let i = 0; i < words.length; i++) {
       if (stopStreamingRef.current) break
-      await new Promise(resolve => setTimeout(resolve, 15 + Math.random() * 30)) // Typing speed
+
+      // Artificial delay
+      await new Promise(resolve => setTimeout(resolve, 10 + Math.random() * 20))
       currentText += words[i]
 
-      // Update the last message
-      setMessages(prev => prev.map(msg =>
-        msg.id === assistantMessageId
-          ? { ...msg, content: currentText }
-          : msg
-      ))
+      // Batch updates: Only update state every 50ms or on the last word
+      const now = Date.now()
+      if (now - lastUpdateTime > 60 || i === words.length - 1) {
+        setMessages(prev => {
+          const last = prev[prev.length - 1]
+          if (last?.id === assistantMessageId) {
+            return [...prev.slice(0, -1), { ...last, content: currentText }]
+          }
+          return prev
+        })
+        lastUpdateTime = now
+      }
     }
 
     setIsLoading(false)
