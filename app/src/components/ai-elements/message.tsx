@@ -19,7 +19,7 @@ import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
-import { createContext, memo, useContext, useEffect, useState } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -187,7 +187,10 @@ export const MessageBranchContent = ({
   ...props
 }: MessageBranchContentProps) => {
   const { currentBranch, setBranches, branches } = useMessageBranch();
-  const childrenArray = Array.isArray(children) ? children : [children];
+  const childrenArray = useMemo(
+    () => (Array.isArray(children) ? children : [children]),
+    [children]
+  );
 
   // Use useEffect to update branches when they change
   useEffect(() => {
@@ -216,7 +219,6 @@ export type MessageBranchSelectorProps = HTMLAttributes<HTMLDivElement> & {
 
 export const MessageBranchSelector = ({
   className,
-  from,
   ...props
 }: MessageBranchSelectorProps) => {
   const { totalBranches } = useMessageBranch();
@@ -228,7 +230,10 @@ export const MessageBranchSelector = ({
 
   return (
     <ButtonGroup
-      className="[&>*:not(:first-child)]:rounded-l-md [&>*:not(:last-child)]:rounded-r-md"
+      className={cn(
+        "[&>*:not(:first-child)]:rounded-l-md [&>*:not(:last-child)]:rounded-r-md",
+        className
+      )}
       orientation="horizontal"
       {...props}
     />
@@ -308,9 +313,15 @@ export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "size-full overflow-x-auto overflow-y-hidden [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      components={{
+        // Use div instead of p to avoid hydration errors with nested block elements (like images or tables)
+        p: ({ children, className }) => (
+          <div className={cn("mb-4 last:mb-0", className)}>{children}</div>
+        ),
+      }}
       plugins={{ code, mermaid, math, cjk }}
       shikiTheme={['github-light', 'github-dark']}
       {...props}

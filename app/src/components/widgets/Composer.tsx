@@ -1,14 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Plus, Paperclip, Palette, ChevronDown, Mic, ArrowUp, Square, X, FileText, Image as ImageIcon, File } from 'lucide-react'
+import { Paperclip, ArrowUp, Square, X, FileText, Image as ImageIcon, File, Library } from 'lucide-react'
 import { Button } from "@/components/ui/button"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { useTheme } from "@/ui/components/theme-provider"
 
 interface AttachedFile {
     id: string
@@ -31,7 +24,6 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
     const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
-    const { theme, setTheme, availableThemes } = useTheme()
 
     const isControlled = value !== undefined
     const message = isControlled ? value : internalMessage
@@ -237,14 +229,6 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
                         <div className="flex items-center gap-1">
                             <Button
                                 variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-full hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-all duration-200"
-                            >
-                                <Plus className="h-4 w-4" />
-                            </Button>
-
-                            <Button
-                                variant="ghost"
                                 size="sm"
                                 onClick={(e) => {
                                     e.stopPropagation()
@@ -256,33 +240,17 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
                                 <span className="text-[11px] font-medium">Attach</span>
                             </Button>
 
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 gap-1 rounded-full hover:bg-accent/50 text-muted-foreground hover:text-foreground px-3 transition-all duration-200"
-                                    >
-                                        <Palette className="h-3.5 w-3.5" />
-                                        <span className="text-[11px] font-medium capitalize">{theme}</span>
-                                        <ChevronDown className="h-3 w-3 opacity-30" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto bg-card border-border">
-                                    {availableThemes.map((t) => (
-                                        <DropdownMenuItem
-                                            key={t}
-                                            onClick={() => setTheme(t)}
-                                            className={cn(
-                                                "capitalize cursor-pointer",
-                                                theme === t ? "bg-accent text-accent-foreground" : "text-muted-foreground"
-                                            )}
-                                        >
-                                            {t}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                            <div className="flex items-center gap-2 ml-1 border-l border-border/30 pl-3">
+                                <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground/40 select-none">My Workspace</span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 gap-1.5 rounded-full hover:bg-background/50 text-muted-foreground hover:text-foreground px-3 transition-all duration-200 border border-border/50 shadow-sm"
+                                >
+                                    <Library className="h-3.5 w-3.5" />
+                                    <span className="text-[11px] font-medium">Attach Research Context</span>
+                                </Button>
+                            </div>
                         </div>
 
                         <div className="flex items-center gap-1">
@@ -292,14 +260,6 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
                                 className="h-8 rounded-full text-muted-foreground hover:text-foreground text-[11px] font-bold px-3 transition-all duration-200"
                             >
                                 Plan
-                            </Button>
-
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground transition-all duration-200"
-                            >
-                                <Mic className="h-4 w-4" />
                             </Button>
 
                             <Button
