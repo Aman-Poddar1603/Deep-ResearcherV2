@@ -87,21 +87,23 @@ export const ChainOfThoughtHeader = memo(
       <Collapsible onOpenChange={setIsOpen} open={isOpen}>
         <CollapsibleTrigger
           className={cn(
-            "flex w-full items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
+            "sticky top-0 z-10 flex w-full items-center gap-2 bg-inherit py-1 text-muted-foreground text-sm transition-colors hover:text-foreground",
             className
           )}
           {...props}
         >
-          <BrainIcon className="size-4" />
-          <span className="flex-1 text-left">
-            {children ?? "Agent Internal Thoughts"}
-          </span>
-          <ChevronDownIcon
-            className={cn(
-              "size-4 transition-transform",
-              isOpen ? "rotate-180" : "rotate-0"
-            )}
-          />
+          <div className="flex w-full items-center gap-2 bg-inherit py-1">
+            <BrainIcon className="size-4" />
+            <span className="flex-1 text-left">
+              {children ?? "Agent Internal Thoughts"}
+            </span>
+            <ChevronDownIcon
+              className={cn(
+                "size-4 transition-transform",
+                isOpen ? "rotate-180" : "rotate-0"
+              )}
+            />
+          </div>
         </CollapsibleTrigger>
       </Collapsible>
     );
