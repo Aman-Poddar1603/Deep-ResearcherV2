@@ -11,8 +11,10 @@ if (!PORT) throw new Error("PORT env variable is not set");
 
 app.on("ready", () => {
     const mainWindow = new BrowserWindow({
-        width: 1800,
-        height: 600,
+        width: 1200,
+        height: 900,
+        minWidth: 1200,
+        minHeight: 900,
         // Shouldn't add contextIsolate or nodeIntegration because of security vulnerabilities
         webPreferences: {
             preload: getPreloadPath(),
@@ -20,6 +22,8 @@ app.on("ready", () => {
         icon: getIconPath(),
         frame: false,
     });
+
+    mainWindow.maximize();
 
     if (isDev()) mainWindow.loadURL(`http://localhost:${PORT}`)
     else mainWindow.loadFile(getUIPath());

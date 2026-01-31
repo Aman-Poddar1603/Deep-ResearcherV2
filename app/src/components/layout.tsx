@@ -37,7 +37,7 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
         <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
             <Titlebar />
             <SidebarProvider defaultOpen={true}>
-                <div className="flex flex-1 overflow-hidden relative">
+                <div className="flex flex-1 overflow-hidden relative h-full">
                     <AppSidebar />
                     <SidebarInset className="flex flex-col p-4 pt-14">
                         <header className="flex items-center gap-2 px-4 mb-2">
@@ -95,7 +95,7 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
                         </header>
                         <div
                             key={reloadKey}
-                            className={cn("h-[calc(100vh-6.5rem)] bg-card rounded-2xl overflow-auto no-scrollbar border", contentClassName)}
+                            className={cn("flex-1 min-h-0 bg-card rounded-2xl overflow-hidden no-scrollbar border flex flex-col", contentClassName)}
                         >
                             {children}
                         </div>

@@ -127,7 +127,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     </div>
                     <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                         <span className="truncate font-semibold">Deep Researcher</span>
-                        <span className="truncate text-xs text-muted-foreground">v1.0.0</span>
+                        <span className="truncate text-xs text-muted-foreground">v2.0.0</span>
                     </div>
                 </div>
             </SidebarHeader>

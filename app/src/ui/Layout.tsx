@@ -8,10 +8,15 @@ export function Layout() {
     const isHome = location.pathname === '/';
 
     return (
-        <GlobalLayout contentClassName={isHome ? "hide-scrollbar-entrance" : ""}>
+        <GlobalLayout contentClassName={cn(
+            isHome ? "hide-scrollbar-entrance" : "overflow-hidden"
+        )}>
             <div className="flex flex-col h-full relative">
                 {/* Scrollable Content Area */}
-                <div className={cn("flex-1 overflow-y-auto no-scrollbar", isHome ? "p-8 pt-12 pb-32" : "")}>
+                <div className={cn(
+                    "flex-1 min-h-0",
+                    isHome ? "overflow-y-auto no-scrollbar p-8 pt-12 pb-32" : "h-full"
+                )}>
                     <Outlet />
                 </div>
 

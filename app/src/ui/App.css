@@ -320,3 +320,9 @@
 .katex-display+p:first-of-type {
   display: none;
 }
+
+/* Ensure user messages have proper text contrast */
+.is-user .group-\[\.is-user\]\:text-foreground,
+.group.is-user [class*="text-foreground"] {
+  color: hsl(var(--secondary-foreground)) !important;
+}
