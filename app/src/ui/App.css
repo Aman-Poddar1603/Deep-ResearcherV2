@@ -248,10 +248,9 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 3px hsl(var(--border));
   border-collapse: separate !important;
   border-spacing: 0 !important;
-  display: block;
-  overflow-x: auto;
-  max-width: 100%;
-  white-space: nowrap;
+  display: table;
+  width: calc(100% - 8px);
+  margin: 4px;
 }
 
 /* Ensure table cells don't wrap */

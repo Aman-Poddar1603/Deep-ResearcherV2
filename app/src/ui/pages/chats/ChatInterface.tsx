@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { Message, MessageContent, MessageResponse, MessageAction, MessageActions, MessageToolbar } from '@/components/ai-elements/message'
 import {
   ChainOfThought,
@@ -14,7 +14,13 @@ import {
   AttachmentPreview,
   type AttachmentData,
 } from '@/components/ai-elements/attachments'
-import { SearchIcon, CopyIcon, RefreshCcwIcon, Loader2Icon, CheckIcon, Upload } from 'lucide-react'
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from '@/components/ai-elements/conversation'
+import { SearchIcon, CopyIcon, RefreshCcwIcon, Loader2Icon, CheckIcon, Upload, MessageSquare } from 'lucide-react'
 import "katex/dist/katex.min.css";
 import { nanoid } from 'nanoid'
 
@@ -27,7 +33,6 @@ interface ChatMessage {
 }
 import Composer from '@/components/widgets/Composer'
 import { cn } from '@/lib/utils'
-import { FileText } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import {
   DropdownMenu,
@@ -38,10 +43,137 @@ import {
 
 // Dummy markdown content for testing  
 const DUMMY_RESPONSE = `
-| ID | Ticker | Price (USD) | 24h Change | Momentum Formula | Volatility Index | $$\\alpha$$ (Alpha) | $$\\beta$$ (Beta) | $$\\gamma$$ (Gamma) | $$\\delta$$ (Delta) | $$\\theta$$ (Theta) | Market Cap | Volume (24h) | Hash | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **001** | \`BTC-X\` | **$94,320.50** | 🟢 +2.4% | $$P = P_0 e^{rt}$$ | High | $$\\alpha > 0.5$$ | $$\\beta \\approx 1.2$$ | $$\\gamma = \\frac{\\partial^2 V}{\\partial S^2}$$ | $$\\delta = 0.45$$ | $$\\theta = -0.05$$ | $1.8T | 45B | \`0x4d2...\` | Primary reserve asset. |
-| **002** | \`ETH-Q\` | **$4,102.10** | 🔴 -1.2% | $$v = \\frac{d}{t}$$ | Medium | $$\\alpha = 0.1$$ | $$\\beta = 0.9$$ | $$\\gamma \\to 0$$ | $$\\delta = 0.60$$ | $$\\theta = -0.12$$ | $450B | 12B | \`0x9a1...\` | Smart contract layer. |
+# 🏆 THE SUPREME MARKDOWN STREAMING STRESS TEST v3.0
+
+This content is specifically engineered to test the structural integrity of a streaming AI response formatter. It transitions rapidly between prose, syntax-heavy code, visual assets, and mathematical notation.
+
+---
+
+## 🖼️ Section 1: Visual Media Integration
+Testing the rendering of external image assets within the flow of text.
+
+![Landscape Photography](https://s3.amazonaws.com/images.seroundtable.com/google-amp-1454071566.jpg)
+*Figure 1: Nature and Landscape*
+
+![Futuristic Technology](https://media.istockphoto.com/id/506910700/photo/i-can-do-it.jpg?s=612x612&w=0&k=20&c=4r5UQKSwjtVyLai0R0B38RJXX2SFr0TpK4JFSWnVCfQ=)
+*Figure 2: Technological Advancement*
+
+![Space Nebula](https://pngimg.com/d/google_PNG19641.png)
+*Figure 3: Deep Space Exploration*
+
+---
+
+## 🏗️ Section 3: Diagrams & Logic
+Mermaid.js requires a complete block to render correctly. This tests the "wait-for-block-end" logic.
+
+\`\`\`mermaid
+graph LR
+    Start[User Prompt] --> Process{Streaming Engine}
+    Process -->|Token A| Render[Markdown Formatter]
+    Process -->|Token B| Render
+    Render --> Output[Visual Display]
+    Output --> Feedback{User Approval}
+    Feedback -->|Yes| End((Success))
+    Feedback -->|No| Start
+\`\`\`
+
+---
+
+## 🧬 Section 3: High-Density Typography & Lists
+The following nested structure tests indentation logic and symbol switching.
+
+* **System Architecture**
+    * Frontend Layer
+        * React.js / Next.js
+        * Tailwind CSS
+            * Custom Utility Classes
+            * Responsive Variants
+    * Backend Layer
+        * Node.js Streaming API
+        * Python LLM Wrapper
+1.  **Deployment Steps**
+    1.  Provision Instance
+    2.  Set Environment Variables
+        - \`API_KEY=********\`
+        - \`NODE_ENV=production\`
+    3.  Launch Container
+
+---
+
+## 🧪 Section 4: Advanced Mathematics (LaTeX)
+Testing the math engine's ability to render complex formulas during a text stream.
+
+**The General Relativity Field Equation:**
+$$G_{\\mu\\nu} + \\Lambda g_{\\mu\\nu} = \\kappa T_{\\mu\\nu}$$
+
+**The Maxwell Equations:**
+- $\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}$
+- $\\nabla \\cdot \\mathbf{B} = 0$
+
+---
+
+## 📊 Section 5: Complex Data Tables
+Tables are often the hardest to stream because the columns must align before the final row is received.
+
+| Rank | Component Name | Performance Index | Reliability | Current Status |
+| :--- | :--- | :---: | :---: | :--- |
+| 1 | Global Load Balancer | 99.9% | High | ✅ Operational |
+| 2 | Primary Database Cluster | 94.2% | Medium | ⚠️ Syncing |
+| 3 | Content Delivery Network | 99.8% | High | ✅ Operational |
+| 4 | Image Retrieval Engine | 88.5% | Low | 🛠️ Maintenance |
+
+---
+
+## 📸 Section 6: Additional Visual Assets
+
+![Digital Art](https://img.freepik.com/free-vector/inspirational-quote-watercolour-background_1048-18831.jpg?semt=ais_user_personalization&w=740&q=80)
+
+![Mountain Peak](https://imageio.forbes.com/specials-images/dam/imageserve/1023678802/960x0.jpg?height=474&width=711&fit=bounds)
+
+![Coral Reef](https://img.freepik.com/free-vector/positive-lettering-be-good-yourself-message-watercolor-stain_23-2148342665.jpg?semt=ais_user_personalization&w=740&q=80)
+
+---
+
+## 💻 Section 7: Code Block Syntax Highlighting
+Testing the buffer for large code blocks with language-specific highlighting.
+
+\`\`\`typescript
+interface StreamConfig {
+  speed: number;
+  chunkSize: number;
+  enableMarkdown: boolean;
+}
+
+/**
+ * Simulates the streaming process for testing formatters.
+ */
+async function streamPayload(data: string, config: StreamConfig): Promise<void> {
+  const words = data.split(' ');
+  for (const word of words) {
+    process.stdout.write(word + ' ');
+    await new Promise(resolve => setTimeout(resolve, config.speed));
+  }
+}
+\`\`\`
+
+---
+
+## 📖 Section 8: Long-Form Narrative Wall
+> "The limits of my language mean the limits of my world." — Ludwig Wittgenstein
+
+The implementation of a streaming markdown formatter is a delicate balance of regular expression matching, state management, and DOM manipulation. As the AI generates content, the frontend must parse incomplete fragments of syntax—such as an open bold tag or a half-finished table row—without causing the layout to jump or flicker. This requires a robust, incremental parser that can look ahead and predict the likely structure of the incoming data while maintaining a smooth 60fps frame rate for the user. When we include complex elements like LaTeX or Mermaid, the challenge triples, as these require secondary rendering passes once the code block is completed. Every token processed is a test of the architecture's resilience, ensuring that whether the user is viewing a simple paragraph or a complex scientific paper, the experience remains fluid, legible, and visually consistent across all devices and network conditions.
+
+---
+
+### ✅ Test Completion Checklist
+- [x] Inline and Block LaTeX
+- [x] Mermaid Charting
+- [x] 6 High-Res External Images
+- [x] Multi-column Tables
+- [x] Deeply Nested Unordered/Ordered Lists
+- [x] Blockquotes and Links
+
+**Stream Test Complete.**
 `;
 
 const ChatInterface = () => {
@@ -51,20 +183,8 @@ const ChatInterface = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [copyState, setCopyState] = useState<Record<string, 'idle' | 'loading' | 'success'>>({})
 
-  // Refs for auto-scrolling and stopping stream
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  // Ref for stopping stream
   const stopStreamingRef = useRef(false)
-
-  const scrollToBottom = () => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
-    }
-  }
-
-  // Only scroll to bottom when messages count changes or significant events happen
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages.length, isLoading])
 
   const simulateResponse = async () => {
     stopStreamingRef.current = false
@@ -79,7 +199,6 @@ const ChatInterface = () => {
     }])
 
     // Simulate streaming "word by word"
-    // Split by spaces/newlines but keep delimiters to preserve formatting
     const words = DUMMY_RESPONSE.split(/(\s+)/)
     let currentText = ''
 
@@ -111,7 +230,6 @@ const ChatInterface = () => {
       filename: file.name,
     }))
 
-    // Add user message
     const userMessage: ChatMessage = {
       id: Date.now().toString() + '-user',
       role: 'user',
@@ -121,8 +239,6 @@ const ChatInterface = () => {
 
     setMessages(prev => [...prev, userMessage])
     setInput('')
-
-    // Trigger dummy response
     simulateResponse()
   }
 
@@ -133,34 +249,22 @@ const ChatInterface = () => {
 
   const handleCopy = async (content: string, messageId: string) => {
     setCopyState(prev => ({ ...prev, [messageId]: 'loading' }))
-
     try {
       await navigator.clipboard.writeText(content)
       setCopyState(prev => ({ ...prev, [messageId]: 'success' }))
-
-      // Reset to idle after 2 seconds
-      setTimeout(() => {
-        setCopyState(prev => ({ ...prev, [messageId]: 'idle' }))
-      }, 2000)
+      setTimeout(() => setCopyState(prev => ({ ...prev, [messageId]: 'idle' })), 2000)
     } catch (error) {
       console.error('Failed to copy:', error)
       setCopyState(prev => ({ ...prev, [messageId]: 'idle' }))
     }
   }
 
-  const handleRetry = () => {
-    // TODO: Implement retry logic
-    console.log('Retrying...')
-  }
-
-  const handleExport = (format: 'docs' | 'md' | 'pdf', messageId: string) => {
-    // TODO: Implement export logic
-    console.log(`Exporting message ${messageId} as ${format}`)
-  }
+  const handleRetry = () => console.log('Retrying...')
+  const handleExport = (format: string, id: string) => console.log(`Exporting ${id} as ${format}`)
 
   return (
     <div className="flex flex-col h-full w-full text-foreground animate-in fade-in duration-500 overflow-hidden relative">
-      {/* 1. Header Area - Fixed Height */}
+      {/* 1. Header Area */}
       <header className="absolute top-4 right-6 z-30 pointer-events-none">
         <div className="pointer-events-auto backdrop-blur-xl bg-background/80 border border-border/50 rounded-2xl px-6 py-3 shadow-lg shadow-black/5 animate-in fade-in slide-in-from-top-2 duration-500">
           <h2 className="text-sm font-semibold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
@@ -169,20 +273,15 @@ const ChatInterface = () => {
         </div>
       </header>
 
-      {/* 2. Scrollable Messages Area - Takes remaining space */}
-      <main className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
-        <div className="max-w-4xl mx-auto px-4 md:px-8 py-4 pt-24 space-y-8">
+      {/* 2. Messages area using Conversation element */}
+      <Conversation className="flex-1 w-full mt-20">
+        <ConversationContent className="max-w-4xl mx-auto pb-32">
           {messages.length === 0 ? (
-            // Empty State
-            <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4 opacity-50">
-              <div className="p-4 rounded-3xl bg-primary/5">
-                <FileText className="w-12 h-12 text-primary/50" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">No messages yet</h3>
-                <p className="text-sm text-muted-foreground">Start a conversation with Deep Researcher</p>
-              </div>
-            </div>
+            <ConversationEmptyState
+              icon={<MessageSquare className="size-12 text-primary/50" />}
+              title="Deep Researcher"
+              description="Start a conversation to begin your research journey."
+            />
           ) : (
             messages.map((message) => (
               <Message
@@ -243,15 +342,11 @@ const ChatInterface = () => {
                     </>
                   ) : (
                     <>
-                      {/* Show attachments if present */}
                       {message.attachments && message.attachments.length > 0 && (
                         <div className="mb-3">
                           <Attachments variant="grid">
                             {message.attachments.map((attachment) => (
-                              <Attachment
-                                key={attachment.id}
-                                data={attachment}
-                              >
+                              <Attachment key={attachment.id} data={attachment}>
                                 <AttachmentPreview />
                               </Attachment>
                             ))}
@@ -264,38 +359,24 @@ const ChatInterface = () => {
                     </>
                   )}
                 </MessageContent>
-                {/* Message Toolbar */}
+
                 {message.role === 'assistant' ? (
-                  // Only show toolbar when response is complete
-                  !isLoading || message.id !== messages[messages.length - 1]?.id ? (
+                  (!isLoading || message.id !== messages[messages.length - 1]?.id) && (
                     <MessageToolbar>
                       <MessageActions>
-                        <MessageAction
-                          label="Retry"
-                          onClick={handleRetry}
-                          tooltip="Regenerate response"
-                        >
+                        <MessageAction label="Retry" onClick={handleRetry} tooltip="Regenerate response">
                           <RefreshCcwIcon className="size-4" />
                         </MessageAction>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <MessageAction
-                              label="Export"
-                              tooltip="Export response"
-                            >
+                            <MessageAction label="Export" tooltip="Export response">
                               <Upload className="size-4" />
                             </MessageAction>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleExport('docs', message.id)}>
-                              Export as Docs
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleExport('md', message.id)}>
-                              Export as MD
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleExport('pdf', message.id)}>
-                              Export as PDF
-                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleExport('docs', message.id)}>Docs</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleExport('md', message.id)}>MD</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleExport('pdf', message.id)}>PDF</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                         <MessageAction
@@ -314,7 +395,7 @@ const ChatInterface = () => {
                         </MessageAction>
                       </MessageActions>
                     </MessageToolbar>
-                  ) : null
+                  )
                 ) : (
                   <MessageToolbar className="justify-end mt-0">
                     <MessageActions>
@@ -337,11 +418,11 @@ const ChatInterface = () => {
               </Message>
             ))
           )}
-          <div ref={messagesEndRef} className="h-4 w-full invisible" aria-hidden="true" />
-        </div>
-      </main>
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
 
-      {/* 3. Footer Area - Fixed Height Composer */}
+      {/* 3. Footer Area */}
       <footer className="shrink-0 w-full pb-4 pt-2 px-4 bg-background z-20 border-t border-border/10 mt-auto">
         <div className="max-w-4xl mx-auto">
           <Composer

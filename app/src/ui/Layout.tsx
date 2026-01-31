@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 export function Layout() {
     const location = useLocation();
     const isHome = location.pathname === '/';
-    const isChat = location.pathname === '/chat/:id';
+    const isChat = location.pathname.startsWith('/chat/');
 
     return (
         <GlobalLayout contentClassName={cn(
@@ -16,7 +16,7 @@ export function Layout() {
                 {/* Scrollable Content Area */}
                 <div className={cn(
                     "flex-1 min-h-0",
-                    isHome || isChat ? "overflow-y-auto no-scrollbar p-8 pt-12 pb-32" : "h-full"
+                    isHome ? "overflow-y-auto no-scrollbar p-8 pt-12 pb-32" : "h-full"
                 )}>
                     <Outlet />
                 </div>
