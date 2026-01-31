@@ -4,8 +4,6 @@ import {
   ChainOfThought,
   ChainOfThoughtContent,
   ChainOfThoughtHeader,
-  ChainOfThoughtSearchResult,
-  ChainOfThoughtSearchResults,
   ChainOfThoughtStep,
 } from '@/components/ai-elements/chain-of-thought'
 import {
@@ -23,7 +21,6 @@ import { SearchIcon, CopyIcon, RefreshCcwIcon, Loader2Icon, CheckIcon, Upload, M
 import "katex/dist/katex.min.css";
 import Composer from '@/components/widgets/Composer'
 import { cn } from '@/lib/utils'
-import { Separator } from '@/components/ui/separator'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +28,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useChatSimulator, type ChatMessage } from './useChatSimulator'
+import { Shimmer } from '@/components/ai-elements/shimmer'
+import { Persona } from '@/components/ai-elements/persona'
 
 // Memoized individual message item to prevent unnecessary re-renders during streaming
 const ChatMessageItem = memo(({
@@ -62,39 +61,27 @@ const ChatMessageItem = memo(({
       )}
     >
       <MessageContent className={message.role === 'user' ? "shadow-sm text-foreground" : "bg-transparent px-0 py-0 w-full text-justify"}>
-        {isAssistant && (
-          <div className="w-fit bg-accent rounded-2xl">
-            <ChainOfThought className='p-4 pb-0' defaultOpen>
-              <ChainOfThoughtHeader />
-              <ChainOfThoughtContent className='mb-4'>
+        {isAssistant && (message.thinking || (isStreaming && !message.content)) && (
+          <div className="bg-accent/50 rounded-2xl mb-4 border border-border/50 overflow-hidden w-full">
+            <ChainOfThought
+              key={message.content ? 'thinking-folded' : 'thinking-active'}
+              className='p-4 pb-0 w-full'
+              defaultOpen={!message.content}
+            >
+              <ChainOfThoughtHeader className='w-full' />
+              <ChainOfThoughtContent className='w-full pr-4'>
                 <ChainOfThoughtStep
                   icon={SearchIcon}
-                  label="Searching for relevant market data"
-                  status="complete"
+                  label="Thinking Process"
+                  status={isStreaming && !message.content ? "active" : "complete"}
                 >
-                  <ChainOfThoughtSearchResults>
-                    {[
-                      "https://www.coinmarketcap.com",
-                      "https://www.coingecko.com",
-                      "https://www.blockchain.com",
-                    ].map((website) => (
-                      <ChainOfThoughtSearchResult key={website}>
-                        {new URL(website).hostname}
-                      </ChainOfThoughtSearchResult>
-                    ))}
-                  </ChainOfThoughtSearchResults>
+                  <MessageResponse
+                    className="text-muted-foreground mt-2 mb-4 w-full"
+                    isAnimating={isStreaming && !message.content}
+                  >
+                    {message.thinking}
+                  </MessageResponse>
                 </ChainOfThoughtStep>
-
-                <ChainOfThoughtStep
-                  label="Analyzing cryptocurrency price trends and volatility indices"
-                  status="complete"
-                />
-
-                <ChainOfThoughtStep
-                  icon={SearchIcon}
-                  label="Generating comprehensive market analysis..."
-                  status={isStreaming ? "active" : "complete"}
-                />
               </ChainOfThoughtContent>
             </ChainOfThought>
           </div>
@@ -102,13 +89,21 @@ const ChatMessageItem = memo(({
 
         {isAssistant ? (
           <>
-            <Separator className='my-4' />
-            <MessageResponse
-              isAnimating={isStreaming}
-              className={cn(isStreaming && "streaming-text-fade")}
-            >
-              {message.content || (isLoading && isLast ? "Thinking..." : "")}
-            </MessageResponse>
+            {message.content ? (
+              <MessageResponse
+                isAnimating={isStreaming && !!message.content}
+                className={cn(isStreaming && "streaming-text-fade")}
+              >
+                {message.content}
+              </MessageResponse>
+            ) : (
+              isLoading && isLast && !message.thinking && (
+                <div className="flex items-center gap-2 mb-4">
+                  <Persona state="thinking" className="size-5" variant="glint" />
+                  <Shimmer className="text-sm font-medium">Thinking...</Shimmer>
+                </div>
+              )
+            )}
           </>
         ) : (
           <>
@@ -219,7 +214,14 @@ const ChatInterface = () => {
   return (
     <div className="flex flex-col h-full w-full text-foreground animate-in fade-in duration-500 overflow-hidden relative">
       <header className="absolute top-4 right-6 z-30 pointer-events-none">
-        <div className="pointer-events-auto backdrop-blur-xl bg-background/80 border border-border/50 rounded-2xl px-6 py-3 shadow-lg shadow-black/5 animate-in fade-in slide-in-from-top-2 duration-500">
+        <div className="pointer-events-auto backdrop-blur-xl bg-background/80 border border-border/50 rounded-2xl px-6 py-3 shadow-lg shadow-black/5 animate-in fade-in slide-in-from-top-2 duration-500 flex items-center gap-3">
+          {isLoading && (
+            <Persona
+              state={messages[messages.length - 1]?.content ? 'speaking' : 'thinking'}
+              className="size-5"
+              variant="glint"
+            />
+          )}
           <h2 className="text-sm font-semibold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
             Cryptocurrency Market Analysis
           </h2>

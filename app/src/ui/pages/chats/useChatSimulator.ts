@@ -6,6 +6,8 @@ export interface ChatMessage {
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    thinking?: string;
+    images?: string[]; // Base64 encoded images for Ollama
     attachments?: AttachmentData[];
 }
 
@@ -25,6 +27,7 @@ export function useChatSimulator() {
                 id: assistantMessageId,
                 role: 'assistant',
                 content: '',
+                thinking: '',
             },
         ]);
 
@@ -33,9 +36,14 @@ export function useChatSimulator() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: 'granite3-moe', // Default to deepseek-r1:8b, you can change this
-                    messages: currentMessages.map(m => ({ role: m.role, content: m.content })),
+                    model: 'qwen3-vl:2b',
+                    messages: currentMessages.map(m => ({
+                        role: m.role,
+                        content: m.content,
+                        images: m.images
+                    })),
                     stream: true,
+                    think: true,
                 }),
             });
 
@@ -43,6 +51,7 @@ export function useChatSimulator() {
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
             let currentText = '';
+            let thinkingText = '';
             let lastUpdateTime = Date.now();
 
             if (reader) {
@@ -62,13 +71,15 @@ export function useChatSimulator() {
                         if (!line) continue;
                         try {
                             const json = JSON.parse(line);
-                            if (json.message?.content) {
+                            if (json.message?.thinking) {
+                                thinkingText += json.message.thinking;
+                            } else if (json.message?.content) {
                                 currentText += json.message.content;
                             }
                             if (json.done) break;
                         } catch (e) {
-                            // Junk lines are common in streams
-                            console.error('Error parsing chunk:', e);
+                            // Junk lines
+                            console.log(e);
                         }
                     }
 
@@ -78,7 +89,11 @@ export function useChatSimulator() {
                         setMessages((prev) => {
                             const last = prev[prev.length - 1];
                             if (last?.id === assistantMessageId) {
-                                return [...prev.slice(0, -1), { ...last, content: currentText }];
+                                return [...prev.slice(0, -1), {
+                                    ...last,
+                                    content: currentText,
+                                    thinking: thinkingText
+                                }];
                             }
                             return prev;
                         });
@@ -86,11 +101,15 @@ export function useChatSimulator() {
                     }
                 }
 
-                // Final update to ensure everything is captured
+                // Final update
                 setMessages((prev) => {
                     const last = prev[prev.length - 1];
                     if (last?.id === assistantMessageId) {
-                        return [...prev.slice(0, -1), { ...last, content: currentText }];
+                        return [...prev.slice(0, -1), {
+                            ...last,
+                            content: currentText,
+                            thinking: thinkingText
+                        }];
                     }
                     return prev;
                 });
@@ -102,7 +121,7 @@ export function useChatSimulator() {
                 if (last?.id === assistantMessageId) {
                     return [...prev.slice(0, -1), {
                         ...last,
-                        content: 'Error: Could not connect to Ollama. Make sure it is running on http://localhost:11434 and you have the model "deepseek-r1:8b" pulled.'
+                        content: 'Error: Could not connect to Ollama. Make sure it is running on http://localhost:11434.'
                     }];
                 }
                 return prev;
@@ -112,21 +131,52 @@ export function useChatSimulator() {
         setIsLoading(false);
     }, []);
 
-    const sendMessage = useCallback((value: string, files?: File[]) => {
+    const sendMessage = useCallback(async (value: string, files?: File[]) => {
         if (!value.trim() && (!files || files.length === 0)) return;
 
-        const attachments: AttachmentData[] | undefined = files?.map((file) => ({
-            id: nanoid(),
-            type: 'file' as const,
-            url: URL.createObjectURL(file),
-            mediaType: file.type,
-            filename: file.name,
-        }));
+        // Process attachments and convert images to base64 for Ollama
+        const messageImages: string[] = [];
+        const attachments: AttachmentData[] | undefined = files?.map((file) => {
+            const id = nanoid();
+            const url = URL.createObjectURL(file);
+
+            // If it's an image, we need to handle base64 for the API
+            if (file.type.startsWith('image/')) {
+                // We'll handle the async conversion below
+            }
+
+            return {
+                id,
+                type: 'file' as const,
+                url,
+                mediaType: file.type,
+                filename: file.name,
+            };
+        });
+
+        // Async helper to convert files to base64
+        if (files) {
+            for (const file of files) {
+                if (file.type.startsWith('image/')) {
+                    const base64 = await new Promise<string>((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const result = reader.result as string;
+                            // strip the prefix (e.g. data:image/jpeg;base64,)
+                            resolve(result.split(',')[1]);
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                    messageImages.push(base64);
+                }
+            }
+        }
 
         const userMessage: ChatMessage = {
             id: nanoid() + '-user',
             role: 'user',
             content: value,
+            images: messageImages.length > 0 ? messageImages : undefined,
             attachments,
         };
 
