@@ -193,7 +193,7 @@ const Chats = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-linear-to-b from-background via-background to-accent/5 overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-linear-to-b from-background via-background to-accent/5 overflow-hidden animate-in fade-in duration-500">
       {/* Header Section */}
       <div className="shrink-0 border-b border-border/40 bg-background/80 backdrop-blur-xl sticky top-0 z-10 transition-all duration-300">
         <div className="max-w-7xl mx-auto px-6 py-6">
