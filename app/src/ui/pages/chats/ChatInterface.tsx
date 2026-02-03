@@ -213,7 +213,7 @@ const ChatInterface = () => {
 
   return (
     <div className="flex flex-col h-full w-full text-foreground animate-in fade-in duration-500 overflow-hidden relative">
-      <header className="absolute top-4 right-6 z-30 pointer-events-none">
+      <header className="absolute top-4 left-6 z-30 pointer-events-none">
         <div className="pointer-events-auto backdrop-blur-xl bg-background/80 border border-border/50 rounded-2xl px-6 py-3 shadow-lg shadow-black/5 animate-in fade-in slide-in-from-top-2 duration-500 flex items-center gap-3">
           {isLoading && (
             <Persona
@@ -222,14 +222,19 @@ const ChatInterface = () => {
               variant="glint"
             />
           )}
-          <h2 className="text-sm font-semibold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-            Cryptocurrency Market Analysis
-          </h2>
+          <div className="flex flex-col">
+            <h2 className="text-sm font-semibold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-none">
+              Cryptocurrency Market Analysis
+            </h2>
+            <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
+              My Workspace • Jan 31, 2026
+            </p>
+          </div>
         </div>
       </header>
 
-      <Conversation className="flex-1 w-full mt-20">
-        <ConversationContent className="max-w-4xl mx-auto pb-32">
+      <Conversation className="flex-1 w-full">
+        <ConversationContent className="max-w-4xl mx-auto pt-20 pb-32">
           {messages.length === 0 ? (
             <ConversationEmptyState
               icon={<MessageSquare className="size-12 text-primary/50" />}

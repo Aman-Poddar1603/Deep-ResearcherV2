@@ -43,11 +43,14 @@ export function useChatSimulator() {
                         images: m.images
                     })),
                     stream: true,
-                    think: true,
+                    think: true
                 }),
             });
 
-            if (!response.ok) throw new Error('Ollama connection failed');
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Ollama connection failed: ${response.statusText}`);
+            }
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
             let currentText = '';
@@ -121,7 +124,7 @@ export function useChatSimulator() {
                 if (last?.id === assistantMessageId) {
                     return [...prev.slice(0, -1), {
                         ...last,
-                        content: 'Error: Could not connect to Ollama. Make sure it is running on http://localhost:11434.'
+                        content: `Error: ${error instanceof Error ? error.message : 'Could not connect to Ollama'}. Make sure it is running on http://localhost:11434.`
                     }];
                 }
                 return prev;
