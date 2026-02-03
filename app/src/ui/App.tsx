@@ -8,7 +8,7 @@ import { Home } from "@/ui/pages/Home"
 import { CreateEditWorkspace, AllWorkspaces, ViewWorkspace } from "@/ui/pages/workspaces"
 
 // Data / Store
-import { Databases, Tables, DataVisualizer, Bucket, BucketItems, Search } from "@/ui/pages/store"
+import { Databases, Tables, DataVisualizer, Bucket, BucketTypes, BucketItems, TableContents, Search } from "@/ui/pages/store"
 
 // History
 import { History } from "@/ui/pages/history"
@@ -48,9 +48,11 @@ function App() {
                     <Route path="/search" element={<Search />} />
                     <Route path="/data/databases" element={<Databases />} />
                     <Route path="/data/databases/:id/tables" element={<Tables />} />
+                    <Route path="/data/databases/:id/tables/:tableName" element={<TableContents />} />
                     <Route path="/data/databases/:id/visualizer" element={<DataVisualizer />} />
                     <Route path="/data/bucket" element={<Bucket />} />
-                    <Route path="/data/bucket/:bucketId" element={<BucketItems />} />
+                    <Route path="/data/bucket/:bucketId" element={<BucketTypes />} />
+                    <Route path="/data/bucket/:bucketId/:type" element={<BucketItems />} />
 
                     {/* History Route */}
                     <Route path="/history" element={<History />} />
