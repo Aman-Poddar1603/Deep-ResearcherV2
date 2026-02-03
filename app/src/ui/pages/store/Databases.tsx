@@ -18,7 +18,8 @@ import {
   Package,
   FolderOutput,
   Boxes,
-  Zap
+  Zap,
+  BrainCircuit
 } from 'lucide-react'
 
 // Database types
@@ -331,7 +332,7 @@ const Databases = () => {
           {/* Vector Databases */}
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <Sparkles className="size-5 text-violet-400" />
+              <BrainCircuit className="size-5 text-violet-400" />
               <h2 className="text-lg font-semibold">Vector Databases</h2>
               <Badge variant="outline" className="text-xs border-violet-400/50 text-violet-400">
                 {vectorDatabases.length}

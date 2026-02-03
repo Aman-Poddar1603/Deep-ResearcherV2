@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {  
+import {
   Search,
   Grid3X3,
   List,
@@ -103,7 +103,8 @@ const BucketItems = () => {
 
   // Generate mock data based on type
   const assets = useMemo(() => {
-    const count = Math.floor(Math.random() * 30) + 20
+    // Using a fixed count to avoid impure Math.random in render
+    const count = 25
     return generateMockAssets(currentType, count)
   }, [currentType])
 
@@ -289,7 +290,7 @@ const BucketItems = () => {
                     selectedIds.has(asset.id) && "ring-2 ring-primary"
                   )}
                 >
-                  <div className="relative aspect-[4/3] bg-muted/30">
+                  <div className="relative aspect-4/3 bg-muted/30">
                     {asset.thumbnail ? (
                       <img
                         src={asset.thumbnail}
