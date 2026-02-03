@@ -3,12 +3,12 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { Persona, type PersonaState } from '@/components/ai-elements/persona'
 import {
   Search as SearchIcon,
-  Sparkles,
   FlaskConical,
   MessageSquare,
   Briefcase,
@@ -20,9 +20,10 @@ import {
   ExternalLink,
   Copy,
   X,
-  History,
+  History as HistoryIcon,
   ArrowRight,
-  Loader2
+  Loader2,
+  Brain
 } from 'lucide-react'
 
 // ============================================================================
@@ -60,7 +61,7 @@ const CATEGORIES: CategoryConfig[] = [
   { id: 'workspaces', label: 'Workspaces', icon: Briefcase, color: 'text-purple-400', bgColor: 'bg-purple-400/10' },
   { id: 'assets', label: 'Assets', icon: Files, color: 'text-green-400', bgColor: 'bg-green-400/10' },
   { id: 'databases', label: 'Databases', icon: Database, color: 'text-cyan-400', bgColor: 'bg-cyan-400/10' },
-  { id: 'history', label: 'History', icon: Clock, color: 'text-pink-400', bgColor: 'bg-pink-400/10' },
+  { id: 'history', label: 'History', icon: HistoryIcon, color: 'text-pink-400', bgColor: 'bg-pink-400/10' },
 ]
 
 const RECENT_SEARCHES = [
@@ -356,30 +357,71 @@ const CategoryGroup = ({
 const AISummaryCard = ({
   summary,
   isLoading,
-  sources
+  sources,
+  aiEnabled
 }: {
   summary: string
   isLoading: boolean
   sources: SearchResult[]
+  aiEnabled: boolean
 }) => {
   const [isVisible, setIsVisible] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [personaState, setPersonaState] = useState<PersonaState>(() => {
+    if (!aiEnabled) return "asleep"
+    if (isLoading) return "thinking"
+    if (summary) return "speaking"
+    return "idle"
+  })
 
   useEffect(() => {
-    if (!isLoading) {
+    const timer = setTimeout(() => {
+      if (!aiEnabled) {
+        setIsCollapsed(true)
+      }
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [aiEnabled])
+
+  useEffect(() => {
+    // Only use effects for transitions or updates after initial render
+    const timer = setTimeout(() => {
+      if (!aiEnabled) {
+        if (personaState !== "asleep") setPersonaState("asleep")
+        if (isVisible) setIsVisible(false)
+      } else if (isLoading) {
+        if (personaState !== "thinking") setPersonaState("thinking")
+        if (isVisible) setIsVisible(false)
+      } else if (summary) {
+        if (!isVisible) {
+          setPersonaState("speaking")
+          const transitionTimer = setTimeout(() => {
+            setIsVisible(true)
+            setPersonaState("idle")
+          }, 1500)
+          return () => clearTimeout(transitionTimer)
+        }
+      } else {
+        if (personaState !== "idle") setPersonaState("idle")
+      }
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [isLoading, summary, aiEnabled, personaState, isVisible])
+
+  useEffect(() => {
+    if (aiEnabled && !isLoading && summary) {
       const timer = setTimeout(() => {
         setIsVisible(true)
       }, 100)
       return () => clearTimeout(timer)
-    } else {
-      setIsVisible(false)
     }
-  }, [isLoading])
+  }, [aiEnabled, isLoading, summary])
 
   // Parse markdown-like formatting
   const renderContent = (text: string) => {
     return text.split('\n').map((line, i) => {
       if (line.startsWith('**') && line.endsWith('**')) {
-        return <p key={i} className="font-semibold text-foreground mt-4 mb-2 text-base">{line.replace(/\*\*/g, '')}</p>
+        return <p key={i} className="font-semibold text-foreground mt-4 mb-2 text-sm">{line.replace(/\*\*/g, '')}</p>
       }
       if (line.startsWith('•')) {
         return <p key={i} className="ml-3 my-1.5 flex items-start gap-2"><span className="text-primary mt-1">•</span><span>{line.slice(1).trim()}</span></p>
@@ -394,83 +436,112 @@ const AISummaryCard = ({
   }
 
   return (
-    <Card className="py-0 relative overflow-hidden border-primary/30 bg-linear-to-br from-primary/5 via-primary/2 to-transparent shadow-lg shadow-primary/5">
+    <Card className={cn(
+      "py-0 relative overflow-hidden border-primary/20 bg-linear-to-br from-primary/5 via-primary/2 to-transparent transition-all duration-500",
+      isCollapsed ? "shadow-sm" : "shadow-lg shadow-primary/5"
+    )}>
       {/* Animated gradient border effect */}
-      <div className="absolute inset-0 bg-linear-to-r from-primary/20 via-transparent to-primary/20 opacity-50" style={{ backgroundSize: '200% 100%' }} />
-      
-      {/* Glow effects */}
-      <div className="absolute top-0 left-0 w-40 h-40 bg-primary/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute bottom-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl translate-x-1/2 translate-y-1/2" />
+      {!isCollapsed && (
+        <div className="absolute inset-0 bg-linear-to-r from-primary/10 via-transparent to-primary/10 opacity-30" />
+      )}
 
-      <CardContent className="relative p-6">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-5">
-          <div className="p-2 rounded-xl bg-primary/10 ring-1 ring-primary/20">
-            <Sparkles className="size-5 text-primary" />
-          </div>
-          <div>
-            <span className="font-semibold text-sm">AI Overview</span>
-            <p className="text-[11px] text-muted-foreground">Powered by AI</p>
-          </div>
-          {isLoading && (
-            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              <span>Analyzing...</span>
-            </div>
+      {/* Glow effects */}
+      <div className="absolute top-0 left-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 opacity-50" />
+
+      <div className="relative p-4 flex flex-col">
+        {/* Header - Always visible */}
+        <div
+          className={cn(
+            "flex items-center gap-4 group/header",
+            aiEnabled ? "cursor-pointer" : "cursor-not-allowed opacity-60"
           )}
+          onClick={() => aiEnabled && setIsCollapsed(!isCollapsed)}
+        >
+          <div className="shrink-0 relative">
+            <Persona
+              state={personaState}
+              variant="mana"
+              className={cn(
+                "size-8 transition-transform duration-500",
+                !isCollapsed && aiEnabled && "scale-110"
+              )}
+            />
+            {personaState === 'thinking' && (
+              <div className="absolute inset-0 rounded-full ring-2 ring-primary/30 animate-ping opacity-20" />
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm tracking-tight text-foreground/90">AI OVERVIEW</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground font-medium tracking-tighter opacity-70">
+              {!aiEnabled ? "Disabled" : isLoading ? "Synthesizing intelligence..." : (isCollapsed ? "Overview ready • Click to expand" : "AI generated Summary! It may make mistakes!")}
+            </p>
+          </div>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground/50 group-hover/header:text-foreground transition-colors"
+            disabled={!aiEnabled}
+          >
+            {isCollapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
+          </Button>
         </div>
 
-        {/* Content */}
-        {isLoading ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <Skeleton className="h-4 w-4 rounded" />
-              <Skeleton className="h-4 flex-1" />
-            </div>
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-4/5" />
-            <div className="h-3" />
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-        ) : (
-          <div 
-            className={cn(
-              "text-sm text-muted-foreground transition-all duration-700 ease-out",
-              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+        {/* Content - Collapsible */}
+        <div className={cn(
+          "grid transition-all duration-500 ease-in-out",
+          isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100 mt-4 pt-4 border-t border-primary/10"
+        )}>
+          <div className="overflow-hidden">
+            {isLoading ? (
+              <div className="space-y-3 pb-2">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-4 w-4 rounded bg-primary/10" />
+                  <Skeleton className="h-4 flex-1 bg-primary/10" />
+                </div>
+                <Skeleton className="h-4 w-full bg-primary/10" />
+                <Skeleton className="h-4 w-4/5 bg-primary/10" />
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "text-sm text-muted-foreground/80 leading-relaxed transition-all duration-1000",
+                  isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+                )}
+              >
+                {renderContent(summary)}
+              </div>
             )}
-          >
-            {renderContent(summary)}
-          </div>
-        )}
 
-        {/* Sources */}
-        {sources.length > 0 && !isLoading && isVisible && (
-          <div className={cn(
-            "flex items-center gap-3 mt-5 pt-5 border-t border-primary/10 transition-all duration-700 delay-300",
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
-          )}>
-            <span className="text-xs text-muted-foreground font-medium">Sources:</span>
-            <div className="flex flex-wrap gap-1.5">
-              {sources.slice(0, 4).map(source => {
-                const catConfig = CATEGORIES.find(c => c.id === source.category)
-                return (
-                  <Badge 
-                    key={source.id} 
-                    variant="outline" 
-                    className={cn(
-                      "text-[10px] font-normal gap-1 cursor-pointer hover:bg-muted/50 transition-colors",
-                      catConfig?.color
-                    )}
-                  >
-                    {source.title.length > 20 ? source.title.slice(0, 20) + '...' : source.title}
-                  </Badge>
-                )
-              })}
-            </div>
+            {/* Sources */}
+            {sources.length > 0 && !isLoading && isVisible && !isCollapsed && (
+              <div className="mt-6 flex flex-wrap gap-2 animate-in fade-in slide-in-from-bottom-2 duration-700 delay-500">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground/40 self-center mr-1">Sources</span>
+                {sources.slice(0, 4).map(source => {
+                  const catConfig = CATEGORIES.find(c => c.id === source.category)
+                  return (
+                    <Badge
+                      key={source.id}
+                      variant="outline"
+                      className={cn(
+                        "text-[10px] font-medium gap-1.5 py-1 px-2.5 cursor-pointer hover:bg-primary/5 hover:border-primary/30 transition-all",
+                        catConfig?.color,
+                        "bg-background/50 backdrop-blur-sm"
+                      )}
+                    >
+                      <div className={cn("size-1 rounded-full", catConfig?.bgColor.replace('/10', ''))} />
+                      {source.title.length > 25 ? source.title.slice(0, 25) + '...' : source.title}
+                    </Badge>
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </CardContent>
+        </div>
+      </div>
     </Card>
   )
 }
@@ -487,7 +558,7 @@ const Search = () => {
   // State from URL params
   const initialQuery = useMemo(() => searchParams.get('q') || '', [searchParams])
   const aiMode = useMemo(() => searchParams.get('ai') === 'true', [searchParams])
-  const selectedCategories = useMemo(() => 
+  const selectedCategories = useMemo(() =>
     searchParams.get('categories')?.split(',').filter(Boolean) as CategoryId[] || [],
     [searchParams]
   )
@@ -495,7 +566,7 @@ const Search = () => {
   // Local state
   const [inputValue, setInputValue] = useState(initialQuery)
   const [isSearching, setIsSearching] = useState(false)
-  const [results, setResults] = useState<SearchResult[]>(() => 
+  const [results, setResults] = useState<SearchResult[]>(() =>
     initialQuery ? generateMockResults(initialQuery) : []
   )
   const [aiSummary, setAiSummary] = useState('')
@@ -573,24 +644,28 @@ const Search = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [])
 
-  // Perform re-search when AI mode or categories change (if query exists)
+  // Perform re-search when categories change (if query exists)
   useEffect(() => {
     if (initialQuery) {
-      // Just refresh the existing results without full loading state if only categories changed
-      // but if AI mode changed, we might need to trigger the AI summary
-      const searchResults = generateMockResults(initialQuery)
-      setResults(searchResults)
-      
-      if (aiMode && searchResults.length > 0 && !aiSummary) {
-        setIsAiLoading(true)
-        const timer = setTimeout(() => {
-          setAiSummary(generateAISummary(initialQuery, searchResults))
-          setIsAiLoading(false)
-        }, 800)
-        return () => clearTimeout(timer)
-      }
+      const timer = setTimeout(() => {
+        const searchResults = generateMockResults(initialQuery)
+        setResults(prev => {
+          // Only update if results actually changed to avoid cascading renders
+          if (JSON.stringify(prev) === JSON.stringify(searchResults)) return prev
+          return searchResults
+        })
+
+        if (aiMode && searchResults.length > 0 && !aiSummary && !isAiLoading) {
+          setIsAiLoading(true)
+          setTimeout(() => {
+            setAiSummary(generateAISummary(initialQuery, searchResults))
+            setIsAiLoading(false)
+          }, 800)
+        }
+      }, 0)
+      return () => clearTimeout(timer)
     }
-  }, [aiMode, initialQuery, aiSummary])
+  }, [aiMode, initialQuery, aiSummary, isAiLoading])
 
   // Filter results by selected categories
   const filteredResults = useMemo(() => {
@@ -638,63 +713,79 @@ const Search = () => {
         <div className="w-full max-w-5xl mx-auto px-6 py-4">
           <div className="flex flex-col gap-3">
             {/* Search Input Group */}
-            <div className="relative group/input flex items-center">
-              <div className="absolute left-4 z-10">
-                <SearchIcon className="size-4.5 text-muted-foreground group-focus-within/input:text-primary transition-colors" />
-              </div>
-              
-              <Input
-                ref={inputRef}
-                placeholder="Search everything... (Enter to search)"
-                value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => setShowRecentSearches(true)}
-                onBlur={() => setTimeout(() => setShowRecentSearches(false), 200)}
-                className="h-12 pl-12 pr-[140px] text-base bg-muted/20 border-muted-foreground/10 hover:border-muted-foreground/30 focus:border-primary/50 focus:ring-4 focus:ring-primary/5 rounded-xl transition-all"
-              />
+            <div className={cn(
+              "relative group/input flex items-center p-px rounded-xl transition-all duration-500 ease-in-out",
+              aiMode
+                ? "bg-linear-to-r from-primary via-indigo-500 to-violet-600 shadow-[0_0_25px_-5px_rgba(var(--primary-rgb),0.4)] scale-[1.005]"
+                : "bg-muted-foreground/10 hover:bg-muted-foreground/20"
+            )}>
+              <div className="flex items-center w-full bg-background rounded-xl overflow-hidden">
+                <div className="absolute left-4 z-10 pointer-events-none">
+                  <SearchIcon className={cn(
+                    "size-4.5 transition-colors duration-300",
+                    aiMode ? "text-primary" : "text-muted-foreground group-focus-within/input:text-primary"
+                  )} />
+                </div>
 
-              <div className="absolute right-2 flex items-center gap-2">
-                {inputValue && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                    onClick={() => setInputValue('')}
-                  >
-                    <X className="size-4" />
-                  </Button>
-                )}
-                
-                {/* AI Toggle inside Input */}
-                <button
-                  onClick={toggleAiMode}
+                <Input
+                  ref={inputRef}
+                  placeholder="Search everything... (Enter to search)"
+                  value={inputValue}
+                  onChange={e => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => setShowRecentSearches(true)}
+                  onBlur={() => setTimeout(() => setShowRecentSearches(false), 200)}
                   className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all duration-300",
-                    aiMode 
-                      ? "bg-primary/10 border-primary/20 text-primary shadow-sm" 
-                      : "bg-background border-muted-foreground/10 text-muted-foreground hover:border-muted-foreground/30"
+                    "h-12 pl-12 pr-[140px] rounded-xl text-base border-none ring-0 focus-visible:ring-0 transition-all",
+                    aiMode ? "bg-background/40 backdrop-blur-sm" : "bg-muted/10"
                   )}
-                  title="AI Search Toggle"
-                >
-                  <Sparkles className={cn("size-3.5", aiMode && "text-primary")} />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">AI</span>
-                </button>
+                />
 
-                <Button 
-                  size="sm" 
-                  className="h-8 px-3 rounded-lg shadow-sm"
-                  onClick={() => executeSearch(inputValue, aiMode)}
-                >
-                  Search
-                </Button>
+                <div className="absolute right-2 flex items-center gap-2">
+                  {inputValue && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      onClick={() => setInputValue('')}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  )}
+
+                  {/* AI Toggle inside Input */}
+                  <button
+                    onClick={toggleAiMode}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all duration-300",
+                      aiMode
+                        ? "bg-primary/20 border-primary/40 text-primary shadow-inner"
+                        : "bg-background border-muted-foreground/10 text-muted-foreground hover:border-muted-foreground/30"
+                    )}
+                    title="AI Search Toggle"
+                  >
+                    <Brain className={cn("size-3.5 animate-pulse", aiMode && "text-primary")} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">AI</span>
+                  </button>
+
+                  <Button
+                    size="sm"
+                    className={cn(
+                      "h-8 px-3 rounded-lg shadow-sm transition-all",
+                      aiMode && "bg-primary hover:bg-primary/90"
+                    )}
+                    onClick={() => executeSearch(inputValue, aiMode)}
+                  >
+                    Search
+                  </Button>
+                </div>
               </div>
 
               {/* Recent Searches Dropdown */}
               {showRecentSearches && !inputValue && (
                 <div className="absolute top-full left-0 right-0 mt-2 p-1.5 bg-background border border-muted-foreground/20 rounded-xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="flex items-center gap-2 px-3 py-2 text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60">
-                    <History className="size-3" />
+                    <HistoryIcon className="size-3" />
                     Recent
                   </div>
                   {RECENT_SEARCHES.map((term, i) => (
@@ -775,18 +866,18 @@ const Search = () => {
               </p>
               <div className="flex items-center gap-3 mt-10 p-2 px-4 rounded-xl bg-muted/20 border border-muted-foreground/5 backdrop-blur-sm text-xs text-muted-foreground/80">
                 <div className="flex items-center gap-1.5 font-mono">
-                    <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">/</kbd>
-                    <span>focus</span>
+                  <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">/</kbd>
+                  <span>focus</span>
                 </div>
                 <span className="opacity-30">•</span>
                 <div className="flex items-center gap-1.5">
-                    <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Enter</kbd>
-                    <span>search</span>
+                  <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Enter</kbd>
+                  <span>search</span>
                 </div>
                 <span className="opacity-30">•</span>
                 <div className="flex items-center gap-1.5 font-mono">
-                    <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Esc</kbd>
-                    <span>clear</span>
+                  <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Esc</kbd>
+                  <span>clear</span>
                 </div>
               </div>
             </div>
@@ -809,11 +900,12 @@ const Search = () => {
           {!isSearching && filteredResults.length > 0 && (
             <>
               {/* AI Summary */}
-              {aiMode && (
+              {(aiMode || initialQuery) && (
                 <AISummaryCard
                   summary={aiSummary}
                   isLoading={isAiLoading}
                   sources={filteredResults.slice(0, 4)}
+                  aiEnabled={aiMode}
                 />
               )}
 
@@ -824,12 +916,6 @@ const Search = () => {
                   <span className="text-muted-foreground/30">•</span>
                   <span>Results for "{initialQuery}"</span>
                 </div>
-                {aiMode && (
-                  <div className="flex items-center gap-1.5 text-primary font-medium animate-pulse">
-                    <Sparkles className="size-3" />
-                    <span className="text-[10px] uppercase tracking-wider">AI Insight Active</span>
-                  </div>
-                )}
               </div>
 
               {/* Grouped Results */}
