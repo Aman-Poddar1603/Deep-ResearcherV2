@@ -5,6 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Kbd } from '@/components/ui/kbd'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from '@/lib/utils'
 import { Persona, type PersonaState } from '@/components/ai-elements/persona'
 import {
@@ -378,10 +385,13 @@ const AISummaryCard = ({
     const timer = setTimeout(() => {
       if (!aiEnabled) {
         setIsCollapsed(true)
+      } else if (isLoading) {
+        // Automatically expand when AI starts synthesizing
+        setIsCollapsed(false)
       }
     }, 0)
     return () => clearTimeout(timer)
-  }, [aiEnabled])
+  }, [aiEnabled, isLoading])
 
   useEffect(() => {
     // Only use effects for transitions or updates after initial render
@@ -661,6 +671,9 @@ const Search = () => {
             setAiSummary(generateAISummary(initialQuery, searchResults))
             setIsAiLoading(false)
           }, 800)
+        } else if (!aiMode && aiSummary) {
+          // Clear summary if AI mode is disabled
+          setAiSummary('')
         }
       }, 0)
       return () => clearTimeout(timer)
@@ -707,235 +720,257 @@ const Search = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
-      {/* Header Section - Compact */}
-      <div className="shrink-0 border-b bg-background/80 backdrop-blur-md sticky top-0 z-30">
-        <div className="w-full max-w-5xl mx-auto px-6 py-4">
-          <div className="flex flex-col gap-3">
-            {/* Search Input Group */}
-            <div className={cn(
-              "relative group/input flex items-center p-px rounded-xl transition-all duration-500 ease-in-out",
-              aiMode
-                ? "bg-linear-to-r from-primary via-indigo-500 to-violet-600 shadow-[0_0_25px_-5px_rgba(var(--primary-rgb),0.4)] scale-[1.005]"
-                : "bg-muted-foreground/10 hover:bg-muted-foreground/20"
-            )}>
-              <div className="flex items-center w-full bg-background rounded-xl overflow-hidden">
-                <div className="absolute left-4 z-10 pointer-events-none">
-                  <SearchIcon className={cn(
-                    "size-4.5 transition-colors duration-300",
-                    aiMode ? "text-primary" : "text-muted-foreground group-focus-within/input:text-primary"
-                  )} />
+    <TooltipProvider delayDuration={400}>
+      <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
+        {/* Header Section - Compact */}
+        <div className="shrink-0 border-b bg-background/80 backdrop-blur-md sticky top-0 z-30">
+          <div className="w-full max-w-5xl mx-auto px-6 py-4">
+            <div className="flex flex-col gap-3">
+              {/* Search Input Group */}
+              <div className={cn(
+                "relative group/input flex items-center p-px rounded-xl transition-all duration-500 ease-in-out",
+                aiMode
+                  ? "bg-linear-to-r from-primary via-indigo-500 to-violet-600 shadow-[0_0_25px_-5px_rgba(var(--primary-rgb),0.4)] scale-[1.005]"
+                  : "bg-muted-foreground/10 hover:bg-muted-foreground/20"
+              )}>
+                <div className="flex items-center w-full bg-background rounded-xl overflow-hidden">
+                  <div className="absolute left-4 z-10 pointer-events-none">
+                    <SearchIcon className={cn(
+                      "size-4.5 transition-colors duration-300",
+                      aiMode ? "text-primary" : "text-muted-foreground group-focus-within/input:text-primary"
+                    )} />
+                  </div>
+
+                  <Input
+                    ref={inputRef}
+                    placeholder="Search everything... (Enter to search)"
+                    value={inputValue}
+                    onChange={e => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => setShowRecentSearches(true)}
+                    onBlur={() => setTimeout(() => setShowRecentSearches(false), 200)}
+                    className={cn(
+                      "h-12 pl-12 pr-[140px] rounded-xl text-base border-none ring-0 focus-visible:ring-0 transition-all",
+                      aiMode ? "bg-background/40 backdrop-blur-sm" : "bg-muted/10"
+                    )}
+                  />
+
+                  <div className="absolute right-2 flex items-center gap-2">
+                    {inputValue && (
+                      <Tooltip shadow-xl>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            onClick={() => setInputValue('')}
+                          >
+                            <X className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="flex items-center gap-2">
+                          Clear Search <Kbd className="text-[10px]">Esc</Kbd>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {/* AI Toggle inside Input */}
+                    <Tooltip shadow-xl>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={toggleAiMode}
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all duration-300",
+                            aiMode
+                              ? "bg-primary/20 border-primary/40 text-primary shadow-inner"
+                              : "bg-background border-muted-foreground/10 text-muted-foreground hover:border-muted-foreground/30"
+                          )}
+                        >
+                          <Brain className={cn("size-3.5 animate-pulse", aiMode && "text-primary")} />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">AI</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {aiMode ? "Disable" : "Enable"} AI Summary insights
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip shadow-xl>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          className={cn(
+                            "h-8 px-3 rounded-lg shadow-sm transition-all",
+                            aiMode && "bg-primary hover:bg-primary/90"
+                          )}
+                          onClick={() => executeSearch(inputValue, aiMode)}
+                        >
+                          Search
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="flex items-center gap-2">
+                        Execute Search <Kbd className="text-[10px]">Enter</Kbd>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
 
-                <Input
-                  ref={inputRef}
-                  placeholder="Search everything... (Enter to search)"
-                  value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => setShowRecentSearches(true)}
-                  onBlur={() => setTimeout(() => setShowRecentSearches(false), 200)}
-                  className={cn(
-                    "h-12 pl-12 pr-[140px] rounded-xl text-base border-none ring-0 focus-visible:ring-0 transition-all",
-                    aiMode ? "bg-background/40 backdrop-blur-sm" : "bg-muted/10"
-                  )}
-                />
-
-                <div className="absolute right-2 flex items-center gap-2">
-                  {inputValue && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                      onClick={() => setInputValue('')}
-                    >
-                      <X className="size-4" />
-                    </Button>
-                  )}
-
-                  {/* AI Toggle inside Input */}
-                  <button
-                    onClick={toggleAiMode}
-                    className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all duration-300",
-                      aiMode
-                        ? "bg-primary/20 border-primary/40 text-primary shadow-inner"
-                        : "bg-background border-muted-foreground/10 text-muted-foreground hover:border-muted-foreground/30"
-                    )}
-                    title="AI Search Toggle"
-                  >
-                    <Brain className={cn("size-3.5 animate-pulse", aiMode && "text-primary")} />
-                    <span className="text-[10px] font-bold uppercase tracking-wider">AI</span>
-                  </button>
-
-                  <Button
-                    size="sm"
-                    className={cn(
-                      "h-8 px-3 rounded-lg shadow-sm transition-all",
-                      aiMode && "bg-primary hover:bg-primary/90"
-                    )}
-                    onClick={() => executeSearch(inputValue, aiMode)}
-                  >
-                    Search
-                  </Button>
-                </div>
+                {/* Recent Searches Dropdown */}
+                {showRecentSearches && !inputValue && (
+                  <div className="absolute top-full left-0 right-0 mt-2 p-1.5 bg-background border border-muted-foreground/20 rounded-xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center gap-2 px-3 py-2 text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60">
+                      <HistoryIcon className="size-3" />
+                      Recent
+                    </div>
+                    {RECENT_SEARCHES.map((term, i) => (
+                      <button
+                        key={i}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                        onClick={() => handleRecentSearch(term)}
+                      >
+                        <Clock className="size-3.5 text-muted-foreground/40" />
+                        <span className="text-sm text-foreground/80">{term}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* Recent Searches Dropdown */}
-              {showRecentSearches && !inputValue && (
-                <div className="absolute top-full left-0 right-0 mt-2 p-1.5 bg-background border border-muted-foreground/20 rounded-xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="flex items-center gap-2 px-3 py-2 text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60">
-                    <HistoryIcon className="size-3" />
-                    Recent
-                  </div>
-                  {RECENT_SEARCHES.map((term, i) => (
-                    <button
-                      key={i}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
-                      onClick={() => handleRecentSearch(term)}
+              {/* Compact Category Filter Row */}
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+                <Button
+                  variant={selectedCategories.length === 0 ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-3 text-xs rounded-lg shrink-0"
+                  onClick={() => updateParams({ categories: null })}
+                >
+                  All Results
+                </Button>
+                <div className="w-px h-3 bg-muted-foreground/20 mx-1" />
+                {CATEGORIES.map(cat => {
+                  const Icon = cat.icon
+                  const isSelected = selectedCategories.includes(cat.id)
+                  const count = results.filter(r => r.category === cat.id).length
+                  return (
+                    <Button
+                      key={cat.id}
+                      variant={isSelected ? "secondary" : "ghost"}
+                      size="sm"
+                      className={cn(
+                        "h-7 px-3 text-xs rounded-lg shrink-0 gap-2 transition-all",
+                        isSelected && "bg-primary/5 text-primary border-primary/20",
+                        !isSelected && "hover:bg-muted/50"
+                      )}
+                      onClick={() => toggleCategory(cat.id)}
                     >
-                      <Clock className="size-3.5 text-muted-foreground/40" />
-                      <span className="text-sm text-foreground/80">{term}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Compact Category Filter Row */}
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-              <Button
-                variant={selectedCategories.length === 0 ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-3 text-xs rounded-lg shrink-0"
-                onClick={() => updateParams({ categories: null })}
-              >
-                All Results
-              </Button>
-              <div className="w-px h-3 bg-muted-foreground/20 mx-1" />
-              {CATEGORIES.map(cat => {
-                const Icon = cat.icon
-                const isSelected = selectedCategories.includes(cat.id)
-                const count = results.filter(r => r.category === cat.id).length
-                return (
-                  <Button
-                    key={cat.id}
-                    variant={isSelected ? "secondary" : "ghost"}
-                    size="sm"
-                    className={cn(
-                      "h-7 px-3 text-xs rounded-lg shrink-0 gap-2 transition-all",
-                      isSelected && "bg-primary/5 text-primary border-primary/20",
-                      !isSelected && "hover:bg-muted/50"
-                    )}
-                    onClick={() => toggleCategory(cat.id)}
-                  >
-                    <Icon className={cn("size-3.5", cat.color)} />
-                    {cat.label}
-                    {count > 0 && (
-                      <span className="flex items-center justify-center min-w-[18px] h-[18px] bg-muted/50 rounded-md text-[10px]">
-                        {count}
-                      </span>
-                    )}
-                  </Button>
-                )
-              })}
+                      <Icon className={cn("size-3.5", cat.color)} />
+                      {cat.label}
+                      {count > 0 && (
+                        <span className="flex items-center justify-center min-w-[18px] h-[18px] bg-muted/50 rounded-md text-[10px]">
+                          {count}
+                        </span>
+                      )}
+                    </Button>
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-8 py-6 space-y-6">
-          {/* Loading State */}
-          {isSearching && (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="size-8 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {/* Empty State - No Query */}
-          {!initialQuery && !isSearching && (
-            <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
-              <div className="p-4 rounded-3xl bg-linear-to-b from-muted-foreground/10 to-transparent mb-8 ring-1 ring-muted-foreground/5 shadow-xl">
-                <SearchIcon className="size-16 text-muted-foreground/20" />
+        {/* Main Content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-5xl mx-auto px-8 py-6 space-y-6">
+            {/* Loading State */}
+            {isSearching && (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="size-8 animate-spin text-muted-foreground" />
               </div>
-              <h2 className="text-2xl font-semibold text-foreground/80 mb-3 tracking-tight">Search Everything</h2>
-              <p className="text-base text-muted-foreground/60 max-w-lg mx-auto leading-relaxed">
-                Connect your dots. Explore researches, chats, assets and knowledge across your entire digital workspace instantly.
-              </p>
-              <div className="flex items-center gap-3 mt-10 p-2 px-4 rounded-xl bg-muted/20 border border-muted-foreground/5 backdrop-blur-sm text-xs text-muted-foreground/80">
-                <div className="flex items-center gap-1.5 font-mono">
-                  <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">/</kbd>
-                  <span>focus</span>
-                </div>
-                <span className="opacity-30">•</span>
-                <div className="flex items-center gap-1.5">
-                  <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Enter</kbd>
-                  <span>search</span>
-                </div>
-                <span className="opacity-30">•</span>
-                <div className="flex items-center gap-1.5 font-mono">
-                  <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Esc</kbd>
-                  <span>clear</span>
-                </div>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* No Results */}
-          {initialQuery && !isSearching && filteredResults.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="p-4 rounded-2xl bg-muted/30 mb-6">
-                <SearchIcon className="size-12 text-muted-foreground/30" />
-              </div>
-              <h2 className="text-xl font-medium text-muted-foreground mb-2">No results found</h2>
-              <p className="text-sm text-muted-foreground/70 max-w-md">
-                Try adjusting your search terms or filters to find what you're looking for.
-              </p>
-            </div>
-          )}
-
-          {/* Results */}
-          {!isSearching && filteredResults.length > 0 && (
-            <>
-              {/* AI Summary */}
-              {(aiMode || initialQuery) && (
-                <AISummaryCard
-                  summary={aiSummary}
-                  isLoading={isAiLoading}
-                  sources={filteredResults.slice(0, 4)}
-                  aiEnabled={aiMode}
-                />
-              )}
-
-              {/* Result Count */}
-              <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-                <div className="flex items-center gap-2">
-                  <span>Found {filteredResults.length} items</span>
-                  <span className="text-muted-foreground/30">•</span>
-                  <span>Results for "{initialQuery}"</span>
+            {/* Empty State - No Query */}
+            {!initialQuery && !isSearching && (
+              <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                <div className="p-4 rounded-3xl bg-linear-to-b from-muted-foreground/10 to-transparent mb-8 ring-1 ring-muted-foreground/5 shadow-xl">
+                  <SearchIcon className="size-16 text-muted-foreground/20" />
+                </div>
+                <h2 className="text-2xl font-semibold text-foreground/80 mb-3 tracking-tight">Search Everything</h2>
+                <p className="text-base text-muted-foreground/60 max-w-lg mx-auto leading-relaxed">
+                  Connect your dots. Explore researches, chats, assets and knowledge across your entire digital workspace instantly.
+                </p>
+                <div className="flex items-center gap-3 mt-10 p-2 px-4 rounded-xl bg-muted/20 border border-muted-foreground/5 backdrop-blur-sm text-xs text-muted-foreground/80">
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">/</kbd>
+                    <span>focus</span>
+                  </div>
+                  <span className="opacity-30">•</span>
+                  <div className="flex items-center gap-1.5">
+                    <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Enter</kbd>
+                    <span>search</span>
+                  </div>
+                  <span className="opacity-30">•</span>
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <kbd className="px-1.5 py-0.5 bg-background border border-muted-foreground/20 rounded shadow-xs">Esc</kbd>
+                    <span>clear</span>
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Grouped Results */}
-              <div className="space-y-4">
-                {groupedResults.map(({ category, results: catResults }, i) => (
-                  <CategoryGroup
-                    key={category.id}
-                    category={category}
-                    results={catResults}
-                    query={initialQuery}
-                    onNavigate={handleNavigate}
-                    defaultExpanded={i < 3}
+            {/* No Results */}
+            {initialQuery && !isSearching && filteredResults.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="p-4 rounded-2xl bg-muted/30 mb-6">
+                  <SearchIcon className="size-12 text-muted-foreground/30" />
+                </div>
+                <h2 className="text-xl font-medium text-muted-foreground mb-2">No results found</h2>
+                <p className="text-sm text-muted-foreground/70 max-w-md">
+                  Try adjusting your search terms or filters to find what you're looking for.
+                </p>
+              </div>
+            )}
+
+            {/* Results */}
+            {!isSearching && filteredResults.length > 0 && (
+              <>
+                {/* AI Summary */}
+                {(aiMode || initialQuery) && (
+                  <AISummaryCard
+                    summary={aiSummary}
+                    isLoading={isAiLoading}
+                    sources={filteredResults.slice(0, 4)}
+                    aiEnabled={aiMode}
                   />
-                ))}
-              </div>
-            </>
-          )}
+                )}
+
+                {/* Result Count */}
+                <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+                  <div className="flex items-center gap-2">
+                    <span>Found {filteredResults.length} items</span>
+                    <span className="text-muted-foreground/30">•</span>
+                    <span>Results for "{initialQuery}"</span>
+                  </div>
+                </div>
+
+                {/* Grouped Results */}
+                <div className="space-y-4">
+                  {groupedResults.map(({ category, results: catResults }, i) => (
+                    <CategoryGroup
+                      key={category.id}
+                      category={category}
+                      results={catResults}
+                      query={initialQuery}
+                      onNavigate={handleNavigate}
+                      defaultExpanded={i < 3}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
 
