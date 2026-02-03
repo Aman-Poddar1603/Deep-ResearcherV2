@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { Plus, FileText, MessageSquare, Files, Clock, Calendar, Briefcase, TrendingUp, Users, LucideIcon } from 'lucide-react'
+import { Plus, FileText, MessageSquare, Files, Clock, Calendar, Briefcase, TrendingUp, Users, LucideIcon, FolderOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 // Mock Data Type
@@ -155,13 +155,28 @@ const mockWorkspaces: Workspace[] = [
 const AllWorkspaces = () => {
   const navigate = useNavigate();
   return (
-    <div className="p-8 space-y-8 h-full text-foreground animate-in fade-in duration-500 overflow-y-auto">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Your Workspaces</h1>
-        <p className="text-muted-foreground">Manage and organize your research projects.</p>
+    <div className="space-y-8 h-full text-foreground animate-in fade-in duration-500 overflow-y-auto">
+      
+      {/* Header section */}
+      <div className="border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
+        <div className="w-full px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-5">
+              <div className="size-12 rounded-2xl bg-linear-to-br from-primary/20 via-primary/10 to-transparent border border-primary/20 flex items-center justify-center animate-in fade-in zoom-in duration-500">
+                <FolderOpen className="size-6 text-primary" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <h1 className="text-xl font-semibold tracking-tight">Your Workspaces</h1>
+                <p className="text-muted-foreground">Manage and organize your research projects.</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10">
+      
+
+      <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10">
         {/* Create Workspace Card */}
         <Card className="flex flex-col items-center justify-center min-h-[300px] border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0" onClick={() => { navigate("/workspaces/new") }}>
           <div className="rounded-full bg-background p-4 mb-4 group-hover:scale-110 transition-transform shadow-sm border">

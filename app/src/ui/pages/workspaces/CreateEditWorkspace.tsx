@@ -31,6 +31,7 @@ import {
   Image as ImageIcon,
   Bot,
   Settings2,
+  FolderPlus,
 } from 'lucide-react'
 
 // Icons available for workspace
@@ -178,11 +179,22 @@ const CreateEditWorkspace = () => {
   }
 
   return (
-    <div className="p-8 space-y-8 h-full text-foreground overflow-y-auto animate-in fade-in duration-500">
+    <div className="space-y-8 h-full text-foreground overflow-y-auto animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Create New Workspace</h1>
-        <p className="text-muted-foreground">Set up your research environment in a few simple steps.</p>
+      <div className="border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
+        <div className="w-full px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-5">
+              <div className="size-12 rounded-2xl bg-linear-to-br from-primary/20 via-primary/10 to-transparent border border-primary/20 flex items-center justify-center animate-in fade-in zoom-in duration-500">
+                <FolderPlus className="size-6 text-primary" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <h1 className="text-xl font-semibold tracking-tight">Create New Workspace</h1>
+                <p className="text-muted-foreground">Set up your research environment in a few simple steps.</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Progress Indicator */}
@@ -193,7 +205,7 @@ const CreateEditWorkspace = () => {
           const isCompleted = stepNumber < currentStep
 
           return (
-            <div key={stepNumber} className="flex items-center flex-1">
+            <div key={stepNumber} className="flex items-center flex-1 last:flex-none">
               <div
                 className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${isCompleted
                     ? 'bg-primary border-primary text-primary-foreground'
@@ -567,7 +579,7 @@ const CreateEditWorkspace = () => {
       </div>
 
       {/* Navigation Buttons */}
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto mb-8">
         <Separator className="mb-6" />
         <div className="flex items-center justify-between">
           <Button

@@ -162,14 +162,15 @@ const History = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
       {/* Header Section */}
       <div className="shrink-0 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
         <div className="w-full px-8 py-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <HistoryIcon className="size-5 text-primary" />
+
+              <div className="size-12 rounded-2xl bg-linear-to-br from-primary/20 via-primary/10 to-transparent border border-primary/20 flex items-center justify-center animate-in fade-in zoom-in duration-500">
+                <HistoryIcon className="size-6 text-primary" />
               </div>
               <div>
                 <h1 className="text-xl font-semibold tracking-tight">
