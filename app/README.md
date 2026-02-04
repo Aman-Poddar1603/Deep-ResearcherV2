@@ -1,29 +1,91 @@
-<h1 align="center">Electron + Vite + React + Typescript + TailWindCSS + ShadCN</h1>
+# 🧠 Deep Researcher
 
-This is an **Electron** template using **Vite, React, Typescript, TailWindCSS and ShadCN**. It includes hot reloading, IPC type-safety and general security.
+Deep Researcher is a high-performance, desktop-native research platform designed to automate and augment complex inquiry. Built with a focus on depth, speed, and analytical precision, it provides researchers with an AI-powered environment to conduct thorough investigations, manage multi-step research plans, and extract verifiable insights.
 
-## Project Setup
-#### It works on Windows but I haven't tested it on neither Linux nor Mac
-1. Clone the repository
-1. Change the **```.env.example```** file to **```.env```**
-1. Run **```npm install```** inside the cloned repository
-1. Run the app to see if everything is working.
+![Deep Researcher Banner](public/brand/inner_logo_dr_light.png)
 
-## For development
-1. **Starting the application** - Run **```npm run dev```** - This starts the application as well as a local server on port **```3524```**
-1. **Changing the port** - You can change the server port at the **```.env```** file.
+## ✨ Features
 
-## For production
-1. To create a production for Windows run **```npm run dist:win```**
-1. To create a production for Linux run **```npm run dist:linux```**
-1. To create a production for Mac run **```npm run dist:mac```**
+- **Autonomous Research Agents**: Deploy agents capable of multi-step reasoning, browsing, and synthesis.
+- **Chain-of-Thought Visualization**: Transparently follow the agent's logic and planning process in real-time.
+- **Dynamic Research Artifacts**: Capture findings and structured data in high-fidelity artifacts for later use.
+- **Workspace-First Architecture**: Organize investigations into dedicated workspaces with persistent context.
+- **Inline Citations & Verifiability**: Every claim is backed by citations, ensuring research integrity.
+- **Premium UI/UX**: A state-of-the-art interface built with **React 19**, **Tailwind CSS 4**, and **Framer Motion**.
+- **Cross-Platform**: Native desktop experience for Windows, macOS, and Linux.
 
-##
+## 🛠️ Technology Stack
 
-**I hope you find this template useful!**
+- **Core**: [Electron](https://www.electronjs.org/) & [Vite](https://vitejs.dev/)
+- **Frontend**: [React 19](https://react.dev/)
+- **Styling**: [Tailwind CSS 4](https://tailwindcss.com/) & [Shadcn UI](https://ui.shadcn.com/)
+- **Animations**: [Motion](https://motion.dev/) & [Rive](https://rive.app/)
+- **Markdown & Syntax**: [Streamdown](https://github.com/streamdown/streamdown) & [Shiki](https://shiki.style/)
+- **Icons**: [Lucide React](https://lucide.dev/)
 
-If you want to support me you can-
+## 🚀 Getting Started
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/georgimy)
+### Prerequisites
 
-[![Follow on X](https://img.shields.io/badge/Follow_%40GeorgiMY-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/GeorgiMY)
+- [Node.js](https://nodejs.org/) (Latest LTS)
+- npm or pnpm
+
+### Installation
+
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/pixelThreaderOfficial/Deep-Researcher.git
+    cd deep-researcher/app
+    ```
+
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+3.  **Environment Setup**:
+    Copy `.env.example` to `.env` and configure your API keys:
+    ```bash
+    cp .env.example .env
+    ```
+
+4.  **Run in Development Mode**:
+    ```bash
+    npm run dev
+    ```
+
+## 📦 Distribution
+
+To build the production-ready application for your platform:
+
+- **Windows**: `npm run dist:win`
+- **macOS**: `npm run dist:mac`
+- **Linux**: `npm run dist:linux`
+
+Builds will be available in the `dist/` directory.
+
+## 📁 Project Structure
+
+```text
+app/
+├── src/
+│   ├── electron/      # Main process & IPC logic
+│   ├── ui/            # React frontend
+│   │   ├── components/ # Shared UI components
+│   │   ├── pages/      # View layouts (Home, Research, etc.)
+│   │   └── themes.css  # Design system tokens
+│   ├── components/    # Specialized AI & Agent elements
+│   └── hooks/         # Custom React hooks
+├── public/            # Static assets
+└── electron-builder.json # Packaging configuration
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Please feel free to submit issues or pull requests to help improve Deep Researcher.
+
+---
+
+<p align="center">
+  Developed with ❤️ by <a href="https://github.com/pixelThreaderOfficial">pixelThreader</a>
+</p>

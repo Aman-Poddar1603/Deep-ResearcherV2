@@ -1,7 +1,10 @@
 {
-	"name": "electron-vite-template",
+	"name": "deep-researcher",
+	"productName": "Deep Researcher",
+	"description": "Autonomous AI-powered research platform for deep investigation and analysis.",
+	"author": "pixelThreader & Team",
 	"private": true,
-	"version": "0.0.0",
+	"version": "2.0.0",
 	"type": "module",
 	"main": "dist-electron/main.js",
 	"scripts": {
@@ -77,5 +80,15 @@
 		"typescript": "~5.9.3",
 		"typescript-eslint": "^8.52.0",
 		"vite": "^7.3.1"
+	},
+	"build": {
+		"appId": "com.pixelthreader.deepresearcher",
+		"directories": {
+			"output": "dist"
+		},
+		"win": {
+			"icon": "public/brand/inner_logo_dr_light.png",
+			"target": "nsis"
+		}
 	}
 }

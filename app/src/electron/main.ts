@@ -6,9 +6,6 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const PORT = process.env.PORT;
-if (!PORT) throw new Error("PORT env variable is not set");
-
 app.on("ready", () => {
     const mainWindow = new BrowserWindow({
         width: 1200,
@@ -25,8 +22,13 @@ app.on("ready", () => {
 
     mainWindow.maximize();
 
-    if (isDev()) mainWindow.loadURL(`http://localhost:${PORT}`)
-    else mainWindow.loadFile(getUIPath());
+    if (isDev()) {
+        const PORT = process.env.PORT;
+        if (!PORT) throw new Error("PORT env variable is not set");
+        mainWindow.loadURL(`http://localhost:${PORT}`);
+    } else {
+        mainWindow.loadFile(getUIPath());
+    }
 
     pollResources(mainWindow);
 
