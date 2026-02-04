@@ -83,12 +83,44 @@
 	},
 	"build": {
 		"appId": "com.pixelthreader.deepresearcher",
+		"productName": "Deep Researcher",
 		"directories": {
 			"output": "dist"
 		},
+		"files": [
+			"dist-electron",
+			"dist-react",
+			"package.json"
+		],
+		"extraResources": [
+			"dist-electron/preload.cjs",
+			{
+				"from": "public/brand",
+				"to": "brand",
+				"filter": [
+					"**/*"
+				]
+			}
+		],
 		"win": {
 			"icon": "public/brand/inner_logo_dr_light.png",
 			"target": "nsis"
-		}
+		},
+		"nsis": {
+			"oneClick": false,
+			"allowToChangeInstallationDirectory": true,
+			"allowElevation": true,
+			"createDesktopShortcut": true,
+			"createStartMenuShortcut": true,
+			"shortcutName": "Deep Researcher"
+		},
+		"mac": {
+			"target": "dmg"
+		},
+		"linux": {
+			"target": "AppImage",
+			"category": "Utility"
+		},
+		"asar": true
 	}
 }
