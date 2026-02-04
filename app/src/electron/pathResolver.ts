@@ -16,9 +16,11 @@ export function getUIPath() {
 }
 
 export function getIconPath() {
+    if (isDev()) {
+        return path.join(app.getAppPath(), 'public/brand/inner_logo_dr_light.png');
+    }
     return path.join(
-        app.getAppPath(),
-        isDev() ? './' : '../',
-        '/public/brand/inner_logo_dr_light.png'
-    )
+        path.dirname(app.getAppPath()),
+        'brand/inner_logo_dr_light.png'
+    );
 }
