@@ -1,0 +1,1 @@
+In this "utils/" folder, we have some utility functions that are used across the project. These functions are designed to be reusable and help with common tasks such as data manipulation, formatting, and other helper functions that can be used in various parts of the codebase.

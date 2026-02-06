@@ -1,0 +1,3 @@
+In this "llms/" directory, we provide implementations of various language models (LLMs) that can be used for this research, like Google's Gemini and Ollama. Use Langchain to easily integrate these models into your applications. Each subdirectory contains the necessary code and instructions to set up and use the respective LLMs. Make sure to follow the setup instructions carefully to ensure proper functionality.
+
+Make sure the Code is reuable and modular, allowing for easy integration into different areas in this codebase.
