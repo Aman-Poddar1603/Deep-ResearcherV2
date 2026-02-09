@@ -36,14 +36,14 @@ export function useChatSimulator() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: 'qwen3-vl:2b',
+                    model: 'granite3-moe',
                     messages: currentMessages.map(m => ({
                         role: m.role,
                         content: m.content,
-                        images: m.images
+                        // images: m.images
                     })),
                     stream: true,
-                    think: true
+                    // think: true
                 }),
             });
 
