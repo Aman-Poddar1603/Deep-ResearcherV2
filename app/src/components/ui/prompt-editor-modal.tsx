@@ -108,20 +108,7 @@ export function PromptEditorModal({ value, onChange }: PromptEditorModalProps) {
                             {displayValue ? (
                                 <Message from="assistant" className="max-w-none w-full">
                                     <MessageContent className="max-w-none w-full bg-transparent p-0 text-base leading-relaxed">
-                                        <MessageResponse
-                                            components={{
-                                                p: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
-                                                    <div className={className || ''}>{children}</div>
-                                                ),
-                                                img: ({ src, alt }: { src?: string; alt?: string }) => (
-                                                    <img
-                                                        src={src}
-                                                        alt={alt}
-                                                        className="h-[400px] w-auto max-w-full rounded-xl border border-border/50 shadow-md my-4 object-contain"
-                                                    />
-                                                ),
-                                            }}
-                                        >
+                                        <MessageResponse>
                                             {displayValue}
                                         </MessageResponse>
                                     </MessageContent>

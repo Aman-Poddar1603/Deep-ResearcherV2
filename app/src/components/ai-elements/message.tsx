@@ -17,9 +17,9 @@ import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, Eye, Download } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
-import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState, Children, isValidElement } from "react";
 import { Streamdown } from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -307,6 +307,54 @@ export const MessageBranchPage = ({
   );
 };
 
+const MarkdownImage = ({ className, ...props }: ComponentProps<"img">) => {
+  const handlePreview = () => {
+    if (props.src) window.open(props.src, "_blank");
+  };
+
+  const handleDownload = () => {
+    if (props.src) {
+      const link = document.createElement("a");
+      link.href = props.src;
+      link.download = (props.alt as string) || "image";
+      link.click();
+    }
+  };
+
+  return (
+    <div className="group/markdown-image relative my-4 flex-none w-fit max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md transition-all hover:shadow-lg snap-start">
+      <img
+        className={cn(
+          "h-[200px] w-auto max-w-none object-contain shrink-0 snap-start",
+          className
+        )}
+        {...props}
+      />
+      {/* Action Overlay */}
+      <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 transition-opacity group-hover/markdown-image:opacity-100">
+        <Button
+          onClick={handlePreview}
+          size="icon-xs"
+          type="button"
+          variant="secondary"
+          className="h-8 w-8 rounded-full shadow-lg"
+        >
+          <Eye size={14} />
+        </Button>
+        <Button
+          onClick={handleDownload}
+          size="icon-xs"
+          type="button"
+          variant="secondary"
+          className="h-8 w-8 rounded-full shadow-lg"
+        >
+          <Download size={14} />
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 export const MessageResponse = memo(
@@ -318,9 +366,24 @@ export const MessageResponse = memo(
       )}
       components={{
         // Use div instead of p to avoid hydration errors with nested block elements (like images or tables)
-        p: ({ children, className }) => (
-          <div className={cn("mb-4 last:mb-0", className)}>{children}</div>
-        ),
+        p: ({ children, className }) => {
+          const childrenArray = Children.toArray(children);
+          const hasImages = childrenArray.some(child =>
+            isValidElement(child) && (child.type === 'img' || (child.props as { src?: string })?.src)
+          );
+
+          if (hasImages && childrenArray.length > 1) {
+            return (
+              <div className={cn("mb-4 last:mb-0 flex gap-4 overflow-x-auto pb-4 scrollbar-hide snap-x", className)}>
+                {children}
+              </div>
+            );
+          }
+          return <div className={cn("mb-4 last:mb-0", className)}>{children}</div>;
+        },
+        img: ({ className, ...props }) => (
+          <MarkdownImage className={className} {...props} />
+        )
       }}
       plugins={{ code, mermaid, math, cjk }}
       shikiTheme={['github-light', 'github-dark']}
