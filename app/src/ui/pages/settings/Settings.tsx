@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -134,22 +134,51 @@ const Settings = () => {
     const [showSources, setShowSources] = useState(true)
     const [detailedAnalysis, setDetailedAnalysis] = useState(true)
 
-    // Save profile data to localStorage when changed
+    // Danger Zone Logic
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+    const [deleteType, setDeleteType] = useState<'all_data' | 'buckets' | 'reset_app' | null>(null)
+    const [confirmCode, setConfirmCode] = useState('')
+    const [userCodeInput, setUserCodeInput] = useState('')
+
+
+
+    // Memoize handlers to prevent unnecessary re-renders
+    const handleProfileNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setProfileName(e.target.value)
+    }, [])
+
+    const handleProfileEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setProfileEmail(e.target.value)
+    }, [])
+
+    const handleResearcherNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setResearcherName(e.target.value)
+    }, [])
+
+    const handleUserCodeInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setUserCodeInput(e.target.value)
+    }, [])
+
+    // Save profile data to localStorage when changed (debounced)
     useEffect(() => {
-        if (profileAvatar) localStorage.setItem('dr_profile_avatar', profileAvatar)
-        else localStorage.removeItem('dr_profile_avatar')
+        const timeoutId = setTimeout(() => {
+            if (profileAvatar) localStorage.setItem('dr_profile_avatar', profileAvatar)
+            else localStorage.removeItem('dr_profile_avatar')
 
-        if (profileName) localStorage.setItem('dr_profile_name', profileName)
-        else localStorage.removeItem('dr_profile_name')
+            if (profileName) localStorage.setItem('dr_profile_name', profileName)
+            else localStorage.removeItem('dr_profile_name')
 
-        if (profileEmail) localStorage.setItem('dr_profile_email', profileEmail)
-        else localStorage.removeItem('dr_profile_email')
+            if (profileEmail) localStorage.setItem('dr_profile_email', profileEmail)
+            else localStorage.removeItem('dr_profile_email')
 
-        if (profileBio) localStorage.setItem('dr_profile_bio', profileBio)
-        else localStorage.removeItem('dr_profile_bio')
+            if (profileBio) localStorage.setItem('dr_profile_bio', profileBio)
+            else localStorage.removeItem('dr_profile_bio')
 
-        if (researcherName) localStorage.setItem('dr_researcher_name', researcherName)
-        else localStorage.removeItem('dr_researcher_name')
+            if (researcherName) localStorage.setItem('dr_researcher_name', researcherName)
+            else localStorage.removeItem('dr_researcher_name')
+        }, 1000) // Debounce for 1 second
+
+        return () => clearTimeout(timeoutId)
     }, [profileAvatar, profileName, profileEmail, profileBio, researcherName])
 
     const handleAvatarClick = () => {
@@ -212,12 +241,6 @@ const Settings = () => {
         setShowSources(true)
         setDetailedAnalysis(true)
     }
-
-    // Danger Zone Logic
-    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-    const [deleteType, setDeleteType] = useState<'all_data' | 'buckets' | 'reset_app' | null>(null)
-    const [confirmCode, setConfirmCode] = useState('')
-    const [userCodeInput, setUserCodeInput] = useState('')
 
     const generateRandomCode = () => {
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -383,7 +406,7 @@ const Settings = () => {
                                     <label className="text-sm font-medium text-foreground">Name</label>
                                     <Input
                                         value={profileName}
-                                        onChange={(e) => setProfileName(e.target.value)}
+                                        onChange={handleProfileNameChange}
                                         placeholder="Enter your name"
                                         className="bg-background"
                                     />
@@ -393,7 +416,7 @@ const Settings = () => {
                                     <Input
                                         type="email"
                                         value={profileEmail}
-                                        onChange={(e) => setProfileEmail(e.target.value)}
+                                        onChange={handleProfileEmailChange}
                                         placeholder="your.email@example.com"
                                         className="bg-background"
                                     />
@@ -493,7 +516,7 @@ const Settings = () => {
                         <SettingItem label="Researcher Name" description="Give your AI assistant a familiar name">
                             <Input
                                 value={researcherName}
-                                onChange={(e) => setResearcherName(e.target.value)}
+                                onChange={handleResearcherNameChange}
                                 placeholder="Alfred"
                                 className="w-[200px] bg-background"
                             />
@@ -712,7 +735,7 @@ const Settings = () => {
                         </div>
                         <Input
                             value={userCodeInput}
-                            onChange={(e) => setUserCodeInput(e.target.value)}
+                            onChange={handleUserCodeInputChange}
                             placeholder="Enter confirmation code"
                             className="text-center font-mono tracking-widest uppercase"
                         />

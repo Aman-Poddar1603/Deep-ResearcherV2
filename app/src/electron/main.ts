@@ -15,7 +15,8 @@ app.on("ready", () => {
         // Shouldn't add contextIsolate or nodeIntegration because of security vulnerabilities
         webPreferences: {
             preload: getPreloadPath(),
-            webSecurity: false,
+            webSecurity: true,
+            allowRunningInsecureContent: false, // Explicitly disable insecure content execution
         },
         icon: getIconPath(),
         frame: false,
