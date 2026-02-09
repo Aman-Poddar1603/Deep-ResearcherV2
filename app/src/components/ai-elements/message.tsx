@@ -20,7 +20,7 @@ import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon, Eye, Download } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import { createContext, memo, useContext, useEffect, useMemo, useState, Children, isValidElement } from "react";
-import { Streamdown } from "streamdown";
+import { Streamdown, defaultRehypePlugins } from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -364,25 +364,111 @@ export const MessageResponse = memo(
         "size-full overflow-x-auto overflow-y-hidden [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      rehypePlugins={useMemo(() => {
+        const plugins: NonNullable<MessageResponseProps["rehypePlugins"]> = [];
+        if (defaultRehypePlugins.raw) plugins.push(defaultRehypePlugins.raw);
+
+        if (defaultRehypePlugins.sanitize) {
+          const sanitizeEntry = defaultRehypePlugins.sanitize;
+          const sanitizePlugin = Array.isArray(sanitizeEntry) ? sanitizeEntry[0] : sanitizeEntry;
+
+          plugins.push([sanitizePlugin, {
+            tagNames: ['iframe', 'span', 'div', 'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'hr', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'details', 'summary'],
+            attributes: {
+              '*': ['className', 'style', 'id'],
+              iframe: ['src', 'width', 'height', 'title', 'frameborder', 'allow', 'allowfullscreen', 'referrerpolicy', 'className', 'style'],
+              a: ['href', 'target', 'rel'],
+              img: ['src', 'alt', 'title', 'width', 'height'],
+            }
+          }]);
+        }
+
+        return plugins;
+      }, [])}
       components={{
         // Use div instead of p to avoid hydration errors with nested block elements (like images or tables)
         p: ({ children, className }) => {
           const childrenArray = Children.toArray(children);
-          const hasImages = childrenArray.some(child =>
-            isValidElement(child) && (child.type === 'img' || (child.props as { src?: string })?.src)
+          const hasMedia = childrenArray.some(child =>
+            isValidElement(child) && (
+              child.type === 'img' ||
+              child.type === 'iframe' ||
+              (typeof child.type === 'string' && child.type === 'a') ||
+              (child.props as { src?: string })?.src
+            )
           );
 
-          if (hasImages && childrenArray.length > 1) {
+          if (hasMedia && childrenArray.length > 1) {
             return (
-              <div className={cn("mb-4 last:mb-0 flex gap-4 overflow-x-auto pb-4 scrollbar-hide snap-x", className)}>
+              <div className={cn("mb-4 last:mb-0 flex gap-4 overflow-x-auto pb-4 scrollbar-hide snap-x items-start", className)}>
                 {children}
               </div>
             );
           }
           return <div className={cn("mb-4 last:mb-0", className)}>{children}</div>;
         },
+        a: ({ href, children, className }) => {
+          const ytMatch = href?.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+
+          if (ytMatch) {
+            const videoId = ytMatch[1];
+            return (
+              <div className="my-4 flex-none w-[355px] max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
+                <iframe
+                  src={`https://www.youtube.com/embed/${videoId}`}
+                  className="w-full h-[200px] bg-muted/20"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+            );
+          }
+
+          return <a href={href} className={cn("text-primary hover:underline", className)} target="_blank" rel="noopener noreferrer">{children}</a>;
+        },
+        // Robust HTML handling for raw <iframe> tags
+        html: ({ children, className }) => {
+          const content = String(children);
+          // Manually extract iframe src if present to render a clean version
+          // Handles both raw strings and potentially escaped content
+          const iframeMatch = content.match(/<iframe.*?src=["'](.*?)["'].*?>/i) ||
+            content.match(/&lt;iframe.*?src=["'](.*?)["'].*?&gt;/i);
+
+          if (iframeMatch) {
+            return (
+              <div className="my-4 flex-none w-[355px] max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
+                <iframe
+                  src={iframeMatch[1]}
+                  className={cn("w-full h-[200px] bg-muted/20", className)}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+            );
+          }
+
+          if (typeof children === 'string') {
+            return (
+              <div
+                className={cn("my-4 whitespace-normal wrap-break-word", className)}
+                dangerouslySetInnerHTML={{ __html: children }}
+              />
+            );
+          }
+          return <div className={cn("my-4", className)}>{children}</div>;
+        },
         img: ({ className, ...props }) => (
           <MarkdownImage className={className} {...props} />
+        ),
+        iframe: ({ className, ...props }) => (
+          <div className="my-4 flex-none w-[355px] max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
+            <iframe
+              className={cn("w-full h-[200px] bg-muted/20", className)}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              {...props}
+            />
+          </div>
         )
       }}
       plugins={{ code, mermaid, math, cjk }}
