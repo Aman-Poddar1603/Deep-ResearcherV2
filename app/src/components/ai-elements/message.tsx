@@ -19,6 +19,7 @@ import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon, Eye, Download } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
+import type { Plugin } from "unified";
 import { createContext, memo, useContext, useEffect, useMemo, useState, Children, isValidElement } from "react";
 import { Streamdown, defaultRehypePlugins } from "streamdown";
 
@@ -370,17 +371,31 @@ export const MessageResponse = memo(
 
         if (defaultRehypePlugins.sanitize) {
           const sanitizeEntry = defaultRehypePlugins.sanitize;
-          const sanitizePlugin = Array.isArray(sanitizeEntry) ? sanitizeEntry[0] : sanitizeEntry;
 
-          plugins.push([sanitizePlugin, {
-            tagNames: ['iframe', 'span', 'div', 'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'hr', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'details', 'summary'],
-            attributes: {
-              '*': ['className', 'style', 'id'],
-              iframe: ['src', 'width', 'height', 'title', 'frameborder', 'allow', 'allowfullscreen', 'referrerpolicy', 'className', 'style'],
-              a: ['href', 'target', 'rel'],
-              img: ['src', 'alt', 'title', 'width', 'height'],
-            }
-          }]);
+          // Handle both plugin and [plugin, options] formats
+          if (Array.isArray(sanitizeEntry)) {
+            // If it's already an array, use the first element (the plugin)
+            plugins.push([sanitizeEntry[0] as Plugin, {
+              tagNames: ['iframe', 'span', 'div', 'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'hr', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'details', 'summary'],
+              attributes: {
+                '*': ['className', 'style', 'id'],
+                iframe: ['src', 'width', 'height', 'title', 'frameborder', 'allow', 'allowfullscreen', 'referrerpolicy', 'className', 'style'],
+                a: ['href', 'target', 'rel'],
+                img: ['src', 'alt', 'title', 'width', 'height'],
+              }
+            }]);
+          } else {
+            // Otherwise, use it directly
+            plugins.push([sanitizeEntry as Plugin, {
+              tagNames: ['iframe', 'span', 'div', 'p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'hr', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'details', 'summary'],
+              attributes: {
+                '*': ['className', 'style', 'id'],
+                iframe: ['src', 'width', 'height', 'title', 'frameborder', 'allow', 'allowfullscreen', 'referrerpolicy', 'className', 'style'],
+                a: ['href', 'target', 'rel'],
+                img: ['src', 'alt', 'title', 'width', 'height'],
+              }
+            }]);
+          }
         }
 
         return plugins;

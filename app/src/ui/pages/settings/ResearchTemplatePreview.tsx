@@ -158,6 +158,12 @@ Explore the vibe of Bali through these highly-rated travel guides:
 ----
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/2q91J52NFGs?si=4at0ux05KTy4-lmm" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+### Bali Tour | Bali Tourist Places | Bali Indonesia | Bali Travel Guide | Bali | Nusa Penida #bali
+This video can give you glimpse of the trip to bali.
+
+-----
+
 <iframe width="560" height="315" src="https://www.youtube.com/embed/2q91J52NFGs?si=4at0ux05KTy4-lmm" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 <iframe width="560" height="315" src="https://www.youtube.com/embed/2q91J52NFGs?si=4at0ux05KTy4-lmm" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 <iframe width="560" height="315" src="https://www.youtube.com/embed/2q91J52NFGs?si=4at0ux05KTy4-lmm" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
