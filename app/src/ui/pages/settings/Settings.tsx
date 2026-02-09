@@ -21,6 +21,8 @@ import {
     Save,
     RotateCcw,
 } from 'lucide-react'
+import { ButtonGroup } from '@/components/ui/button-group'
+import { ResearchTemplatePreview } from './ResearchTemplatePreview'
 
 // Settings Section Component
 interface SettingsSectionProps {
@@ -269,19 +271,22 @@ const Settings = () => {
                             </div>
                         </div>
                         <SettingItem label="Research Template" description="Select a predefined research approach">
-                            <Select value={researchTemplate} onValueChange={setResearchTemplate}>
-                                <SelectTrigger className="w-[180px] bg-background">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="comprehensive">Comprehensive</SelectItem>
-                                    <SelectItem value="quick-summary">Quick Summary</SelectItem>
-                                    <SelectItem value="academic">Academic</SelectItem>
-                                    <SelectItem value="market-analysis">Market Analysis</SelectItem>
-                                    <SelectItem value="technical-deep-dive">Technical Deep Dive</SelectItem>
-                                    <SelectItem value="comparative">Comparative Study</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <ButtonGroup>
+                                <Select value={researchTemplate} onValueChange={setResearchTemplate}>
+                                    <SelectTrigger className="w-[180px] bg-background">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="comprehensive">Comprehensive</SelectItem>
+                                        <SelectItem value="quick-summary">Quick Summary</SelectItem>
+                                        <SelectItem value="academic">Academic</SelectItem>
+                                        <SelectItem value="market-analysis">Market Analysis</SelectItem>
+                                        <SelectItem value="technical-deep-dive">Technical Deep Dive</SelectItem>
+                                        <SelectItem value="comparative">Comparative Study</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <ResearchTemplatePreview template={researchTemplate} />
+                            </ButtonGroup>
                         </SettingItem>
                         <SettingItem label="Stream Responses" description="Show AI responses as they're generated">
                             <Switch checked={streamResponse} onCheckedChange={setStreamResponse} />
