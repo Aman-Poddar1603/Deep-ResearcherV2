@@ -16,7 +16,7 @@ import {
     Bell,
     Database,
     Globe,
-    Sparkles,
+    BrainCircuit,
     ChevronRight,
     Save,
     RotateCcw,
@@ -239,7 +239,7 @@ const Settings = () => {
                     <SettingsSection
                         title="AI Behavior"
                         description="Control how the AI assistant operates"
-                        icon={<Sparkles className="size-5 text-primary" />}
+                        icon={<BrainCircuit className="size-5 text-primary" />}
                         delay="450ms"
                     >
                         <SettingItem label="AI Personality" description="Choose the AI's communication style">

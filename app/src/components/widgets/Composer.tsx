@@ -92,9 +92,11 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
             // Check for "/" key
             // Don't trigger if user is already typing in an input, textarea, or contentEditable element
             const target = e.target as HTMLElement
-            const isTyping = target.tagName === 'INPUT' ||
+            const isTyping =
+                target.tagName === 'INPUT' ||
                 target.tagName === 'TEXTAREA' ||
-                target.isContentEditable
+                target.isContentEditable ||
+                target.closest('[contenteditable="true"]') !== null
 
             if (e.key === '/' && !isTyping) {
                 e.preventDefault()

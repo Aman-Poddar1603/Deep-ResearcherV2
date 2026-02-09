@@ -24,9 +24,10 @@ app.on("ready", () => {
     mainWindow.maximize();
 
     if (isDev()) {
-        const PORT = process.env.PORT;
-        if (!PORT) throw new Error("PORT env variable is not set");
+        const PORT = process.env.PORT || '3000'; // Default to 3000 if not set
         mainWindow.loadURL(`http://localhost:${PORT}`);
+        // Automaticaly open DevTools on start (removable/closable)
+        mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(getUIPath());
     }
