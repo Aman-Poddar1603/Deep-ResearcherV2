@@ -413,13 +413,15 @@ export const MessageResponse = memo(
           if (ytMatch) {
             const videoId = ytMatch[1];
             return (
-              <div className="my-4 flex-none w-[355px] max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
-                <iframe
-                  src={`https://www.youtube.com/embed/${videoId}`}
-                  className="w-full h-[200px] bg-muted/20"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
+              <div className="w-full my-6">
+                <div className="mx-auto w-full max-w-4xl overflow-hidden rounded-xl border border-border/50 shadow-lg transition-all hover:shadow-xl aspect-video">
+                  <iframe
+                    src={`https://www.youtube.com/embed/${videoId}`}
+                    className="w-full h-full bg-muted/20"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
               </div>
             );
           }
@@ -436,13 +438,15 @@ export const MessageResponse = memo(
 
           if (iframeMatch) {
             return (
-              <div className="my-4 flex-none w-[355px] max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
-                <iframe
-                  src={iframeMatch[1]}
-                  className={cn("w-full h-[200px] bg-muted/20", className)}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
+              <div className="w-full my-6">
+                <div className="mx-auto w-full max-w-4xl overflow-hidden rounded-xl border border-border/50 shadow-lg transition-all hover:shadow-xl aspect-video">
+                  <iframe
+                    src={iframeMatch[1]}
+                    className={cn("w-full h-full bg-muted/20", className)}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
               </div>
             );
           }
@@ -461,9 +465,9 @@ export const MessageResponse = memo(
           <MarkdownImage className={className} {...props} />
         ),
         iframe: ({ className, ...props }) => (
-          <div className="my-4 flex-none w-[355px] max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
+          <div className="my-4 flex-none max-w-full overflow-hidden rounded-xl border border-border/50 shadow-md aspect-video snap-start">
             <iframe
-              className={cn("w-full h-[200px] bg-muted/20", className)}
+              className={cn("w-full h-full bg-muted/20", className)}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
               {...props}
