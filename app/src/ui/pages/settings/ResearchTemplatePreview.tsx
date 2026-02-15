@@ -21,7 +21,7 @@ interface ResearchTemplatePreviewProps {
     trigger?: React.ReactNode
 }
 
-const TEMPLATE_DETAILS = {
+export const TEMPLATE_DETAILS = {
     comprehensive: {
         title: 'Comprehensive Research',
         description: 'A deep, all-encompassing investigation covering background, current state, and future outlook.',

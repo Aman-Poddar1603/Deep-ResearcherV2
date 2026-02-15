@@ -44,8 +44,7 @@ import {
     HoverCardContent,
     HoverCardTrigger,
 } from '@/components/ui/hover-card'
-import { ButtonGroup } from '@/components/ui/button-group'
-import { ResearchTemplatePreview } from './ResearchTemplatePreview'
+import { ResearchTemplateSelector } from '@/ui/components/ResearchTemplateSelector'
 import { cn } from '@/lib/utils'
 import { useInternalLogo } from '@/ui/components/GetLogo'
 
@@ -85,10 +84,11 @@ interface SettingItemProps {
     label: string
     description?: string
     children: React.ReactNode
+    className?: string
 }
 
-const SettingItem = ({ label, description, children }: SettingItemProps) => (
-    <div className="flex items-center justify-between gap-4">
+const SettingItem = ({ label, description, children, className }: SettingItemProps) => (
+    <div className={cn("flex items-center justify-between gap-4", className)}>
         <div className="flex-1">
             <p className="text-sm font-medium text-foreground">{label}</p>
             {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
@@ -547,23 +547,12 @@ const Settings = () => {
                                 />
                             </div>
                         </div>
-                        <SettingItem label="Research Template" description="Select a predefined research approach">
-                            <ButtonGroup>
-                                <Select value={researchTemplate} onValueChange={setResearchTemplate}>
-                                    <SelectTrigger className="w-[180px] bg-background">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="comprehensive">Comprehensive</SelectItem>
-                                        <SelectItem value="quick-summary">Quick Summary</SelectItem>
-                                        <SelectItem value="academic">Academic</SelectItem>
-                                        <SelectItem value="market-analysis">Market Analysis</SelectItem>
-                                        <SelectItem value="technical-deep-dive">Technical Deep Dive</SelectItem>
-                                        <SelectItem value="comparative">Comparative Study</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <ResearchTemplatePreview template={researchTemplate} />
-                            </ButtonGroup>
+                        <SettingItem label="Research Template" description="Select a predefined research approach" className="gap-0">
+                            <ResearchTemplateSelector
+                                value={researchTemplate}
+                                onChange={setResearchTemplate}
+                                className="w-fit"
+                            />
                         </SettingItem>
                         <SettingItem label="Stream Responses" description={`Show ${researcherName} responses as they're generated`}>
                             <Switch checked={streamResponse} onCheckedChange={setStreamResponse} />

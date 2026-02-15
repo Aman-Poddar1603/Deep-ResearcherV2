@@ -18,7 +18,7 @@ import { Settings } from "@/ui/pages/settings"
 import NotFound from "@/ui/pages/settings/NotFound"
 
 // Research Pages
-import { AllResearches, NewResearch } from "@/ui/pages/Research"
+import { AllResearches, NewResearch, ResearchThread, ResearchChat } from "@/ui/pages/Research"
 
 // Chat Pages
 import { ChatInterface, Chats } from "@/ui/pages/chats"
@@ -39,6 +39,8 @@ function App() {
                     {/* Research Routes - TODO: Create these pages */}
                     <Route path="/researches/new" element={<NewResearch />} />
                     <Route path="/researches/all" element={<AllResearches />} />
+                    <Route path="/researches/:id" element={<ResearchThread />} />
+                    <Route path="/researches/:id/chat" element={<ResearchChat />} />
 
                     {/* Chat Routes - TODO: Create these pages */}
                     <Route path="/chat/:id" element={<ChatInterface />} />
