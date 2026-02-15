@@ -1,4 +1,4 @@
-import { useEffect, memo, useCallback, useState } from 'react'
+import { useEffect, memo, useCallback, useState, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
 import {
@@ -29,8 +29,7 @@ import {
     ArtifactActions, ArtifactAction, ArtifactContent,
 } from '@/components/ai-elements/artifact'
 import {
-    InlineCitation, InlineCitationText,
-    InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody,
+    InlineCitation, InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody,
 } from '@/components/ai-elements/inline-citation'
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { Persona } from '@/components/ai-elements/persona'
@@ -148,20 +147,12 @@ const ContentStepRenderer = memo(({ step, isLast, isRunning }: { step: TContentS
                         {step.content}
                     </MessageResponse>
 
-                    {/* Inline citation markers */}
                     {step.citations && step.citations.length > 0 && !streaming && (
                         <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-border/30">
                             {step.citations.map((cit, i) => (
                                 <InlineCitation key={i}>
                                     <InlineCitationCard>
-                                        <InlineCitationCardTrigger>
-                                            <InlineCitationText>
-                                                <Badge variant="secondary" className="text-[10px] gap-1 cursor-pointer hover:bg-primary/10 transition-colors">
-                                                    <ExternalLink className="size-2.5" />
-                                                    {cit.sources[0]?.title.slice(0, 40)}...
-                                                </Badge>
-                                            </InlineCitationText>
-                                        </InlineCitationCardTrigger>
+                                        <InlineCitationCardTrigger sources={cit.sources.map(s => s.url)} />
                                         <InlineCitationCardBody>
                                             <div className="space-y-2 p-3">
                                                 {cit.sources.map((src, si) => (
@@ -240,13 +231,15 @@ const COTStepRenderer = memo(({ step }: { step: TCOTStep }) => (
                             label={s.label}
                             status={s.status}
                         >
-                            <MessageResponse className="text-muted-foreground mt-2 mb-2 w-full">
-                                {s.content}
-                            </MessageResponse>
+                            {s.content && (
+                                <p className="text-sm text-muted-foreground mt-1 mb-1 w-full leading-relaxed">
+                                    {s.content}
+                                </p>
+                            )}
 
                             {/* Search results as badges */}
                             {s.searchResults && s.searchResults.length > 0 && (
-                                <ChainOfThoughtSearchResults className="mb-2">
+                                <ChainOfThoughtSearchResults className="mt-1 mb-1">
                                     {s.searchResults.map((sr, sri) => (
                                         <ChainOfThoughtSearchResult key={sri}>
                                             {sr.url ? (
@@ -262,11 +255,15 @@ const COTStepRenderer = memo(({ step }: { step: TCOTStep }) => (
                             {/* Image within thought step */}
                             {s.image && (
                                 <ChainOfThoughtImage
-                                    src={s.image.src}
-                                    alt={s.image.caption}
                                     caption={s.image.caption}
-                                    className="mb-4"
-                                />
+                                    className="mt-1 mb-2"
+                                >
+                                    <img
+                                        src={s.image.src}
+                                        alt={s.image.caption}
+                                        className="object-cover w-full h-full rounded-md"
+                                    />
+                                </ChainOfThoughtImage>
                             )}
                         </ChainOfThoughtStep>
                     ))}
@@ -280,29 +277,53 @@ COTStepRenderer.displayName = 'COTStepRenderer'
 const ConfirmationStepRenderer = memo(({
     step,
     isPending,
+    wasApproved,
     onApprove,
     onReject,
 }: {
     step: TConfirmationStep
     isPending: boolean
+    wasApproved: boolean | null
     onApprove: (value: string) => void
     onReject: (reason?: string) => void
-}) => (
-    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <Confirmation
-            state={isPending ? 'approval-requested' : 'approved'}
-        >
-            <ConfirmationTitle>
-                <div className="flex items-center gap-2">
-                    <div className="size-6 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Sparkles className="size-3.5 text-primary" />
-                    </div>
-                    Approval Required
-                </div>
-            </ConfirmationTitle>
-            <ConfirmationRequest>{step.question}</ConfirmationRequest>
+}) => {
+    // Build the approval object the Confirmation component expects
+    const approvalObj = isPending
+        ? { id: step.question }
+        : wasApproved === true
+            ? { id: step.question, approved: true as const }
+            : wasApproved === false
+                ? { id: step.question, approved: false as const, reason: 'User declined' }
+                : { id: step.question }
 
-            {isPending ? (
+    return (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <Confirmation
+                approval={approvalObj}
+                state={isPending ? 'approval-requested' : 'approval-responded'}
+            >
+                <ConfirmationTitle>
+                    <div className="flex items-center gap-2 mb-2">
+                        <div className="size-6 rounded-full bg-primary/20 flex items-center justify-center">
+                            <Sparkles className="size-3.5 text-primary" />
+                        </div>
+                        <span className="font-medium">Approval Required</span>
+                    </div>
+                    <ConfirmationRequest>
+                        <p className="text-sm text-muted-foreground mt-1">{step.question}</p>
+                    </ConfirmationRequest>
+                    <ConfirmationAccepted>
+                        <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 mt-2">
+                            <CheckCircle2 className="size-3" />
+                            Approved — proceeding with detailed analysis
+                        </div>
+                    </ConfirmationAccepted>
+                    <ConfirmationRejected>
+                        <div className="flex items-center gap-1.5 text-xs text-destructive mt-2">
+                            Research stopped by user
+                        </div>
+                    </ConfirmationRejected>
+                </ConfirmationTitle>
                 <ConfirmationActions>
                     {step.actions.map((action, i) => (
                         <ConfirmationAction
@@ -319,23 +340,10 @@ const ConfirmationStepRenderer = memo(({
                         Decline
                     </ConfirmationAction>
                 </ConfirmationActions>
-            ) : (
-                <ConfirmationAccepted>
-                    <div className="flex items-center gap-1.5 text-xs text-green-600">
-                        <CheckCircle2 className="size-3" />
-                        Approved — proceeding with detailed analysis
-                    </div>
-                </ConfirmationAccepted>
-            )}
-
-            <ConfirmationRejected>
-                <div className="flex items-center gap-1.5 text-xs text-destructive">
-                    Research stopped by user
-                </div>
-            </ConfirmationRejected>
-        </Confirmation>
-    </div>
-))
+            </Confirmation>
+        </div>
+    )
+})
 ConfirmationStepRenderer.displayName = 'ConfirmationStepRenderer'
 
 const ArtifactStepRenderer = memo(({
@@ -375,7 +383,7 @@ const ArtifactStepRenderer = memo(({
                     onClick={onOpenArtifact}
                 >
                     <p className="text-sm text-muted-foreground line-clamp-3">
-                        {step.content.slice(0, 250).replace(/[#*_\[\]]/g, '')}...
+                        {step.content.slice(0, 250).replace(/[#*_[\]]/g, '')}...
                     </p>
                     <span className="text-xs text-primary mt-2 inline-block font-medium">
                         Click to view full report →
@@ -391,13 +399,14 @@ ArtifactStepRenderer.displayName = 'ArtifactStepRenderer'
 
 const ResearchStepItem = memo(({
     step, isLast, isRunning,
-    isPendingConfirmation, onApprove, onReject,
+    isPendingConfirmation, confirmationApproved, onApprove, onReject,
     onOpenArtifact,
 }: {
     step: ResearchStep
     isLast: boolean
     isRunning: boolean
     isPendingConfirmation: boolean
+    confirmationApproved: boolean | null
     onApprove: (value: string) => void
     onReject: (reason?: string) => void
     onOpenArtifact: () => void
@@ -414,6 +423,7 @@ const ResearchStepItem = memo(({
             <ConfirmationStepRenderer
                 step={step}
                 isPending={isPendingConfirmation && isLast}
+                wasApproved={confirmationApproved}
                 onApprove={onApprove}
                 onReject={onReject}
             />
@@ -497,6 +507,22 @@ const ResearchThread = () => {
     } = useResearchSimulator()
     const [copyStatus, setCopyStatus] = useState<'idle' | 'loading' | 'success'>('idle')
     const [artifactOpen, setArtifactOpen] = useState(false)
+    // Track whether the confirmation was approved or rejected
+    const [confirmationApproved, setConfirmationApproved] = useState<boolean | null>(null)
+    const confirmationApprovedRef = useRef<boolean | null>(null)
+
+    // Wrapped approve/reject handlers that track the outcome
+    const handleConfirmApprove = useCallback((value: string) => {
+        setConfirmationApproved(true)
+        confirmationApprovedRef.current = true
+        approveConfirmation(value)
+    }, [approveConfirmation])
+
+    const handleConfirmReject = useCallback((reason?: string) => {
+        setConfirmationApproved(false)
+        confirmationApprovedRef.current = false
+        rejectConfirmation(reason)
+    }, [rejectConfirmation])
 
     // Find the artifact step for the sheet content
     const artifactStep = steps.find((s): s is ResearchStep & { type: 'artifact' } => s.type === 'artifact') as
@@ -639,8 +665,9 @@ const ResearchThread = () => {
                             isLast={idx === steps.length - 1}
                             isRunning={isRunning}
                             isPendingConfirmation={isPendingConfirmation}
-                            onApprove={approveConfirmation}
-                            onReject={rejectConfirmation}
+                            confirmationApproved={confirmationApproved}
+                            onApprove={handleConfirmApprove}
+                            onReject={handleConfirmReject}
                             onOpenArtifact={() => setArtifactOpen(true)}
                         />
                     ))}
