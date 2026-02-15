@@ -6,7 +6,7 @@ import { app } from "electron"
 export function getPreloadPath() {
     return path.join(
         app.getAppPath(),
-        '/dist-electron/preload.js'
+        '/dist-electron/preload.cjs'
     )
 }
 

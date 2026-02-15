@@ -1,4 +1,4 @@
-import electron from "electron";
+const electron = require("electron");
 
 electron.contextBridge.exposeInMainWorld("electron", {
     subscribeStatistics: (callback: any) =>
