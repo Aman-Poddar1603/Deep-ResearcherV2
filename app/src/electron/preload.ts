@@ -1,12 +1,12 @@
 import electron from "electron";
 
 electron.contextBridge.exposeInMainWorld("electron", {
-    subscribeStatistics: (callback) =>
-        ipcOn("statistics", stats => {
+    subscribeStatistics: (callback: any) =>
+        ipcOn("statistics", (stats: any) => {
             callback(stats);
         }),
-    subscribeWindowResize: (callback) =>
-        ipcOn("resizeWindow", isMaximized => {
+    subscribeWindowResize: (callback: any) =>
+        ipcOn("resizeWindow", (isMaximized: any) => {
             callback(isMaximized);
         }),
     getStaticData: () => ipcInvoke("getStaticData"),
@@ -14,7 +14,7 @@ electron.contextBridge.exposeInMainWorld("electron", {
     minimizeWindow: () => ipcSend("minimizeWindow"),
     maximizeWindow: () => ipcSend("maximizeWindow"),
     toggleDevTools: () => ipcSend("toggleDevTools"),
-} satisfies Window['electron'])
+} as any)
 
 function ipcSend<Key extends keyof EventPayloadMapping>(key: Key) {
     electron.ipcRenderer.send(key);

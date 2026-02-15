@@ -26,7 +26,7 @@ import {
 } from '@/components/ai-elements/confirmation'
 import {
     Artifact, ArtifactHeader, ArtifactTitle, ArtifactDescription,
-    ArtifactActions, ArtifactAction, ArtifactContent,
+    ArtifactActions, ArtifactContent,
 } from '@/components/ai-elements/artifact'
 import {
     InlineCitation, InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody,
@@ -42,7 +42,16 @@ import {
     Clock, Zap, Hash, Database, CopyIcon, CheckIcon,
     ChevronLeft, Sparkles, Youtube, Link as LinkIcon,
     CheckCircle2, Circle, Loader2, Download, ExternalLink,
+    ChevronDown, MessageSquare, FileJson, FileType, FileOutput, Share2,
 } from 'lucide-react'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import { toast } from "sonner"
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useResearchSimulator } from './useResearchSimulator'
@@ -352,47 +361,129 @@ const ArtifactStepRenderer = memo(({
 }: {
     step: TArtifactStep
     onOpenArtifact: () => void
-}) => (
-    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <Artifact>
-            <ArtifactHeader>
-                <div className="flex-1">
-                    <ArtifactTitle>{step.title}</ArtifactTitle>
-                    <ArtifactDescription>{step.description}</ArtifactDescription>
-                </div>
-                <ArtifactActions>
-                    <ArtifactAction label="View Report" onClick={onOpenArtifact}>
-                        <ExternalLink className="size-4" />
-                    </ArtifactAction>
-                    <ArtifactAction label="Download" onClick={() => {
-                        const blob = new Blob([step.content], { type: 'text/markdown' })
-                        const url = URL.createObjectURL(blob)
-                        const a = document.createElement('a')
-                        a.href = url
-                        a.download = `${step.title.replace(/[^a-zA-Z0-9]/g, '_')}.md`
-                        a.click()
-                        URL.revokeObjectURL(url)
-                    }}>
-                        <Download className="size-4" />
-                    </ArtifactAction>
-                </ArtifactActions>
-            </ArtifactHeader>
-            <ArtifactContent>
-                <div
-                    className="cursor-pointer hover:bg-accent/50 transition-colors rounded-lg p-3"
-                    onClick={onOpenArtifact}
-                >
-                    <p className="text-sm text-muted-foreground line-clamp-3">
-                        {step.content.slice(0, 250).replace(/[#*_[\]]/g, '')}...
-                    </p>
-                    <span className="text-xs text-primary mt-2 inline-block font-medium">
-                        Click to view full report →
-                    </span>
-                </div>
-            </ArtifactContent>
-        </Artifact>
-    </div>
-))
+}) => {
+    const handleDownload = (format: 'md' | 'pdf' | 'docx') => {
+        if (format === 'md') {
+            const blob = new Blob([step.content], { type: 'text/markdown' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${step.title.replace(/[^a-zA-Z0-9]/g, '_')}.md`
+            a.click()
+            URL.revokeObjectURL(url)
+            toast.success("Markdown report downloaded")
+        } else {
+            // Simulated formats
+            toast.info(`Generating ${format.toUpperCase()} report...`)
+            setTimeout(() => {
+                const blob = new Blob([step.content], { type: 'text/plain' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `${step.title.replace(/[^a-zA-Z0-9]/g, '_')}.${format}`
+                a.click()
+                URL.revokeObjectURL(url)
+                toast.success(`${format.toUpperCase()} report downloaded`)
+            }, 1000)
+        }
+    }
+
+    return (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <Artifact className="border-primary/20 bg-linear-to-b from-card to-card/50 shadow-xl overflow-hidden">
+                <ArtifactHeader className="border-b border-border/10 bg-muted/5 p-6">
+                    <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                            <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase tracking-wider font-bold bg-primary/5 border-primary/20 text-primary">
+                                Research Artifact
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground">•</span>
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Ready</span>
+                        </div>
+                        <ArtifactTitle className="text-xl font-bold tracking-tight">{step.title}</ArtifactTitle>
+                        <ArtifactDescription className="text-sm text-muted-foreground/80">{step.description}</ArtifactDescription>
+                    </div>
+                    <ArtifactActions>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-9 gap-1.5 border-primary/20 bg-background/50 backdrop-blur-sm">
+                                    <Download className="size-4" />
+                                    Download
+                                    <ChevronDown className="size-3.5 opacity-50" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem onClick={() => handleDownload('pdf')} className="gap-2">
+                                    <FileType className="size-4 text-red-500" />
+                                    <span>Download PDF</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDownload('docx')} className="gap-2">
+                                    <FileType className="size-4 text-blue-500" />
+                                    <span>Download Word</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleDownload('md')} className="gap-2">
+                                    <FileText className="size-4 text-primary" />
+                                    <span>Download Markdown</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="gap-2">
+                                    <FileJson className="size-4 text-amber-500" />
+                                    <span>Download RAW Data</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <Button
+                            variant="default"
+                            size="sm"
+                            className="h-9 gap-1.5 shadow-lg shadow-primary/20"
+                            onClick={onOpenArtifact}
+                        >
+                            <ExternalLink className="size-4" />
+                            Open Report
+                        </Button>
+                    </ArtifactActions>
+                </ArtifactHeader>
+                <ArtifactContent className="p-0">
+                    <div
+                        className="group relative cursor-pointer hover:bg-muted/50 transition-all p-8 flex gap-6 items-start"
+                        onClick={onOpenArtifact}
+                    >
+                        {/* Report Cover Preview Style */}
+                        <div className="w-24 h-32 shrink-0 rounded border border-border/50 bg-background shadow-inner flex flex-col p-2 gap-1 overflow-hidden transition-transform group-hover:scale-105 group-hover:rotate-1">
+                            <div className="h-1.5 w-full bg-primary/20 rounded-full" />
+                            <div className="h-1 w-2/3 bg-muted rounded-full mt-1" />
+                            <div className="mt-2 space-y-1">
+                                <div className="h-0.5 w-full bg-border rounded-full" />
+                                <div className="h-0.5 w-full bg-border rounded-full" />
+                                <div className="h-0.5 w-3/4 bg-border rounded-full" />
+                                <div className="h-0.5 w-full bg-border rounded-full" />
+                                <div className="h-0.5 w-1/2 bg-border rounded-full" />
+                            </div>
+                            <div className="mt-auto h-8 w-full bg-muted/20 rounded flex items-center justify-center">
+                                <FileText className="size-3 text-muted-foreground" />
+                            </div>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">Executive Summary</h4>
+                            <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3 italic font-serif">
+                                "{step.content.slice(0, 300).replace(/[#*_[\]]/g, '')}..."
+                            </p>
+                            <div className="flex items-center gap-3 mt-4">
+                                <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">PDF v1.0</span>
+                                <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Markdown</span>
+                                <span className="text-[10px] font-bold text-primary ml-auto group-hover:translate-x-1 transition-transform">
+                                    Click to read full template report →
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </ArtifactContent>
+            </Artifact>
+        </div>
+    )
+})
 ArtifactStepRenderer.displayName = 'ArtifactStepRenderer'
 
 // ─── Step Dispatcher ──────────────────────────────────────────────────────────
@@ -679,6 +770,32 @@ const ResearchThread = () => {
                             <Shimmer className="text-sm font-medium">Researching...</Shimmer>
                         </div>
                     )}
+
+                    {/* ── Finish State: Chat link ──────────────────────────────────── */}
+                    {!isRunning && steps.length > 0 && (
+                        <div className="flex justify-center pt-8 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-500">
+                            <div className="p-8 rounded-3xl border border-primary/20 bg-linear-to-b from-primary/5 to-transparent flex flex-col items-center text-center max-w-lg w-full">
+                                <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                                    <MessageSquare className="size-6 text-primary" />
+                                </div>
+                                <h3 className="text-xl font-bold mb-2">Research Completed Successfully</h3>
+                                <p className="text-sm text-muted-foreground mb-6">
+                                    The deep research has been synthesized into the final artifact.
+                                    You can now dive deeper into the findings or ask follow-up questions.
+                                </p>
+                                <div className="flex items-center gap-3 w-full">
+                                    <Button className="flex-1 gap-2 h-11 text-base shadow-lg shadow-primary/20">
+                                        <MessageSquare className="size-4" />
+                                        Chat on this research
+                                    </Button>
+                                    <Button variant="outline" className="flex-1 gap-2 h-11 text-base">
+                                        <Share2 className="size-4" />
+                                        Share Report
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </ConversationContent>
                 <ConversationScrollButton />
             </Conversation>
@@ -735,19 +852,61 @@ const ResearchThread = () => {
 
             {/* ── Artifact Sheet ───────────────────────────────────────────────── */}
             <Sheet open={artifactOpen} onOpenChange={setArtifactOpen}>
-                <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-                    <SheetHeader>
-                        <SheetTitle>{artifactStep?.title || 'Research Report'}</SheetTitle>
-                        <SheetDescription>{artifactStep?.description || ''}</SheetDescription>
-                    </SheetHeader>
-                    <div className="px-4 pb-8">
-                        <Message from="assistant" className="max-w-full">
-                            <MessageContent className="bg-transparent px-0 py-0 w-full">
-                                <MessageResponse>
-                                    {artifactStep?.content || ''}
-                                </MessageResponse>
-                            </MessageContent>
-                        </Message>
+                <SheetContent side="right" className="w-full sm:w-1/2 sm:max-w-none border-l border-border/50 bg-card/95 backdrop-blur-xl p-0 flex flex-col overflow-hidden">
+                    <div className="flex-1 overflow-y-auto px-8 pt-8 pb-32">
+                        <SheetHeader className="space-y-4 p-0">
+                            <div className="flex items-center gap-4">
+                                <div className="size-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                                    <FileText className="size-7 text-primary" />
+                                </div>
+                                <div>
+                                    <SheetTitle className="text-2xl font-bold tracking-tight">{artifactStep?.title || 'Research Report'}</SheetTitle>
+                                    <SheetDescription className="text-base">
+                                        {artifactStep?.description || 'Generated by Deep Researcher Engine'}
+                                    </SheetDescription>
+                                </div>
+                            </div>
+                        </SheetHeader>
+
+                        <div className="mt-12 bg-background rounded-3xl border border-border/50 shadow-sm p-8 max-w-none">
+                            <Message from="assistant" className="max-w-none w-full">
+                                <MessageContent className="bg-transparent px-0 py-0 w-full text-base leading-relaxed">
+                                    <MessageResponse>
+                                        {artifactStep?.content || ''}
+                                    </MessageResponse>
+                                </MessageContent>
+                            </Message>
+                        </div>
+                    </div>
+
+                    <div className="shrink-0 p-8 border-t bg-background/50 backdrop-blur-xl flex items-center justify-between gap-4 absolute bottom-0 left-0 right-0">
+                        <Button
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={() => setArtifactOpen(false)}
+                        >
+                            Close Report
+                        </Button>
+
+                        <div className="flex items-center gap-3">
+                            <Button variant="outline" className="gap-2 border-primary/20">
+                                <FileOutput className="size-4" />
+                                Export JSON
+                            </Button>
+                            <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => {
+                                if (artifactStep) {
+                                    const blob = new Blob([artifactStep.content], { type: 'text/markdown' })
+                                    const url = URL.createObjectURL(blob)
+                                    const a = document.createElement('a')
+                                    a.href = url
+                                    a.download = `${artifactStep.title}.md`
+                                    a.click()
+                                }
+                            }}>
+                                <Download className="size-4" />
+                                Download Markdown
+                            </Button>
+                        </div>
                     </div>
                 </SheetContent>
             </Sheet>
