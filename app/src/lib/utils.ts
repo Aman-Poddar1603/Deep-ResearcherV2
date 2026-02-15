@@ -137,3 +137,8 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
     return fallback
   }
 }
+
+
+export const getVersion = () => {
+  return "2.0.1"
+}

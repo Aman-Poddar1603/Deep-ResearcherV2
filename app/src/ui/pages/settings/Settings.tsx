@@ -45,7 +45,7 @@ import {
     HoverCardTrigger,
 } from '@/components/ui/hover-card'
 import { ResearchTemplateSelector } from '@/ui/components/ResearchTemplateSelector'
-import { cn } from '@/lib/utils'
+import { cn, getVersion } from '@/lib/utils'
 import { useInternalLogo } from '@/ui/components/GetLogo'
 
 // Settings Section Component
@@ -695,7 +695,7 @@ const Settings = () => {
 
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-medium text-foreground">App Version</span>
-                                <span className="text-sm text-muted-foreground">v2.0.0</span>
+                                <span className="text-sm text-muted-foreground">v{getVersion()}</span>
                             </div>
 
                             <div className="flex items-center justify-between">
