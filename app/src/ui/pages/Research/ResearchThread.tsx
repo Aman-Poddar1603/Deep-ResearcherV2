@@ -1,4 +1,4 @@
-import { useEffect, memo, useCallback } from 'react'
+import { useEffect, memo, useCallback, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
 import {
@@ -17,15 +17,32 @@ import { Sources, SourcesTrigger, SourcesContent, Source } from '@/components/ai
 import { Task, TaskTrigger, TaskContent, TaskItem, TaskItemFile } from '@/components/ai-elements/task'
 import {
     ChainOfThought, ChainOfThoughtHeader, ChainOfThoughtContent, ChainOfThoughtStep,
+    ChainOfThoughtSearchResults, ChainOfThoughtSearchResult, ChainOfThoughtImage,
 } from '@/components/ai-elements/chain-of-thought'
+import {
+    Confirmation, ConfirmationTitle, ConfirmationRequest,
+    ConfirmationAccepted, ConfirmationRejected,
+    ConfirmationActions, ConfirmationAction,
+} from '@/components/ai-elements/confirmation'
+import {
+    Artifact, ArtifactHeader, ArtifactTitle, ArtifactDescription,
+    ArtifactActions, ArtifactAction, ArtifactContent,
+} from '@/components/ai-elements/artifact'
+import {
+    InlineCitation, InlineCitationText,
+    InlineCitationCard, InlineCitationCardTrigger, InlineCitationCardBody,
+} from '@/components/ai-elements/inline-citation'
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { Persona } from '@/components/ai-elements/persona'
+import {
+    Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import {
     SearchIcon, Square, Globe, FileText, BookOpen,
     Clock, Zap, Hash, Database, CopyIcon, CheckIcon,
     ChevronLeft, Sparkles, Youtube, Link as LinkIcon,
-    CheckCircle2, Circle, Loader2,
+    CheckCircle2, Circle, Loader2, Download, ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -41,9 +58,9 @@ import type {
     TaskStep as TTaskStep,
     ChainOfThoughtStep as TCOTStep,
     ConfirmationStep as TConfirmationStep,
+    ArtifactStep as TArtifactStep,
 } from './research_response'
 import "katex/dist/katex.min.css"
-import { useState } from 'react'
 
 // ─── Step Renderers ───────────────────────────────────────────────────────────
 
@@ -57,44 +74,47 @@ const ReasoningStepRenderer = memo(({ step, isLast, isRunning }: { step: TReason
 ))
 ReasoningStepRenderer.displayName = 'ReasoningStepRenderer'
 
-const PlanStepRenderer = memo(({ step, isLast, isRunning }: { step: TPlanStep; isLast: boolean; isRunning: boolean }) => (
-    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <Plan isStreaming={isLast && isRunning} defaultOpen>
-            <PlanHeader>
-                <div>
-                    <PlanTitle>{step.title}</PlanTitle>
-                    <PlanDescription>{step.description}</PlanDescription>
-                </div>
-                <PlanAction>
-                    <PlanTrigger />
-                </PlanAction>
-            </PlanHeader>
-            <PlanContent>
-                <div className="space-y-2 pb-4">
-                    {step.tasks.map((task, i) => (
-                        <div key={i} className="flex items-center gap-3 px-1">
-                            {task.status === 'complete' ? (
-                                <CheckCircle2 className="size-4 text-green-500 shrink-0" />
-                            ) : task.status === 'active' ? (
-                                <Loader2 className="size-4 text-primary animate-spin shrink-0" />
-                            ) : (
-                                <Circle className="size-4 text-muted-foreground/40 shrink-0" />
-                            )}
-                            <span className={cn(
-                                "text-sm",
-                                task.status === 'complete' && "text-muted-foreground line-through",
-                                task.status === 'active' && "text-foreground font-medium",
-                                task.status === 'pending' && "text-muted-foreground"
-                            )}>
-                                {task.label}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            </PlanContent>
-        </Plan>
-    </div>
-))
+const PlanStepRenderer = memo(({ step, isRunning }: { step: TPlanStep; isRunning: boolean }) => {
+    const hasActiveTask = step.tasks.some(t => t.status === 'active')
+    return (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <Plan isStreaming={hasActiveTask && isRunning} defaultOpen>
+                <PlanHeader>
+                    <div>
+                        <PlanTitle>{step.title}</PlanTitle>
+                        <PlanDescription>{step.description}</PlanDescription>
+                    </div>
+                    <PlanAction>
+                        <PlanTrigger />
+                    </PlanAction>
+                </PlanHeader>
+                <PlanContent>
+                    <div className="space-y-2 pb-4">
+                        {step.tasks.map((task, i) => (
+                            <div key={i} className="flex items-center gap-3 px-1">
+                                {task.status === 'complete' ? (
+                                    <CheckCircle2 className="size-4 text-green-500 shrink-0" />
+                                ) : task.status === 'active' ? (
+                                    <Loader2 className="size-4 text-primary animate-spin shrink-0" />
+                                ) : (
+                                    <Circle className="size-4 text-muted-foreground/40 shrink-0" />
+                                )}
+                                <span className={cn(
+                                    "text-sm transition-all duration-300",
+                                    task.status === 'complete' && "text-muted-foreground line-through",
+                                    task.status === 'active' && "text-foreground font-medium",
+                                    task.status === 'pending' && "text-muted-foreground"
+                                )}>
+                                    {task.label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </PlanContent>
+            </Plan>
+        </div>
+    )
+})
 PlanStepRenderer.displayName = 'PlanStepRenderer'
 
 const ToolCallStepRenderer = memo(({ step }: { step: TToolCallStep }) => (
@@ -127,6 +147,43 @@ const ContentStepRenderer = memo(({ step, isLast, isRunning }: { step: TContentS
                     >
                         {step.content}
                     </MessageResponse>
+
+                    {/* Inline citation markers */}
+                    {step.citations && step.citations.length > 0 && !streaming && (
+                        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-border/30">
+                            {step.citations.map((cit, i) => (
+                                <InlineCitation key={i}>
+                                    <InlineCitationCard>
+                                        <InlineCitationCardTrigger>
+                                            <InlineCitationText>
+                                                <Badge variant="secondary" className="text-[10px] gap-1 cursor-pointer hover:bg-primary/10 transition-colors">
+                                                    <ExternalLink className="size-2.5" />
+                                                    {cit.sources[0]?.title.slice(0, 40)}...
+                                                </Badge>
+                                            </InlineCitationText>
+                                        </InlineCitationCardTrigger>
+                                        <InlineCitationCardBody>
+                                            <div className="space-y-2 p-3">
+                                                {cit.sources.map((src, si) => (
+                                                    <div key={si} className="space-y-1">
+                                                        <a
+                                                            href={src.url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-sm font-medium text-primary hover:underline"
+                                                        >
+                                                            {src.title}
+                                                        </a>
+                                                        <p className="text-xs text-muted-foreground">{src.description}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </InlineCitationCardBody>
+                                    </InlineCitationCard>
+                                </InlineCitation>
+                            ))}
+                        </div>
+                    )}
                 </MessageContent>
             </Message>
         </div>
@@ -183,9 +240,34 @@ const COTStepRenderer = memo(({ step }: { step: TCOTStep }) => (
                             label={s.label}
                             status={s.status}
                         >
-                            <MessageResponse className="text-muted-foreground mt-2 mb-4 w-full">
+                            <MessageResponse className="text-muted-foreground mt-2 mb-2 w-full">
                                 {s.content}
                             </MessageResponse>
+
+                            {/* Search results as badges */}
+                            {s.searchResults && s.searchResults.length > 0 && (
+                                <ChainOfThoughtSearchResults className="mb-2">
+                                    {s.searchResults.map((sr, sri) => (
+                                        <ChainOfThoughtSearchResult key={sri}>
+                                            {sr.url ? (
+                                                <a href={sr.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                                    {sr.label}
+                                                </a>
+                                            ) : sr.label}
+                                        </ChainOfThoughtSearchResult>
+                                    ))}
+                                </ChainOfThoughtSearchResults>
+                            )}
+
+                            {/* Image within thought step */}
+                            {s.image && (
+                                <ChainOfThoughtImage
+                                    src={s.image.src}
+                                    alt={s.image.caption}
+                                    caption={s.image.caption}
+                                    className="mb-4"
+                                />
+                            )}
                         </ChainOfThoughtStep>
                     ))}
                 </ChainOfThoughtContent>
@@ -195,44 +277,148 @@ const COTStepRenderer = memo(({ step }: { step: TCOTStep }) => (
 ))
 COTStepRenderer.displayName = 'COTStepRenderer'
 
-const ConfirmationStepRenderer = memo(({ step }: { step: TConfirmationStep }) => (
+const ConfirmationStepRenderer = memo(({
+    step,
+    isPending,
+    onApprove,
+    onReject,
+}: {
+    step: TConfirmationStep
+    isPending: boolean
+    onApprove: (value: string) => void
+    onReject: (reason?: string) => void
+}) => (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-                <div className="size-6 rounded-full bg-primary/20 flex items-center justify-center">
-                    <Sparkles className="size-3.5 text-primary" />
+        <Confirmation
+            state={isPending ? 'approval-requested' : 'approved'}
+        >
+            <ConfirmationTitle>
+                <div className="flex items-center gap-2">
+                    <div className="size-6 rounded-full bg-primary/20 flex items-center justify-center">
+                        <Sparkles className="size-3.5 text-primary" />
+                    </div>
+                    Approval Required
                 </div>
-                <span className="text-sm font-semibold text-primary">Approval Required</span>
-            </div>
-            <p className="text-sm text-foreground">{step.question}</p>
-            <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="gap-1.5 text-xs">
-                    <CheckCircle2 className="size-3 text-green-500" />
-                    Auto-approved
-                </Badge>
-                <span className="text-xs text-muted-foreground">Proceeding with detailed analysis</span>
-            </div>
-        </div>
+            </ConfirmationTitle>
+            <ConfirmationRequest>{step.question}</ConfirmationRequest>
+
+            {isPending ? (
+                <ConfirmationActions>
+                    {step.actions.map((action, i) => (
+                        <ConfirmationAction
+                            key={i}
+                            onClick={() => onApprove(action.value)}
+                        >
+                            {action.label}
+                        </ConfirmationAction>
+                    ))}
+                    <ConfirmationAction
+                        variant="outline"
+                        onClick={() => onReject('User declined')}
+                    >
+                        Decline
+                    </ConfirmationAction>
+                </ConfirmationActions>
+            ) : (
+                <ConfirmationAccepted>
+                    <div className="flex items-center gap-1.5 text-xs text-green-600">
+                        <CheckCircle2 className="size-3" />
+                        Approved — proceeding with detailed analysis
+                    </div>
+                </ConfirmationAccepted>
+            )}
+
+            <ConfirmationRejected>
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                    Research stopped by user
+                </div>
+            </ConfirmationRejected>
+        </Confirmation>
     </div>
 ))
 ConfirmationStepRenderer.displayName = 'ConfirmationStepRenderer'
 
+const ArtifactStepRenderer = memo(({
+    step,
+    onOpenArtifact,
+}: {
+    step: TArtifactStep
+    onOpenArtifact: () => void
+}) => (
+    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <Artifact>
+            <ArtifactHeader>
+                <div className="flex-1">
+                    <ArtifactTitle>{step.title}</ArtifactTitle>
+                    <ArtifactDescription>{step.description}</ArtifactDescription>
+                </div>
+                <ArtifactActions>
+                    <ArtifactAction label="View Report" onClick={onOpenArtifact}>
+                        <ExternalLink className="size-4" />
+                    </ArtifactAction>
+                    <ArtifactAction label="Download" onClick={() => {
+                        const blob = new Blob([step.content], { type: 'text/markdown' })
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `${step.title.replace(/[^a-zA-Z0-9]/g, '_')}.md`
+                        a.click()
+                        URL.revokeObjectURL(url)
+                    }}>
+                        <Download className="size-4" />
+                    </ArtifactAction>
+                </ArtifactActions>
+            </ArtifactHeader>
+            <ArtifactContent>
+                <div
+                    className="cursor-pointer hover:bg-accent/50 transition-colors rounded-lg p-3"
+                    onClick={onOpenArtifact}
+                >
+                    <p className="text-sm text-muted-foreground line-clamp-3">
+                        {step.content.slice(0, 250).replace(/[#*_\[\]]/g, '')}...
+                    </p>
+                    <span className="text-xs text-primary mt-2 inline-block font-medium">
+                        Click to view full report →
+                    </span>
+                </div>
+            </ArtifactContent>
+        </Artifact>
+    </div>
+))
+ArtifactStepRenderer.displayName = 'ArtifactStepRenderer'
+
 // ─── Step Dispatcher ──────────────────────────────────────────────────────────
 
-const ResearchStepItem = memo(({ step, isLast, isRunning }: {
+const ResearchStepItem = memo(({
+    step, isLast, isRunning,
+    isPendingConfirmation, onApprove, onReject,
+    onOpenArtifact,
+}: {
     step: ResearchStep
     isLast: boolean
     isRunning: boolean
+    isPendingConfirmation: boolean
+    onApprove: (value: string) => void
+    onReject: (reason?: string) => void
+    onOpenArtifact: () => void
 }) => {
     switch (step.type) {
         case 'reasoning': return <ReasoningStepRenderer step={step} isLast={isLast} isRunning={isRunning} />
-        case 'plan': return <PlanStepRenderer step={step} isLast={isLast} isRunning={isRunning} />
+        case 'plan': return <PlanStepRenderer step={step} isRunning={isRunning} />
         case 'tool-call': return <ToolCallStepRenderer step={step} />
         case 'content': return <ContentStepRenderer step={step} isLast={isLast} isRunning={isRunning} />
         case 'sources': return <SourcesStepRenderer step={step} />
         case 'task': return <TaskStepRenderer step={step} />
         case 'chain-of-thought': return <COTStepRenderer step={step} />
-        case 'confirmation': return <ConfirmationStepRenderer step={step} />
+        case 'confirmation': return (
+            <ConfirmationStepRenderer
+                step={step}
+                isPending={isPendingConfirmation && isLast}
+                onApprove={onApprove}
+                onReject={onReject}
+            />
+        )
+        case 'artifact': return <ArtifactStepRenderer step={step} onOpenArtifact={onOpenArtifact} />
         default: return null
     }
 })
@@ -304,8 +490,18 @@ const ResearchThread = () => {
     const location = useLocation()
     const navigate = useNavigate()
     const state = location.state as ResearchNavigationState | null
-    const { steps, stats, isRunning, elapsedSeconds, stopResearch, startResearch } = useResearchSimulator()
+    const {
+        steps, stats, isRunning, elapsedSeconds,
+        isPendingConfirmation, approveConfirmation, rejectConfirmation,
+        stopResearch, startResearch,
+    } = useResearchSimulator()
     const [copyStatus, setCopyStatus] = useState<'idle' | 'loading' | 'success'>('idle')
+    const [artifactOpen, setArtifactOpen] = useState(false)
+
+    // Find the artifact step for the sheet content
+    const artifactStep = steps.find((s): s is ResearchStep & { type: 'artifact' } => s.type === 'artifact') as
+        | (ResearchStep & { type: 'artifact'; title: string; description: string; content: string })
+        | undefined
 
     // Auto-start on mount
     useEffect(() => {
@@ -442,11 +638,15 @@ const ResearchThread = () => {
                             step={step}
                             isLast={idx === steps.length - 1}
                             isRunning={isRunning}
+                            isPendingConfirmation={isPendingConfirmation}
+                            onApprove={approveConfirmation}
+                            onReject={rejectConfirmation}
+                            onOpenArtifact={() => setArtifactOpen(true)}
                         />
                     ))}
 
                     {/* ── Thinking shimmer when running with no new step ───────────── */}
-                    {isRunning && steps.length > 0 && (
+                    {isRunning && steps.length > 0 && !isPendingConfirmation && (
                         <div className="flex items-center gap-2 animate-in fade-in duration-300">
                             <Persona state="thinking" className="size-5" variant="glint" />
                             <Shimmer className="text-sm font-medium">Researching...</Shimmer>
@@ -505,6 +705,25 @@ const ResearchThread = () => {
                     </div>
                 )}
             </footer>
+
+            {/* ── Artifact Sheet ───────────────────────────────────────────────── */}
+            <Sheet open={artifactOpen} onOpenChange={setArtifactOpen}>
+                <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+                    <SheetHeader>
+                        <SheetTitle>{artifactStep?.title || 'Research Report'}</SheetTitle>
+                        <SheetDescription>{artifactStep?.description || ''}</SheetDescription>
+                    </SheetHeader>
+                    <div className="px-4 pb-8">
+                        <Message from="assistant" className="max-w-full">
+                            <MessageContent className="bg-transparent px-0 py-0 w-full">
+                                <MessageResponse>
+                                    {artifactStep?.content || ''}
+                                </MessageResponse>
+                            </MessageContent>
+                        </Message>
+                    </div>
+                </SheetContent>
+            </Sheet>
         </div>
     )
 }
