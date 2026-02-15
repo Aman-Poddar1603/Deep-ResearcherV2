@@ -121,21 +121,21 @@ export default function NewResearch() {
   }
 
   const handleStartResearch = () => {
-    console.log({
+    const researchData = {
       title: title || 'Deep Research Task (Auto-generated)',
       description: description || 'Auto-generated description based on context.',
       prompt,
       workspaceId: selectedWorkspace,
+      workspaceName: mockWorkspaces.find(ws => ws.id === selectedWorkspace)?.title || 'Unknown Workspace',
       preferences: {
         enableChat,
         allowBackendResearch,
         template,
-        customInstructions
+        customInstructions,
       },
-      sources
-    })
-    // Navigate to the research page (mock navigation)
-    // navigate('/research/123') 
+      sources: sources.map(s => ({ type: s.type, value: s.value, name: s.name })),
+    }
+    navigate('/researches/sim-001', { state: researchData })
   }
 
   return (
