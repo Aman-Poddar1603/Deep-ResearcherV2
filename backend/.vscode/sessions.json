@@ -7,50 +7,15 @@
     "sessions": {
         "default": [
             {
-                "name": "hello",
+                "name": "Terminal",
                 "autoExecuteCommands": false,
-                "icon": "person",
-                "color": "terminal.ansiGreen",
+                "icon": "terminal",
+                "color": "terminal.ansiBrightCyan",
                 "commands": [
                     "echo hello"
                 ]
-            },
-            [
-                {
-                    "name": "docker:ros",
-                    "commands": [
-                        ""
-                    ]
-                },
-                {
-                    "name": "docker:k8s",
-                    "commands": [
-                        ""
-                    ]
-                }
-            ],
-            [
-                {
-                    "name": "docker:nats",
-                    "commands": [
-                        ""
-                    ]
-                },
-                {
-                    "name": "docker:fleet",
-                    "commands": [
-                        ""
-                    ]
-                }
-            ]
-        ],
-        "saved-session": [
-            {
-                "name": "connect",
-                "commands": [
-                    ""
-                ]
             }
-        ]
+        ],
+        "saved-session": []
     }
 }
