@@ -1,5 +1,5 @@
 [project]
-name = "deep researcher backend"
+name = "deep-researcher-backend"
 version = "2.0.0"
 description = "This is an Backend for Deep Researcher, a research assistant that helps you to find relevant papers and summarize them."
 readme = "README.md"
