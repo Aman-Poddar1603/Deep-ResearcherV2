@@ -1,0 +1,10 @@
+{
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.extraPaths": [
+        "./main",
+        "./main/src"
+    ],
+    "python.autoComplete.extraPaths": [
+        "./main"
+    ]
+}

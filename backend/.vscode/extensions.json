@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "donjayamanne.python-extension-pack",
+        "mgesbert.python-path",
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+    ]
+}

@@ -11,9 +11,7 @@
                 "autoExecuteCommands": false,
                 "icon": "terminal",
                 "color": "terminal.ansiBrightCyan",
-                "commands": [
-                    "echo hello"
-                ]
+                "commands": []
             }
         ],
         "saved-session": []

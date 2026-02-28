@@ -4,4 +4,8 @@ version = "2.0.0"
 description = "This is an Backend for Deep Researcher, a research assistant that helps you to find relevant papers and summarize them."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "google-genai>=1.65.0",
+    "ollama>=0.6.1",
+    "python-dotenv>=1.2.1",
+]

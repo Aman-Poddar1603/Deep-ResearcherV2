@@ -2,3 +2,4 @@
 *.env.local
 *.env.development.local
 app/prompt.md
+backend/.vscode/*.vsix

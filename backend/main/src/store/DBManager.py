@@ -121,7 +121,7 @@ class SQLiteManager:
                     message=message,
                     origin="system",
                     module="DB",
-                    urgency=urgency,
+                    urgency=urgency,  # type: ignore
                     app_version="1.0"
                 )
             except Exception as e:
