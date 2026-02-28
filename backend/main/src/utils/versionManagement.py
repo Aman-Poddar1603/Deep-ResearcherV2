@@ -4,8 +4,9 @@ from typing import Literal
 import uuid
 
 MAJOR_CHANGE = 2
+
 NEW_FEATURE = 0
-MINOR_BUGFIXES = 0
+MINOR_BUGFIXES = 1
 
 # Constants for logging - easier to maintain
 LOG_SOURCE = "system"
@@ -124,8 +125,9 @@ def getAppVersion():
             "error",
             f"Error in getAppVersion: {e}",
             "critical",
-        )  
+        )
     return _get_version()
+
 
 def setAppVersion(major: int, feature: int, minor: int, changes: str):
     """Public function to set the application version - for future use when we implement dynamic versioning"""
@@ -146,6 +148,8 @@ def setAppVersion(major: int, feature: int, minor: int, changes: str):
             f"Error in setAppVersion: {e}",
             "critical",
         )
+
+
 def updateVersionHistory(changes: str, version: str = _get_version()):
     """Public function to update the version history with new changes - for future use when we implement dynamic versioning"""
     try:
