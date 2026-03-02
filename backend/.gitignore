@@ -1,6 +1,7 @@
 # Virtual Environments
 .venv/
 env/
+env/*
 uv.lock
 
 # Python
