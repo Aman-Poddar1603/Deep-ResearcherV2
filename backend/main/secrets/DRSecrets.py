@@ -32,7 +32,7 @@ generic_key = secrets.get_secret("CUSTOM_API_KEY")
 
 from dotenv import dotenv_values
 from pathlib import Path
-from main.src.utils.DRLogger import DRLogger
+from main.src.utils.DRLogger import dr_logger
 from main.src.utils.versionManagement import getAppVersion
 from typing import Literal
 
@@ -40,7 +40,7 @@ from typing import Literal
 LOG_SOURCE = "system"
 LOG_TAGS = ["SECRETS_MANAGEMENT"]
 
-logger: DRLogger = DRLogger()
+
 DIR = Path(__file__).parent
 
 
@@ -96,7 +96,7 @@ def _log_secret_event(
     - `LOG_SOURCE`: Change from "system" to custom value
     - `LOG_TAGS`: Extend list with additional tags
     """
-    logger.log(
+    dr_logger.log(
         level,
         message,
         LOG_SOURCE,

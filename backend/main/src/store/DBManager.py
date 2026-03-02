@@ -1,11 +1,14 @@
 from pathlib import Path
 import sqlite3
 import re
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Tuple, Union, Literal
 import logging
 from contextlib import contextmanager
 from pathlib import Path
 import sys
+from main.src.utils.DRLogger import dr_logger
+from main.src.utils.versionManagement import getAppVersion
+
 
 BASE_DIR = Path(__file__).parent
 src_dir = BASE_DIR.parent
@@ -17,12 +20,76 @@ from utils.DRLogger import dr_logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+LOG_SOURCE = "system"
+
+
+def _log_db_event(
+    message: str,
+    level: Literal["success", "error", "warning", "info"] = "info",
+    urgency: Literal["none", "moderate", "critical"] = "none",
+):
+    """
+    ## Description
+
+    Internal utility function for logging secret management events with structured
+    metadata. Ensures all secret-related operations are tracked with appropriate
+    urgency levels and log sources.
+
+    ## Parameters
+
+    - `level` (`Literal["success", "error", "warning", "info"]`)
+      - Description: Log severity level indicating the nature of the event.
+      - Constraints: Must be one of: "success", "error", "warning", "info".
+      - Example: "error"
+
+    - `message` (`str`)
+      - Description: Human-readable description of the secret event.
+      - Constraints: Must be non-empty. Should not contain sensitive data (API keys, tokens).
+      - Example: ".env file not found at /path/to/.env"
+
+    - `urgency` (`Literal["none", "moderate", "critical"]`, optional)
+      - Description: Priority indicator for the logged event.
+      - Constraints: Must be one of: "none", "moderate", "critical".
+      - Default: "none"
+      - Example: "critical"
+
+    ## Returns
+
+    `None`
+
+    ## Side Effects
+
+    - Writes log entry to the DRLogger system.
+    - Includes application version in all log entries.
+    - Tags all events with "SECRETS_MANAGEMENT" for filtering.
+
+    ## Debug Notes
+
+    - Ensure messages do NOT contain sensitive information (API keys, tokens).
+    - Use appropriate urgency levels: "critical" for missing keys, "moderate" for fallbacks.
+    - Check logger output in application logs directory.
+
+    ## Customization
+
+    To change log source or tags globally, modify the module-level constants:
+    - `LOG_SOURCE`: Change from "system" to custom value
+    """
+    dr_logger.log(
+        log_type=level,
+        message=message,
+        origin=LOG_SOURCE,
+        urgency=urgency,
+        module="DB",
+        app_version=getAppVersion(),
+    )
+
+
 class SQLiteManager:
     """
     ## Description
 
     A reusable context manager for SQLite3 database operations.
-    Handles connection management, prevents SQL injection via identifier 
+    Handles connection management, prevents SQL injection via identifier
     validation, and provides CRUD (Create, Read, Update, Delete) helper methods.
 
     ## Parameters
@@ -58,6 +125,7 @@ class SQLiteManager:
 
     - Timeout can be adjusted for systems experiencing higher lock contention.
     """
+
     def __init__(self, db_path: Union[str, Path], timeout: int = 30):
         self.db_path = str(db_path)
         self.timeout = timeout
@@ -66,7 +134,7 @@ class SQLiteManager:
         """
         ## Description
 
-        Helper method to log internal database operations safely while 
+        Helper method to log internal database operations safely while
         avoiding circular recording into the log database itself.
 
         ## Parameters
@@ -109,23 +177,20 @@ class SQLiteManager:
         - Add support for warning logs if required by changing `log_type` conditional.
         """
         if level == "error":
-            logger.error(message)
+            _log_db_event(message, level="error", urgency="critical")
         else:
-            logger.info(message)
-            
+            _log_db_event(message)
+
         if "logs.db.sqlite3" not in self.db_path:
             try:
                 log_type = "error" if level == "error" else "info"
-                dr_logger.log(
-                    log_type=log_type,
-                    message=message,
-                    origin="system",
-                    module="DB",
-                    urgency=urgency,  # type: ignore
-                    app_version="1.0"
-                )
+                _log_db_event(message, level=log_type, urgency="moderate")
             except Exception as e:
-                logger.error(f"DRLogger internal failure in DBManager: {e}")
+                _log_db_event(
+                    f"DRLogger internal failure in DBManager: {e}",
+                    level="error",
+                    urgency="critical",
+                )
 
     @staticmethod
     def _validate_identifier(identifier: str) -> str:
@@ -171,7 +236,14 @@ class SQLiteManager:
         - Modify Regex if standard standard SQL column naming needs to support other chars.
         """
         if not re.match(r"^[a-zA-Z0-9_]+$", identifier):
-            raise ValueError(f"Invalid identifier: '{identifier}'. Identifiers must be alphanumeric/underscore.")
+            _log_db_event(
+                f"Invalid identifier: '{identifier}'. Identifiers must be alphanumeric/underscore.",
+                level="warning",
+                urgency="moderate",
+            )
+            raise ValueError(
+                f"Invalid identifier: '{identifier}'. Identifiers must be alphanumeric/underscore."
+            )
         return identifier
 
     @contextmanager
@@ -221,22 +293,32 @@ class SQLiteManager:
         try:
             conn = sqlite3.connect(self.db_path, timeout=self.timeout)
             conn.row_factory = sqlite3.Row  # Return rows as dictionary-like objects
-            
+
             # Enable Foreign Keys and WAL mode for better concurrency/integrity
             conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute("PRAGMA journal_mode = WAL;")  # Better performance and concurrency
-            conn.execute("PRAGMA synchronous = NORMAL;") # Performance optimization with WAL
+            conn.execute(
+                "PRAGMA journal_mode = WAL;"
+            )  # Better performance and concurrency
+            conn.execute(
+                "PRAGMA synchronous = NORMAL;"
+            )  # Performance optimization with WAL
             conn.execute("PRAGMA cache_size = -64000;")  # 64MB cache
-            
+
             yield conn
         except sqlite3.Error as e:
-            self._log("error", f"Error connecting to database at {self.db_path}: {e}", "critical")
+            self._log(
+                "error",
+                f"Error connecting to database at {self.db_path}: {e}",
+                "critical",
+            )
             raise
         finally:
             if conn:
                 conn.close()
 
-    def _build_where_clause(self, where: Optional[Dict[str, Any]] = None) -> Tuple[str, Tuple]:
+    def _build_where_clause(
+        self, where: Optional[Dict[str, Any]] = None
+    ) -> Tuple[str, Tuple]:
         """
         ## Description
 
@@ -290,7 +372,7 @@ class SQLiteManager:
         """
         ## Description
 
-        Creates a table dynamically mapping user-provided dictionary schema 
+        Creates a table dynamically mapping user-provided dictionary schema
         to SQLite string constraints.
 
         ## Parameters
@@ -337,19 +419,32 @@ class SQLiteManager:
         - Currently uses generic string replacement. For strict type safety, type mapping logic can be defined.
         """
         if not isinstance(schema, dict):
-            return {"success": False, "message": "Schema must be a dictionary", "data": None}
-             
+            return {
+                "success": False,
+                "message": "Schema must be a dictionary",
+                "data": None,
+            }
+
         try:
             valid_table = self._validate_identifier(table_name)
-            columns_def = ', '.join([f"{self._validate_identifier(col)} {dtype}" for col, dtype in schema.items()])
+            columns_def = ", ".join(
+                [
+                    f"{self._validate_identifier(col)} {dtype}"
+                    for col, dtype in schema.items()
+                ]
+            )
             query = f"CREATE TABLE IF NOT EXISTS {valid_table} ({columns_def})"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query)
                 conn.commit()
             self._log("info", f"Table '{valid_table}' ensured to exist.")
-            return {"success": True, "message": f"Table '{valid_table}' created or already exists", "data": None}
+            return {
+                "success": True,
+                "message": f"Table '{valid_table}' created or already exists",
+                "data": None,
+            }
         except (ValueError, sqlite3.Error) as e:
             self._log("error", f"Error creating table {table_name}: {e}")
             return {"success": False, "message": str(e), "data": None}
@@ -358,7 +453,7 @@ class SQLiteManager:
         """
         ## Description
 
-        Inserts a single dynamically mapped record into the table. 
+        Inserts a single dynamically mapped record into the table.
         Uses parameterized queries to prevent data injection correctly.
 
         ## Parameters
@@ -409,21 +504,27 @@ class SQLiteManager:
         try:
             valid_table = self._validate_identifier(table_name)
             valid_columns = [self._validate_identifier(k) for k in data.keys()]
-            
-            columns = ', '.join(valid_columns)
-            placeholders = ', '.join(['?'] * len(data))
+
+            columns = ", ".join(valid_columns)
+            placeholders = ", ".join(["?"] * len(data))
             query = f"INSERT INTO {valid_table} ({columns}) VALUES ({placeholders})"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, tuple(data.values()))
                 conn.commit()
-                return {"success": True, "message": "Record inserted successfully", "data": {"id": cursor.lastrowid}}
+                return {
+                    "success": True,
+                    "message": "Record inserted successfully",
+                    "data": {"id": cursor.lastrowid},
+                }
         except (ValueError, sqlite3.Error) as e:
             self._log("error", f"Error inserting into {table_name}: {e}")
             return {"success": False, "message": str(e), "data": None}
 
-    def fetch_all(self, table_name: str, where: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def fetch_all(
+        self, table_name: str, where: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         ## Description
 
@@ -481,18 +582,24 @@ class SQLiteManager:
             valid_table = self._validate_identifier(table_name)
             where_clause, params = self._build_where_clause(where)
             query = f"SELECT * FROM {valid_table} {where_clause}"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
                 data_list = [dict(row) for row in rows]
-                return {"success": True, "message": "Fetched successfully", "data": data_list}
+                return {
+                    "success": True,
+                    "message": "Fetched successfully",
+                    "data": data_list,
+                }
         except (ValueError, sqlite3.Error) as e:
             self._log("error", f"Error fetching all from {table_name}: {e}")
             return {"success": False, "message": str(e), "data": None}
 
-    def fetch_one(self, table_name: str, where: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def fetch_one(
+        self, table_name: str, where: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         ## Description
 
@@ -547,18 +654,24 @@ class SQLiteManager:
             valid_table = self._validate_identifier(table_name)
             where_clause, params = self._build_where_clause(where)
             query = f"SELECT * FROM {valid_table} {where_clause}"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 row = cursor.fetchone()
                 data = dict(row) if row else None
-                return {"success": True, "message": "Fetched successfully", "data": data}
+                return {
+                    "success": True,
+                    "message": "Fetched successfully",
+                    "data": data,
+                }
         except (ValueError, sqlite3.Error) as e:
             self._log("error", f"Error fetching one from {table_name}: {e}")
             return {"success": False, "message": str(e), "data": None}
 
-    def update(self, table_name: str, data: Dict[str, Any], where: Dict[str, Any]) -> Dict[str, Any]:
+    def update(
+        self, table_name: str, data: Dict[str, Any], where: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         ## Description
 
@@ -613,23 +726,35 @@ class SQLiteManager:
 
         - Adjust the requirement for where clause directly if bulk `UPDATE ALL` behavior is strictly required later.
         """
-        if not where: # Error handling for missing where clause to prevent accidental bulk updates
-             return {"success": False, "message": "Update operation requires a where clause", "data": None}
-             
+        if (
+            not where
+        ):  # Error handling for missing where clause to prevent accidental bulk updates
+            return {
+                "success": False,
+                "message": "Update operation requires a where clause",
+                "data": None,
+            }
+
         try:
             valid_table = self._validate_identifier(table_name)
-            set_clauses = [f"{self._validate_identifier(key)} = ?" for key in data.keys()]
-            set_clause = ', '.join(set_clauses)
+            set_clauses = [
+                f"{self._validate_identifier(key)} = ?" for key in data.keys()
+            ]
+            set_clause = ", ".join(set_clauses)
             where_clause, where_params = self._build_where_clause(where)
-            
+
             query = f"UPDATE {valid_table} SET {set_clause} {where_clause}"
             params = tuple(data.values()) + where_params
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 conn.commit()
-                return {"success": True, "message": "Record(s) updated successfully", "data": {"rowcount": cursor.rowcount}}
+                return {
+                    "success": True,
+                    "message": "Record(s) updated successfully",
+                    "data": {"rowcount": cursor.rowcount},
+                }
         except (ValueError, sqlite3.Error) as e:
             self._log("error", f"Error updating {table_name}: {e}")
             return {"success": False, "message": str(e), "data": None}
@@ -685,18 +810,26 @@ class SQLiteManager:
         - Soft-Deletes can be implemented utilizing `update()` call adjusting "deleted_at" timestamp fields.
         """
         if not where:
-             return {"success": False, "message": "Delete operation requires a where clause", "data": None}
+            return {
+                "success": False,
+                "message": "Delete operation requires a where clause",
+                "data": None,
+            }
 
         try:
             valid_table = self._validate_identifier(table_name)
             where_clause, params = self._build_where_clause(where)
             query = f"DELETE FROM {valid_table} {where_clause}"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 conn.commit()
-                return {"success": True, "message": "Record(s) deleted successfully", "data": {"rowcount": cursor.rowcount}}
+                return {
+                    "success": True,
+                    "message": "Record(s) deleted successfully",
+                    "data": {"rowcount": cursor.rowcount},
+                }
         except (ValueError, sqlite3.Error) as e:
             self._log("error", f"Error deleting from {table_name}: {e}")
             return {"success": False, "message": str(e), "data": None}
@@ -736,11 +869,11 @@ def _initialize_store():
     """
     database_dir = BASE_DIR / "database"
     bucket_dir = BASE_DIR / "bucket"
-    
+
     # Create directories if they do not exist
     database_dir.mkdir(parents=True, exist_ok=True)
     bucket_dir.mkdir(parents=True, exist_ok=True)
-    
+
     logger.info(f"Ensured directories exist: {database_dir} and {bucket_dir}")
 
     required_dbs = [
@@ -750,26 +883,41 @@ def _initialize_store():
         "buckets.db.sqlite3",
         "researches.db.sqlite3",
         "chats.db.sqlite3",
-        "logs.db.sqlite3"
+        "logs.db.sqlite3",
     ]
-    
+
     # Initialize connection for each database to create the file if it doesn't exist
     for db_name in required_dbs:
         db_path = database_dir / db_name
         try:
             # Connect to create db or ensure accessibility
             with sqlite3.connect(str(db_path), timeout=5) as conn:
-                pass 
+                pass
             logger.info(f"Database initialized: {db_name}")
-            
+
             # Avoid recursive loop specifically on the logs DB
             if "logs.db" not in db_name:
-                dr_logger.log("info", f"Database initialized: {db_name}", "system", "DB", "none", "1.0")
-                
+                dr_logger.log(
+                    "info",
+                    f"Database initialized: {db_name}",
+                    "system",
+                    "DB",
+                    "none",
+                    "1.0",
+                )
+
         except sqlite3.Error as e:
             logger.error(f"Failed to initialize database {db_name}: {e}")
             if "logs.db" not in db_name:
-                dr_logger.log("error", f"Failed to initialize database {db_name}: {e}", "system", "DB", "moderate", "1.0")
+                dr_logger.log(
+                    "error",
+                    f"Failed to initialize database {db_name}: {e}",
+                    "system",
+                    "DB",
+                    "moderate",
+                    "1.0",
+                )
+
 
 # Run initialization upon module import
 _initialize_store()
