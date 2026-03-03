@@ -3,6 +3,8 @@ from pathlib import Path
 
 DIR = Path(__file__).parent
 
+jsonschema = json.load(open(DIR / "json" / "schemas.json", encoding="utf-8"))
+
 
 def getImageUnderstandingSchema():
     """
@@ -37,6 +39,69 @@ def getImageUnderstandingSchema():
     Returns:
         dict: The image_understanding schema loaded from the corresponding JSON file.
     """
-    jsonschema = json.load(open(DIR / "json" / "schemas.json"))
+    
     return jsonschema["image_understanding"]
 
+
+def getOllamaImageUnderstandingSchema() -> dict:
+    """
+    ## Description
+
+    Returns a proper JSON Schema object (RFC-compliant, `type`/`properties`/`required`)
+    suitable for use as Ollama's `format` parameter to force structured JSON output
+    from vision models. This is **not** interchangeable with `getImageUnderstandingSchema()`
+    which returns a Gemini-style example dict.
+
+    ## Parameters
+
+    None
+
+    ## Returns
+
+    `dict`
+
+    Structure:
+
+    ```json
+    {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "colors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "color": {"type": "string"},
+                        "percentage": {"type": "string"}
+                    },
+                    "required": ["color", "percentage"]
+                }
+            },
+            "objects": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["title", "description", "tags", "colors", "objects"]
+    }
+    ```
+
+    ## Raises
+
+    None
+
+    ## Side Effects
+
+    None
+
+    ## Debug Notes
+
+    - Pass this to `aclient.chat(format=getOllamaImageUnderstandingSchema())`.
+    - Only use with vision-capable models confirmed by `checkModelCapabilities()`.
+
+    ## Customization
+
+    Extend `properties` with additional keys (e.g., `"mood"`, `"text_detected"`)
+    to capture more metadata per image.
+    """
+    return jsonschema["ollama_image_understanding"]

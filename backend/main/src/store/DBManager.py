@@ -4,10 +4,9 @@ import re
 from typing import Dict, Any, Optional, Tuple, Union, Literal
 import logging
 from contextlib import contextmanager
-from pathlib import Path
 import sys
 from main.src.utils.DRLogger import dr_logger
-from main.src.utils.versionManagement import getAppVersion
+from main.src.utils.version_constants import get_raw_version
 
 
 BASE_DIR = Path(__file__).parent
@@ -15,7 +14,7 @@ src_dir = BASE_DIR.parent
 if str(src_dir) not in sys.path:
     sys.path.append(str(src_dir))
 
-from utils.DRLogger import dr_logger
+# from utils.DRLogger import dr_logger (Already imported)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -80,7 +79,7 @@ def _log_db_event(
         origin=LOG_SOURCE,
         urgency=urgency,
         module="DB",
-        app_version=getAppVersion(),
+        app_version=get_raw_version(),
     )
 
 
@@ -177,9 +176,9 @@ class SQLiteManager:
         - Add support for warning logs if required by changing `log_type` conditional.
         """
         if level == "error":
-            _log_db_event(message, level="error", urgency="critical")
+            _log_db_event(message, level="error", urgency=urgency)
         else:
-            _log_db_event(message)
+            _log_db_event(message, urgency=urgency)
 
         if "logs.db.sqlite3" not in self.db_path:
             try:
@@ -891,7 +890,7 @@ def _initialize_store():
         db_path = database_dir / db_name
         try:
             # Connect to create db or ensure accessibility
-            with sqlite3.connect(str(db_path), timeout=5) as conn:
+            with sqlite3.connect(str(db_path), timeout=5):
                 pass
             logger.info(f"Database initialized: {db_name}")
 

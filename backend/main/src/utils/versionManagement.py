@@ -3,10 +3,7 @@ from main.src.utils.DRLogger import DRLogger
 from typing import Literal
 import uuid
 
-MAJOR_CHANGE = 2
-
-NEW_FEATURE = 0
-MINOR_BUGFIXES = 1
+from main.src.utils.version_constants import MAJOR_CHANGE, NEW_FEATURE, MINOR_BUGFIXES, get_raw_version
 
 # Constants for logging - easier to maintain
 LOG_SOURCE = "system"
@@ -14,7 +11,7 @@ LOG_TAGS = ["VERSION_MANAGEMENT"]
 
 
 def _get_version():
-    return f"{MAJOR_CHANGE}.{NEW_FEATURE}.{MINOR_BUGFIXES}"
+    return get_raw_version()
 
 
 dbmgr: SQLiteManager = main_db_manager

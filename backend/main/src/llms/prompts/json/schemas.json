@@ -20,5 +20,58 @@
             "the",
             "image"
         ]
+    },
+    "ollama_image_understanding": {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "A short, descriptive title for the image."
+            },
+            "description": {
+                "type": "string",
+                "description": "A concise description of the image in under 100 words."
+            },
+            "tags": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "Relevant descriptive tags for the image."
+            },
+            "colors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "color": {
+                            "type": "string"
+                        },
+                        "percentage": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "color",
+                        "percentage"
+                    ]
+                },
+                "description": "Dominant colors and their approximate percentages."
+            },
+            "objects": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "Notable objects or subjects visible in the image."
+            }
+        },
+        "required": [
+            "title",
+            "description",
+            "tags",
+            "colors",
+            "objects"
+        ]
     }
 }
