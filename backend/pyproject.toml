@@ -7,5 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "google-genai>=1.65.0",
     "ollama>=0.6.1",
+    "pillow>=12.1.1",
     "python-dotenv>=1.2.1",
 ]

@@ -6,5 +6,10 @@
     ],
     "python.autoComplete.extraPaths": [
         "./main"
+    ],
+    "cursorpyright.analysis.autoSearchPaths": true,
+    "cursorpyright.analysis.extraPaths": [
+        "./main",
+        "./main/src"
     ]
 }

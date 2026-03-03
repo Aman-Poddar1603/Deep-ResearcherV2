@@ -1,0 +1,24 @@
+{
+    "image_understanding": {
+        "title": "Title for the image",
+        "description": "Description for the image under 100 words",
+        "tags": ["tags", "related", "to", "the", "image"],
+        "colors": [
+            {
+                "color": "color name",
+                "percentage": "percentage of the color in the image"
+            },
+            {
+                "color": "color name 2",
+                "percentage": "percentage of the color in the image"
+            }
+        ],
+        "objects": [
+            "objects",
+            "inside",
+            "to",
+            "the",
+            "image"
+        ]
+    }
+}
