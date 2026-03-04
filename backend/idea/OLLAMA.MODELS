@@ -1,0 +1,3 @@
+EMBEDDING: embeddinggemma:latest -> reason is it is small and reliable context length.
+VISION: 
+TEXT: 
