@@ -81,27 +81,27 @@ class DRLogger:
             src_dir = current_dir.parent
             if str(src_dir) not in sys.path:
                 sys.path.append(str(src_dir))
-                
+
             from store.DBManager import SQLiteManager
-            
+
             store_dir = src_dir / "store"
             db_dir = store_dir / "database"
             db_dir.mkdir(parents=True, exist_ok=True)
             logs_db_path = db_dir / "logs.db.sqlite3"
-            
+
             self.logs_db_manager = SQLiteManager(logs_db_path)
             self._ensure_tables()
-            
+
         return self.logs_db_manager
 
     def _ensure_tables(self) -> None:
         """
         Ensures that tables for all valid modules exist in the logs database.
         """
-        db_mgr = self.logs_db_manager
+        assert self.logs_db_manager is not None
         for module in VALID_MODULES:
             table_name = f"{module.lower()}_logs"
-            db_mgr.create_table(table_name, self.schema)
+            self.logs_db_manager.create_table(table_name, self.schema)
 
     def log(
         self,
@@ -126,33 +126,47 @@ class DRLogger:
             module (Union[str, List[str]]): Target module(s) to log this message under.
             urgency (str): Level of urgency (none|moderate|critical).
             app_version (str): The version parameter log tracking.
-            
+
+
+            ```python
+            VALID_MODULES: List[str] = [
+                "API",
+                "DB",
+                "MAIN",
+                "AGENTS",
+                "CHATS",
+                "BUCKET",
+                "TOOLS",
+                "UTILS"
+            ]
+            ```
+
         Returns:
             Dict[str, Any]: Results keyed by the target module, indicating success/failure.
         """
         db_mgr = self._get_db()
-        
+
         try:
             timestamp = str(datetime.datetime.now(datetime.timezone.utc).isoformat())
         except AttributeError:
             timestamp = str(datetime.datetime.utcnow().isoformat())
-        
+
         log_id = uuid.uuid4().hex
-        
+
         # Cast to strings to ensure schema matching without artificial type restrictions
         safe_type = str(log_type).strip()
         safe_message = str(message)
         safe_origin = str(origin).strip()
         safe_urgency = str(urgency).strip()
         safe_app_version = str(app_version).strip()
-        
+
         modules_list = [module] if isinstance(module, str) else module
-        
+
         results: Dict[str, Any] = {}
-        
+
         for mod in modules_list:
             safe_mod = str(mod).strip().upper()
-            
+
             if safe_mod not in VALID_MODULES:
                 results[safe_mod] = {
                     "success": False, 
@@ -160,9 +174,9 @@ class DRLogger:
                     "data": None
                 }
                 continue
-                
+
             table_name = f"{safe_mod.lower()}_logs"
-            
+
             data_to_insert = {
                 "logId": log_id,
                 "type": safe_type,
@@ -173,10 +187,10 @@ class DRLogger:
                 "urgency": safe_urgency,
                 "app_version": safe_app_version
             }
-            
+
             res = db_mgr.insert(table_name, data_to_insert)
             results[safe_mod] = res
-            
+
         return results
 
 # Singleton instance to be exported for usage SDK style
