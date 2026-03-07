@@ -1,15 +1,25 @@
+"""
+
+Apple
+"""
+
+
 from typing import Literal
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.version_constants import get_raw_version
 from main.src.utils.llms.gemini.DRGeminiWrapper import (
-    Client
+    Client,
+)
+from main.src.utils.llms.ollama.DROllamaWrapper import (
+  st
 )
 
 
 LOG_SOURCE = "system"  # Constant for log source identification
+AVAILABLE_MODES = ["ai", "regex"]
 
 
-def _log_quiery_optimisation(
+def log_query_optimisation(
     message: str,
     level: Literal["success", "error", "warning", "info"] = "info",
     urgency: Literal["none", "moderate", "critical"] = "none",
@@ -68,8 +78,11 @@ def _log_quiery_optimisation(
         urgency=urgency,
         module=[
             "UTILS",
-            "AGENTS",
-            
+            "AGENTS",         
         ],  # Logs from this function are categorized under the "UTILS" module
         app_version=get_raw_version(),
     )
+
+class QueryOptimizer:
+    def __init__(self, mode):
+        pass

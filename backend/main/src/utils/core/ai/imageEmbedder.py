@@ -108,7 +108,7 @@ def _log_image_embed_event(
         message=message,
         origin=LOG_SOURCE,
         urgency=urgency,
-        module="UTILS",
+        module=["UTILS", "AGENTS"],
         app_version=get_raw_version(),
     )
 

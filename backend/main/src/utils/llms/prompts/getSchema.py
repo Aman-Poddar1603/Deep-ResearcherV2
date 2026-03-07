@@ -105,3 +105,36 @@ def getOllamaImageUnderstandingSchema() -> dict:
     to capture more metadata per image.
     """
     return jsonschema["ollama_image_understanding"]
+
+def getTitleAndDescriptionSchema() -> dict:
+    """
+    Returns the JSON schema for generating a title and description for content.
+
+    The returned dictionary describes the structure of objects expected for title and description generation tasks, with keys and example values as follows:
+
+    Example output:
+        {
+            "title": "Title for the content",
+            "description": "Description for the content under 100 words"
+        }
+
+    Returns:
+        dict: The title_and_description schema loaded from the corresponding JSON file.
+    """
+    return jsonschema["title_and_description"]
+
+def getSummarizationSchema() -> dict:
+    """
+    Returns the JSON schema for summarization tasks.
+
+    The returned dictionary describes the structure of objects expected for summarization tasks, with keys and example values as follows:
+
+    Example output:
+        {
+            "summary": "A concise summary of the content in under 100 words."
+        }
+
+    Returns:
+        dict: The summarize schema loaded from the corresponding JSON file.
+    """
+    return jsonschema["summarize"]

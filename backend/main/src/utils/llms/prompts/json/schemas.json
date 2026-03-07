@@ -73,5 +73,24 @@
             "colors",
             "objects"
         ]
+    },
+    "title_and_description": {
+        "title": "Title for the content",
+        "description": "Description for the content under 100 words"
+    },
+    "summarize": {
+        "summary": "A concise summary of the content in under 100 words."
+    },
+    "prompt_safety_check": {
+        "confidance": {
+            "hate_speech": 0,
+            "voilance": 0,
+            "sexual_content": 0,
+            "self_harm_activities": 0,
+            "illegal_activities": 0,
+            "political_persuation": 0
+        },
+        "status": "must return either 0 or 1 in integer. 0 for not to answer and 1 for safe to answer. if you think the content is unsafe for any of the above categories."
     }
+
 }
