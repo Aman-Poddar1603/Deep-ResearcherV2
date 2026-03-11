@@ -1,0 +1,163 @@
+# ==========================================================
+# Deep Researcher - Electron Build Pipeline
+# ==========================================================
+#
+# This workflow automatically builds the Electron desktop
+# application when a GitHub Release is created.
+#
+# The pipeline performs the following steps:
+#
+# 1. Triggered when a new release is created in GitHub
+# 2. Spins up 3 parallel environments:
+#      - Windows
+#      - macOS
+#      - Linux
+# 3. Installs Node dependencies inside the /app directory
+# 4. Builds the React frontend (Vite)
+# 5. Transpiles Electron code
+# 6. Packages the application using electron-builder
+# 7. Attaches the generated installers directly to the release
+#
+# Resulting assets will look like:
+#
+# deep-researcher-v2.0.1-win-x64.exe
+# deep-researcher-v2.0.1-mac-arm64.dmg
+# deep-researcher-v2.0.1-linux-x64.AppImage
+#
+# Version number comes from:
+# app/package.json → "version"
+#
+# Artifact naming is controlled by:
+# build.artifactName inside package.json
+#
+# ==========================================================
+
+name: Build Deep Researcher
+
+# ----------------------------------------------------------
+# Trigger Conditions
+# ----------------------------------------------------------
+# The workflow runs ONLY when a new GitHub Release is created.
+# This prevents builds on every push and ensures releases
+# contain properly versioned binaries.
+# ----------------------------------------------------------
+on:
+  release:
+    types: [created]
+
+# ----------------------------------------------------------
+# Permissions
+# ----------------------------------------------------------
+# Required so the workflow can upload assets to the release.
+# Without this, GitHub may block uploads with a 403 error.
+# ----------------------------------------------------------
+permissions:
+  contents: write
+
+jobs:
+
+  # --------------------------------------------------------
+  # Multi-platform build job
+  # --------------------------------------------------------
+  # A matrix strategy allows us to run builds for multiple
+  # operating systems in parallel.
+  #
+  # Each OS uses a specific build script defined in
+  # app/package.json.
+  # --------------------------------------------------------
+  build:
+
+    strategy:
+      matrix:
+        include:
+
+          # Windows build
+          - os: windows-latest
+            script: dist:win
+
+          # macOS build
+          - os: macos-latest
+            script: dist:mac
+
+          # Linux build
+          - os: ubuntu-latest
+            script: dist:linux
+
+    # ------------------------------------------------------
+    # The GitHub runner OS
+    # ------------------------------------------------------
+    runs-on: ${{ matrix.os }}
+
+    # ------------------------------------------------------
+    # Default working directory
+    # ------------------------------------------------------
+    # Our Electron project lives inside /app
+    # so all commands run there automatically.
+    # ------------------------------------------------------
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+
+      # ----------------------------------------------------
+      # Step 1: Checkout repository
+      # ----------------------------------------------------
+      # Downloads the repository code into the runner.
+      # ----------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------
+      # Step 2: Setup Node.js
+      # ----------------------------------------------------
+      # Installs Node.js runtime so npm can run.
+      # ----------------------------------------------------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+
+      # ----------------------------------------------------
+      # Step 3: Install dependencies
+      # ----------------------------------------------------
+      # Installs all project dependencies defined in
+      # app/package.json
+      # ----------------------------------------------------
+      - name: Install dependencies
+        run: npm install
+
+
+      # ----------------------------------------------------
+      # Step 4: Build Electron application
+      # ----------------------------------------------------
+      # Runs the OS-specific build script.
+      #
+      # Windows → npm run dist:win
+      # macOS   → npm run dist:mac
+      # Linux   → npm run dist:linux
+      #
+      # These scripts internally perform:
+      #  - Electron transpilation
+      #  - Vite frontend build
+      #  - Electron packaging
+      # ----------------------------------------------------
+      - name: Build Electron application
+        run: npm run ${{ matrix.script }}
+
+
+      # ----------------------------------------------------
+      # Step 5: Upload release assets
+      # ----------------------------------------------------
+      # The built installers located in /app/dist
+      # are automatically attached to the GitHub Release.
+      #
+      # Users downloading the release will see the installers
+      # directly under the "Assets" section.
+      # ----------------------------------------------------
+      - name: Upload builds to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/dist/**

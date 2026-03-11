@@ -1,6 +1,6 @@
 {
 	"name": "deep-researcher",
-	"productName": "Deep Researcher",
+	"productName": "Deep Researcher v2",
 	"description": "Autonomous AI-powered research platform for deep investigation and analysis.",
 	"author": "pixelThreader & Team",
 	"private": true,
@@ -93,8 +93,9 @@
 		"vite": "^7.3.1"
 	},
 	"build": {
-		"appId": "com.pixelthreader.deepresearcher",
-		"productName": "Deep Researcher",
+		"appId": "com.pixelthreader.deepresearcherv2",
+		"productName": "Deep Researcher v2",
+		"artifactName": "deep-researcher-v${version}-${os}-${arch}.${ext}",
 		"directories": {
 			"output": "dist"
 		},
