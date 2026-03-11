@@ -1,8 +1,24 @@
 """
+Complete this QueryOptimizer These are the preprocessing of the User's Raw Query It must have to do these stuff:
 
+- Safety check
+    - Hate Speech
+    - Voilance
+    - Sexual Content
+    - Self Harm Intent
+    - Illegal Activities
+    - Political Persuation risks
+- Trim Unwanted trailing Spaces
+- Maintain the Context length as per the incoming context window it might be 1000 or 1M it will come on parameter
+- Prompt Injection
+    - Prevent Ignoring previous instructions
+    - Prevent Revealing System Prompt
+    - Prevent Bypassing safety
+- Normalize the User's text in UTF-8 Encoding
+- After All these efficiently summarise the user's query under 100 words
+after that It returns the Optimized Query
 Apple
 """
-
 
 from typing import Literal
 from main.src.utils.DRLogger import dr_logger
