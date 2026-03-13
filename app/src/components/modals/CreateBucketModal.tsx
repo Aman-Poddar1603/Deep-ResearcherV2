@@ -9,8 +9,18 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Database, Plus } from "lucide-react";
+import {
+  Database,
+  Plus,
+  Image as ImageIcon,
+  Video,
+  FileText,
+  Music,
+  MoreHorizontal,
+  Info,
+  Check
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface CreateBucketModalProps {
   isOpen: boolean;
@@ -18,147 +28,146 @@ interface CreateBucketModalProps {
   onCreate: (name: string) => void;
 }
 
+const MEDIA_TYPES = [
+  { id: "images", label: "Images", icon: ImageIcon, color: "text-blue-400", bg: "bg-blue-400/10" },
+  { id: "videos", label: "Videos", icon: Video, color: "text-purple-400", bg: "bg-purple-400/10" },
+  { id: "files", label: "Files", icon: FileText, color: "text-green-400", bg: "bg-green-400/10" },
+  { id: "audio", label: "Audio", icon: Music, color: "text-orange-400", bg: "bg-orange-400/10" },
+];
+
 const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
   isOpen,
   onClose,
   onCreate,
 }) => {
   const [bucketName, setBucketName] = useState("");
-  const [types, setTypes] = useState({
-    images: false,
-    videos: false,
-    files: false,
-    audio: false,
-  });
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (bucketName.trim()) {
-      // We can pass the types back if needed, but for now just following user request for UI
       onCreate(bucketName.trim());
       setBucketName("");
-      setTypes({
-        images: false,
-        videos: false,
-        files: false,
-        audio: false,
-      });
+      setSelectedTypes([]);
       onClose();
     }
   };
 
-  const toggleType = (type: keyof typeof types) => {
-    setTypes((prev) => ({ ...prev, [type]: !prev[type] }));
+  const toggleType = (id: string) => {
+    setSelectedTypes(prev =>
+      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+    );
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Database className="w-5 h-5 text-primary" />
+      <DialogContent className="sm:max-w-3xl w-[95vw] sm:w-[50vw] bg-neutral-950/95 backdrop-blur-xl border-white/10 shadow-2xl overflow-hidden p-0 gap-0">
+        <div className="absolute inset-0 bg-linear-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
+
+        <DialogHeader className="p-8 pb-4 relative z-10">
+          <div className="flex items-center gap-4 mb-2">
+            <div className="size-12 rounded-2xl bg-linear-to-br from-primary/20 via-primary/10 to-transparent border border-primary/20 flex items-center justify-center">
+              <Database className="size-6 text-primary" />
             </div>
-            <DialogTitle className="text-xl">Create New Bucket</DialogTitle>
+            <div>
+              <DialogTitle className="text-2xl font-bold tracking-tight">Create New Bucket</DialogTitle>
+              <DialogDescription className="text-muted-foreground/80 mt-1">
+                Establish a dedicated storage container for your research assets.
+              </DialogDescription>
+            </div>
           </div>
-          <DialogDescription>
-            Enter a unique name and select allowed media types.
-          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-6 pt-4">
-          <div className="space-y-2">
-            <label htmlFor="bucket-name" className="text-sm font-medium">
-              Bucket Name
-            </label>
-            <Input
-              id="bucket-name"
-              placeholder="e.g. workspace-alpha-storage"
-              value={bucketName}
-              onChange={(e) => setBucketName(e.target.value)}
-              autoFocus
-            />
+
+        <form onSubmit={handleSubmit} className="p-8 pt-2 space-y-8 relative z-10">
+          {/* Bucket Name Input */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <label htmlFor="bucket-name" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                Bucket Identifier
+              </label>
+              <span className="text-[10px] text-primary/60 font-medium">Required</span>
+            </div>
+            <div className="relative group">
+              <Input
+                id="bucket-name"
+                placeholder="e.g. market-research-2024"
+                value={bucketName}
+                onChange={(e) => setBucketName(e.target.value)}
+                autoFocus
+                className="h-12 bg-white/5 border-white/10 hover:border-primary/50 focus-visible:ring-primary/20 transition-all text-base px-4 rounded-xl"
+              />
+            </div>
           </div>
 
-          <div className="space-y-3">
-            <label className="text-sm font-medium">Allowed Media Types</label>
-            <div className="grid grid-cols-2 gap-4 pt-1">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="images"
-                  checked={types.images}
-                  onCheckedChange={() => toggleType("images")}
-                />
-                <label
-                  htmlFor="images"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                >
-                  Images
-                </label>
+          {/* Media Types Selection Grid */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                Allowed Content Types
+              </label>
+              <div className="flex items-center gap-1.5 opacity-60">
+                <Info className="w-3 h-3" />
+                <span className="text-[10px]">Affects storage optimization</span>
               </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="videos"
-                  checked={types.videos}
-                  onCheckedChange={() => toggleType("videos")}
-                />
-                <label
-                  htmlFor="videos"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                >
-                  Videos
-                </label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="files"
-                  checked={types.files}
-                  onCheckedChange={() => toggleType("files")}
-                />
-                <label
-                  htmlFor="files"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                >
-                  Files
-                </label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="audio"
-                  checked={types.audio}
-                  onCheckedChange={() => toggleType("audio")}
-                />
-                <label
-                  htmlFor="audio"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                >
-                  Audio
-                </label>
-              </div>
-              <div className="flex items-center space-x-2 opacity-60">
-                <Checkbox id="other" checked={true} disabled />
-                <label
-                  htmlFor="other"
-                  className="text-sm font-medium leading-none cursor-not-allowed"
-                >
-                  Other (Required)
-                </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {MEDIA_TYPES.map((type) => {
+                const Icon = type.icon;
+                const isSelected = selectedTypes.includes(type.id);
+                return (
+                  <button
+                    key={type.id}
+                    type="button"
+                    onClick={() => toggleType(type.id)}
+                    className={cn(
+                      "flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left group relative",
+                      isSelected
+                        ? "bg-primary/10 border-primary shadow-lg ring-4 ring-primary/5"
+                        : "bg-white/5 border-white/5 hover:border-white/20 hover:bg-white/10"
+                    )}
+                  >
+                    {isSelected && (
+                      <div className="absolute top-3 right-3 size-5 rounded-full bg-primary flex items-center justify-center animate-in zoom-in duration-300">
+                        <Check className="w-3 h-3 text-primary-foreground" />
+                      </div>
+                    )}
+                    <div className={cn("p-2 rounded-lg transition-colors", isSelected ? type.bg : "bg-white/5 group-hover:bg-white/10")}>
+                      <Icon className={cn("w-5 h-5 transition-colors", isSelected ? type.color : "text-muted-foreground/60")} />
+                    </div>
+                    <span className={cn("font-semibold text-sm transition-colors", isSelected ? "text-primary" : "text-muted-foreground/80")}>
+                      {type.label}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {/* Other (System Required) */}
+              <div className="flex items-center gap-3 p-4 rounded-xl border-2 bg-white/5 border-white/5 opacity-50 cursor-not-allowed">
+                <div className="p-2 rounded-lg bg-white/5">
+                  <MoreHorizontal className="w-5 h-5 text-muted-foreground/60" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-sm text-muted-foreground/80">Other Data</span>
+                  <span className="text-[9px] uppercase tracking-tighter">System Default</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="pt-4  flex flex-row items-center justify-end gap-3 translate-x-3">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={onClose}
-              className="flex-1 sm:flex-none"
+              className="px-6 hover:bg-white/5 text-muted-foreground h-11"
             >
-              Cancel
+              Discard
             </Button>
             <Button
               type="submit"
               disabled={!bucketName.trim()}
-              className="flex-1 sm:flex-none gap-2"
+              className="px-8 rounded-xl h-11 bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl shadow-primary/20 transition-all font-bold gap-2"
             >
               <Plus className="w-4 h-4" />
               Create Bucket
