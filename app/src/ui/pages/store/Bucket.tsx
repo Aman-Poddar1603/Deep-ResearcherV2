@@ -27,6 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import CreateBucketModal from '@/components/modals/CreateBucketModal'
 
 // Mock bucket data
 interface Bucket {
@@ -103,7 +104,22 @@ const getColorClasses = (color: string) => {
 const Bucket = () => {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
-  const [buckets] = useState<Bucket[]>(mockBuckets)
+  const [buckets, setBuckets] = useState<Bucket[]>(mockBuckets)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  const handleCreateBucket = (name: string) => {
+    const newBucket: Bucket = {
+      id: `bucket-${buckets.length + 1}`,
+      name,
+      description: 'Newly created storage bucket',
+      stats: { images: 0, videos: 0, files: 0, audio: 0, others: 0 },
+      totalSize: '0 B',
+      createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      lastUpdated: 'Just now',
+      color: ['blue-400', 'purple-400', 'green-400', 'orange-400', 'pink-400'][Math.floor(Math.random() * 5)]
+    }
+    setBuckets([newBucket, ...buckets])
+  }
 
   const filteredBuckets = buckets.filter(bucket =>
     bucket.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -135,7 +151,7 @@ const Bucket = () => {
             </div>
 
             <Button
-              onClick={() => {/* TODO: Create bucket modal */ }}
+              onClick={() => setIsModalOpen(true)}
               className="gap-2"
             >
               <Plus className="size-4" />
@@ -163,7 +179,7 @@ const Bucket = () => {
           {/* Create Bucket Card */}
           <Card
             className="flex flex-col items-center justify-center min-h-[320px] border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0"
-            onClick={() => {/* TODO: Create bucket modal */ }}
+            onClick={() => setIsModalOpen(true)}
           >
             <div className="rounded-full bg-background p-4 mb-4 group-hover:scale-110 transition-transform shadow-sm border">
               <Plus className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -283,6 +299,12 @@ const Bucket = () => {
           </div>
         )}
       </div>
+
+      <CreateBucketModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onCreate={handleCreateBucket} 
+      />
     </div>
   )
 }
