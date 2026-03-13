@@ -1,15 +1,15 @@
 from typing import Literal, NoReturn
+
 from fastapi import APIRouter, HTTPException, Response, status
 
 from main.apis.models.workspaces import (
     WorkspaceCreate,
-    WorkspacePatch,
     WorkspaceOut,
+    WorkspacePatch,
 )
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.versionManagement import get_raw_version
 from main.src.workspace import workspace_orchestrator
-
 
 # Router only: include this in main server from another file.
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -28,8 +28,8 @@ def _log_system_workspace_event(
     """
     ## Description
 
-    Internal utility function for logging secret management events with structured
     metadata. Ensures all secret-related operations are tracked with appropriate
+    Internal utility function for logging secret management events with structured
     urgency levels and log sources.
 
     ## Parameters
