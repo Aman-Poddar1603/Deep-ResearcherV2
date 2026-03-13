@@ -41,9 +41,9 @@ import {
 } from "lucide-react";
 import { createWorkspace } from "@/lib/apis";
 import CreateBucketModal from "@/components/modals/CreateBucketModal";
-import { 
-  Search, 
-  Plus, 
+import {
+  Search,
+  Plus,
   Loader2,
   Info
 } from "lucide-react";
@@ -125,6 +125,7 @@ interface WorkspaceFormData {
   enableResearch: boolean;
   enableChat: boolean;
   bucket: string;
+  customIcon: File | null;
 }
 
 const CreateEditWorkspace = () => {
@@ -142,7 +143,11 @@ const CreateEditWorkspace = () => {
     enableResearch: true,
     enableChat: true,
     bucket: "",
+    customIcon: null,
   });
+
+  const [iconPreview, setIconPreview] = useState<string | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
   const [buckets, setBuckets] = useState<string[]>([]);
   const [isLoadingStorage, setIsLoadingStorage] = useState(false);
@@ -180,7 +185,7 @@ const CreateEditWorkspace = () => {
     }
   };
 
-  const filteredBuckets = buckets.filter(b => 
+  const filteredBuckets = buckets.filter(b =>
     b.toLowerCase().includes(bucketSearch.toLowerCase())
   );
 
@@ -189,7 +194,9 @@ const CreateEditWorkspace = () => {
   // Form validation
   const isStep1Valid =
     formData.name.trim().length > 0 && formData.description.trim().length > 0;
-  const isStep2Valid = formData.icon !== null && formData.accentColor !== null;
+  const isStep2Valid =
+    (formData.icon !== null || formData.customIcon !== null) &&
+    formData.accentColor !== null;
   const isStep3Valid = formData.aiMode !== "" && formData.bucket !== ""; // Bucket is now required
   const isStep4Valid = true; // All fields optional
 
@@ -238,6 +245,7 @@ const CreateEditWorkspace = () => {
         enableChat: formData.enableChat,
         bucket: formData.bucket,
         bannerImage: formData.bannerImage ?? null,
+        customIcon: formData.customIcon ?? null,
         resources: formData.resources ?? [],
       };
 
@@ -273,7 +281,19 @@ const CreateEditWorkspace = () => {
 
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFormData({ ...formData, bannerImage: e.target.files[0] });
+      const file = e.target.files[0];
+      setFormData({ ...formData, bannerImage: file });
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+      setBannerPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setFormData({ ...formData, customIcon: file, icon: null });
+      if (iconPreview) URL.revokeObjectURL(iconPreview);
+      setIconPreview(URL.createObjectURL(file));
     }
   };
 
@@ -313,21 +333,19 @@ const CreateEditWorkspace = () => {
               className="flex items-center flex-1 last:flex-none"
             >
               <div
-                className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-                  isCompleted
+                className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${isCompleted
                     ? "bg-primary border-primary text-primary-foreground"
                     : isActive
                       ? "border-primary text-primary"
                       : "border-muted-foreground/30 text-muted-foreground"
-                }`}
+                  }`}
               >
                 {isCompleted ? <Check className="w-5 h-5" /> : stepNumber}
               </div>
               {stepNumber < totalSteps && (
                 <div
-                  className={`flex-1 h-1 mx-2 rounded-full transition-all ${
-                    isCompleted ? "bg-primary" : "bg-muted-foreground/20"
-                  }`}
+                  className={`flex-1 h-1 mx-2 rounded-full transition-all ${isCompleted ? "bg-primary" : "bg-muted-foreground/20"
+                    }`}
                 />
               )}
             </div>
@@ -414,17 +432,51 @@ const CreateEditWorkspace = () => {
                     return (
                       <button
                         key={item.name}
-                        onClick={() => setFormData({ ...formData, icon: item })}
-                        className={`p-4 rounded-lg border-2 transition-all hover:scale-105 ${
-                          isSelected
+                        type="button"
+                        onClick={() => setFormData({ ...formData, icon: item, customIcon: null })}
+                        className={`aspect-square rounded-xl border-2 transition-all hover:scale-105 flex items-center justify-center ${isSelected
                             ? "border-primary bg-primary/10 shadow-md"
                             : "border-muted-foreground/20 bg-muted/10 hover:border-primary/50"
-                        }`}
+                          }`}
                       >
-                        <Icon className={`w-8 h-8 mx-auto ${item.color}`} />
+                        <Icon className={`w-8 h-8 ${item.color}`} />
                       </button>
                     );
                   })}
+
+                  {/* Custom Icon Upload */}
+                  <label
+                    htmlFor="icon-upload"
+                    className={`aspect-square rounded-xl border-2 border-dashed transition-all cursor-pointer hover:scale-105 flex items-center justify-center relative overflow-hidden ${formData.customIcon
+                        ? "border-primary bg-primary/10 shadow-md"
+                        : "border-muted-foreground/20 bg-muted/10 hover:border-primary/50"
+                      }`}
+                  >
+                    {iconPreview ? (
+                      <div className="w-full h-full relative group">
+                        <img
+                          src={iconPreview}
+                          alt="Custom Icon"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Upload className="w-5 h-5 text-white" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1">
+                        <Plus className="w-8 h-8 text-muted-foreground" />
+                        <span className="text-[10px] text-muted-foreground font-semibold">Custom</span>
+                      </div>
+                    )}
+                    <input
+                      id="icon-upload"
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleIconUpload}
+                    />
+                  </label>
                 </div>
               </CardContent>
             </Card>
@@ -453,11 +505,10 @@ const CreateEditWorkspace = () => {
                         onClick={() =>
                           setFormData({ ...formData, accentColor: color })
                         }
-                        className={`relative p-0 rounded-lg border-2 transition-all hover:scale-105 aspect-square ${
-                          isSelected
+                        className={`relative p-0 rounded-lg border-2 transition-all hover:scale-105 aspect-square ${isSelected
                             ? "border-primary shadow-lg"
                             : "border-muted-foreground/20"
-                        }`}
+                          }`}
                       >
                         <div className={`w-full h-full rounded-md ${color.bg}`}>
                           {isSelected && (
@@ -490,17 +541,19 @@ const CreateEditWorkspace = () => {
                 <div className="space-y-4">
                   <label
                     htmlFor="banner-upload"
-                    className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-muted-foreground/30 rounded-lg cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-all"
+                    className="relative group flex flex-col items-center justify-center w-full min-h-40 border-2 border-dashed border-muted-foreground/30 rounded-lg cursor-pointer hover:border-primary/50 overflow-hidden transition-all bg-muted/5"
                   >
-                    {formData.bannerImage ? (
-                      <div className="text-center space-y-2">
-                        <ImageIcon className="w-12 h-12 mx-auto text-primary" />
-                        <p className="text-sm font-medium">
-                          {formData.bannerImage.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Click to change
-                        </p>
+                    {bannerPreview ? (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <img
+                          src={bannerPreview}
+                          alt="Banner Preview"
+                          className="w-full h-auto max-h-[500px] object-contain transition-transform group-hover:scale-[1.02]"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-white">
+                          <Upload className="w-8 h-8 mb-2" />
+                          <p className="text-sm font-medium">Change Banner</p>
+                        </div>
                       </div>
                     ) : (
                       <div className="text-center space-y-2">
@@ -525,25 +578,52 @@ const CreateEditWorkspace = () => {
               </CardContent>
             </Card>
 
-            {/* Preview */}
-            {formData.icon && formData.accentColor && (
-              <Card className="border-primary/30 bg-primary/5">
+            {/* Final Visual Preview */}
+            {(formData.icon || formData.customIcon) && formData.accentColor && (
+              <Card className="border-primary/30 bg-primary/5 overflow-hidden">
                 <CardHeader>
-                  <CardTitle className="text-lg">Preview</CardTitle>
+                  <CardTitle className="text-lg">Workspace Preview</CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-4 p-4 rounded-lg bg-background border border-muted-foreground/20">
-                    <div
-                      className={`p-3 rounded-lg bg-secondary/30 ${formData.accentColor.class}`}
-                    >
-                      <formData.icon.icon className="w-6 h-6" />
+                <CardContent className="px-6 pb-6">
+                  <div className="relative rounded-xl overflow-hidden bg-background border border-muted-foreground/20 shadow-xl max-w-2xl mx-auto">
+                    {/* Banner Section */}
+                    <div className="min-h-32 bg-muted relative overflow-hidden flex items-center justify-center border-b border-muted-foreground/10">
+                      {bannerPreview ? (
+                        <img
+                          src={bannerPreview}
+                          alt="Banner"
+                          className="w-full h-auto max-h-64 object-contain transition-all"
+                        />
+                      ) : (
+                        <div className={`w-full h-full min-h-32 opacity-20 ${formData.accentColor.bg}`} />
+                      )}
+
+                      {/* Icon Overlay */}
+                      <div className="absolute -bottom-6 left-6">
+                        <div className={`size-16 rounded-2xl border-4 border-background bg-background shadow-lg flex items-center justify-center overflow-hidden`}>
+                          <div className={`w-full h-full flex items-center justify-center bg-secondary/30 ${formData.accentColor.class}`}>
+                            {iconPreview ? (
+                              <img src={iconPreview} alt="Custom Icon" className="w-full h-full object-cover" />
+                            ) : (
+                              formData.icon && <formData.icon.icon className="w-8 h-8" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg">
-                        {formData.name || "Workspace Name"}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {formData.description || "Workspace description"}
+
+                    {/* Content Section */}
+                    <div className="pt-8 pb-6 px-6">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-bold text-xl leading-tight">
+                          {formData.name || "Workspace Name"}
+                        </h3>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-primary/10 text-primary`}>
+                          Active
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {formData.description || "Set your workspace description in Step 1 to see how it looks here."}
                       </p>
                     </div>
                   </div>
@@ -585,7 +665,7 @@ const CreateEditWorkspace = () => {
                     </h4>
                     <div className="relative w-48">
                       <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                      <input 
+                      <input
                         type="text"
                         placeholder="Filter buckets..."
                         value={bucketSearch}
@@ -599,11 +679,10 @@ const CreateEditWorkspace = () => {
                       <button
                         key={b}
                         onClick={() => setFormData({ ...formData, bucket: b })}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-2 ${
-                          formData.bucket === b
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-2 ${formData.bucket === b
                             ? "bg-primary text-primary-foreground scale-110 shadow-lg z-10"
                             : "bg-muted hover:bg-muted-foreground/10 text-muted-foreground"
-                        }`}
+                          }`}
                       >
                         <Database className="w-3 h-3" />
                         {b}
@@ -639,7 +718,7 @@ const CreateEditWorkspace = () => {
                             <p className="text-xs text-muted-foreground mb-4 line-clamp-1">
                               Primary storage for workspace research data, logs, and generated assets.
                             </p>
-                            
+
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                               <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Supported Types</p>
@@ -718,11 +797,10 @@ const CreateEditWorkspace = () => {
                     return (
                       <div
                         key={mode.id}
-                        className={`p-4 rounded-xl border-2 text-left transition-all ${
-                          isSelected
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${isSelected
                             ? "border-primary bg-primary/10 shadow-lg"
                             : "border-muted-foreground/20 bg-muted/5"
-                        }`}
+                          }`}
                       >
                         <Icon
                           className={`w-8 h-8 mb-3 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
@@ -852,19 +930,17 @@ const CreateEditWorkspace = () => {
                         enableResearch: !formData.enableResearch,
                       })
                     }
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      formData.enableResearch
+                    className={`relative w-14 h-7 rounded-full transition-colors ${formData.enableResearch
                         ? "bg-primary"
                         : "bg-muted-foreground/30"
-                    }`}
+                      }`}
                     disabled={isSaving}
                   >
                     <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
-                        formData.enableResearch
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${formData.enableResearch
                           ? "translate-x-8"
                           : "translate-x-1"
-                      }`}
+                        }`}
                     />
                   </button>
                 </div>
@@ -886,17 +962,15 @@ const CreateEditWorkspace = () => {
                         enableChat: !formData.enableChat,
                       })
                     }
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      formData.enableChat
+                    className={`relative w-14 h-7 rounded-full transition-colors ${formData.enableChat
                         ? "bg-primary"
                         : "bg-muted-foreground/30"
-                    }`}
+                      }`}
                     disabled={isSaving}
                   >
                     <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
-                        formData.enableChat ? "translate-x-8" : "translate-x-1"
-                      }`}
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${formData.enableChat ? "translate-x-8" : "translate-x-1"
+                        }`}
                     />
                   </button>
                 </div>
