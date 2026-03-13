@@ -626,42 +626,42 @@ const CreateEditWorkspace = () => {
                     <div className="mt-8 p-4 rounded-xl border border-primary/20 bg-primary/5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                       <div className="flex items-start justify-between">
                         <div className="flex gap-4">
-                          <div className="p-3 rounded-lg bg-primary/10 text-primary">
+                          <div className="p-3 rounded-lg bg-primary/10 text-primary h-fit">
                             <Database className="w-6 h-6" />
                           </div>
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-bold text-lg">{formData.bucket}</h4>
+                              <h4 className="font-bold text-lg truncate">{formData.bucket}</h4>
                               <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold uppercase tracking-wider">
                                 Active
                               </span>
                             </div>
-                            <p className="text-xs text-muted-foreground mb-4">
+                            <p className="text-xs text-muted-foreground mb-4 line-clamp-1">
                               Primary storage for workspace research data, logs, and generated assets.
                             </p>
                             
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                              <div>
+                              <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Supported Types</p>
                                 <div className="flex items-center gap-1.5 overflow-hidden">
-                                  <span className="text-sm font-semibold truncate">*.pdf, *.docx, *.png, *.json</span>
+                                  <span className="text-sm font-semibold truncate">images, audio, video, files, others</span>
                                   <Info className="w-3 h-3 text-muted-foreground shrink-0" />
                                 </div>
                               </div>
-                              <div>
+                              <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Current Size</p>
                                 <p className="text-sm font-semibold">1.24 GB</p>
                               </div>
-                              <div>
+                              <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Connected Workspaces</p>
                                 {(() => {
                                   const workspaces = "Research-Workspace-Alpha, Analysis-Beta, Deep-Research-Project-2024, Resource-Hub, Archive-Workspace-v1, Marketing-Assets, Legal-Docs-Storage";
-                                  const truncated = workspaces.length > 40 ? workspaces.slice(0, 40) + "..." : workspaces;
+                                  const truncated = workspaces.length > 30 ? workspaces.slice(0, 30) + "..." : workspaces;
                                   return (
                                     <TooltipProvider>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <p className="text-sm font-semibold cursor-help truncate border-b border-dashed border-muted-foreground/30 hover:text-primary hover:border-primary/50 transition-all w-fit">
+                                          <p className="text-sm font-semibold cursor-help truncate border-b border-dashed border-muted-foreground/30 hover:text-primary hover:border-primary/50 transition-all w-fit max-w-full">
                                             {truncated}
                                           </p>
                                         </TooltipTrigger>
