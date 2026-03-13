@@ -145,7 +145,7 @@ const BucketTypes = () => {
                                         isHovered && "opacity-100"
                                     )} />
 
-                                    <CardContent className="relative p-6">
+                                    <CardContent className="relative px-6">
                                         <div className="flex items-start justify-between mb-4">
                                             <div className={cn(
                                                 "p-3 rounded-xl bg-muted/50 transition-all duration-300",
