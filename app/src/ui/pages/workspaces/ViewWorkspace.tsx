@@ -624,15 +624,15 @@ const ViewWorkspace = () => {
                   const [isOpen, setIsOpen] = useState(false)
                   const [metadata, setMetadata] = useState<LinkMetadata | null>(null)
                   const [loading, setLoading] = useState(false)
-                  let hoverTimeout: number
+                  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
                   const handleMouseEnter = () => {
-                    clearTimeout(hoverTimeout)
+                    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
                     setIsOpen(true)
                   }
 
                   const handleMouseLeave = () => {
-                    hoverTimeout = setTimeout(() => {
+                    hoverTimeoutRef.current = setTimeout(() => {
                       setIsOpen(false)
                     }, 200)
                   }
