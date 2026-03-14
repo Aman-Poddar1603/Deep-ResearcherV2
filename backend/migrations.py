@@ -108,7 +108,7 @@ def create_workspace_tables() -> None:
                 "icon": "TEXT",
                 "accent_clr": "TEXT",
                 "banner_img": "TEXT",
-                "connected_bucket_id": "TEXT UNIQUE NOT NULL",
+                "connected_bucket_id": "TEXT",
                 "ai_config": "TEXT",
                 "workspace_resources_id": "TEXT",
                 "workspace_research_agents": "BOOLEAN DEFAULT 1",
