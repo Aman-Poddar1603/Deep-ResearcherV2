@@ -837,7 +837,6 @@ def _initialize_store():
         "researches.db.sqlite3",
         "chats.db.sqlite3",
         "logs.db.sqlite3",
-        "migrations.db.sqlite3",
     ]
 
     # Initialize connection for each database to create the file if it doesn't exist
@@ -886,4 +885,3 @@ scrapes_db_manager = SQLiteManager(db_folder / "scrapes.db.sqlite3")
 buckets_db_manager = SQLiteManager(db_folder / "buckets.db.sqlite3")
 researches_db_manager = SQLiteManager(db_folder / "researches.db.sqlite3")
 chats_db_manager = SQLiteManager(db_folder / "chats.db.sqlite3")
-migrations_db_manager = SQLiteManager(db_folder / "migrations.db.sqlite3")
