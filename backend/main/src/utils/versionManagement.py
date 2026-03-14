@@ -1,9 +1,11 @@
-from main.src.store.DBManager import main_db_manager, SQLiteManager
-from main.src.utils.DRLogger import DRLogger
-from typing import Literal
 import uuid
+from typing import Literal
 
-from main.src.utils.version_constants import MAJOR_CHANGE, NEW_FEATURE, MINOR_BUGFIXES, get_raw_version
+from main.src.store.DBManager import SQLiteManager, main_db_manager
+from main.src.utils.DRLogger import DRLogger
+from main.src.utils.version_constants import (
+    get_raw_version,
+)
 
 # Constants for logging - easier to maintain
 LOG_SOURCE = "system"
@@ -44,7 +46,7 @@ def _logToVersionHistoryTable():
                 "id": "TEXT PRIMARY KEY UNIQUE",
                 "version": "TEXT NOT NULL UNIQUE",
                 "changes": "TEXT NOT NULL",
-                "last_updated": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                 "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             },
         )
