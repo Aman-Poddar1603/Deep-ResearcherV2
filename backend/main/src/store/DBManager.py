@@ -1,20 +1,18 @@
-from pathlib import Path
-import sqlite3
-import re
-from typing import Dict, Any, Optional, Tuple, Union, Literal
 import logging
-from contextlib import contextmanager
+import re
+import sqlite3
 import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, Literal, Optional, Tuple, Union
+
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.version_constants import get_raw_version
-
 
 BASE_DIR = Path(__file__).parent
 src_dir = BASE_DIR.parent
 if str(src_dir) not in sys.path:
     sys.path.append(str(src_dir))
-
-# from utils.DRLogger import dr_logger (Already imported)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -128,68 +126,6 @@ class SQLiteManager:
     def __init__(self, db_path: Union[str, Path], timeout: int = 30):
         self.db_path = str(db_path)
         self.timeout = timeout
-
-    def _log(self, level: str, message: str, urgency: str = "none") -> None:
-        """
-        ## Description
-
-        Helper method to log internal database operations safely while
-        avoiding circular recording into the log database itself.
-
-        ## Parameters
-
-        - `level` (`str`)
-          - Description: The logging level to apply.
-          - Constraints: Must be `"info"` or `"error"`.
-          - Example: `"info"`
-
-        - `message` (`str`)
-          - Description: The text describing the event or error.
-          - Constraints: Strings only.
-          - Example: `"Table users created"`
-
-        - `urgency` (`str`)
-          - Description: Determines priority of the log in the standard log table.
-          - Constraints: Defaults to `"none"`.
-          - Example: `"critical"`
-
-        ## Returns
-
-        `None` (Implicitly)
-
-        ## Raises
-
-        - `None`
-          - Fails gracefully, logging failures to console.
-
-        ## Side Effects
-
-        - Prints to terminal via standard python logging.
-        - Writes to the `logs.db.sqlite3` via `dr_logger` if not logging about logs itself.
-
-        ## Debug Notes
-
-        - If logging loops, verify `logs.db.sqlite3` check correctly filters out logs DB.
-
-        ## Customization
-
-        - Add support for warning logs if required by changing `log_type` conditional.
-        """
-        if level == "error":
-            _log_db_event(message, level="error", urgency=urgency)
-        else:
-            _log_db_event(message, urgency=urgency)
-
-        if "logs.db.sqlite3" not in self.db_path:
-            try:
-                log_type = "error" if level == "error" else "info"
-                _log_db_event(message, level=log_type, urgency="moderate")
-            except Exception as e:
-                _log_db_event(
-                    f"DRLogger internal failure in DBManager: {e}",
-                    level="error",
-                    urgency="critical",
-                )
 
     @staticmethod
     def _validate_identifier(identifier: str) -> str:
@@ -305,9 +241,9 @@ class SQLiteManager:
 
             yield conn
         except sqlite3.Error as e:
-            self._log(
-                "error",
+            _log_db_event(
                 f"Error connecting to database at {self.db_path}: {e}",
+                "error",
                 "critical",
             )
             raise
@@ -438,14 +374,18 @@ class SQLiteManager:
                 cursor = conn.cursor()
                 cursor.execute(query)
                 conn.commit()
-            self._log("info", f"Table '{valid_table}' ensured to exist.")
+            _log_db_event(
+                f"Table '{valid_table}' ensured to exist.", "info", urgency="none"
+            )
             return {
                 "success": True,
                 "message": f"Table '{valid_table}' created or already exists",
                 "data": None,
             }
         except (ValueError, sqlite3.Error) as e:
-            self._log("error", f"Error creating table {table_name}: {e}")
+            _log_db_event(
+                f"Error creating table {table_name}: {e}", "error", urgency="critical"
+            )
             return {"success": False, "message": str(e), "data": None}
 
     def insert(self, table_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -518,7 +458,9 @@ class SQLiteManager:
                     "data": {"id": cursor.lastrowid},
                 }
         except (ValueError, sqlite3.Error) as e:
-            self._log("error", f"Error inserting into {table_name}: {e}")
+            _log_db_event(
+                f"Error inserting into {table_name}: {e}", "error", urgency="critical"
+            )
             return {"success": False, "message": str(e), "data": None}
 
     def fetch_all(
@@ -593,7 +535,11 @@ class SQLiteManager:
                     "data": data_list,
                 }
         except (ValueError, sqlite3.Error) as e:
-            self._log("error", f"Error fetching all from {table_name}: {e}")
+            _log_db_event(
+                f"Error fetching all from {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
             return {"success": False, "message": str(e), "data": None}
 
     def fetch_one(
@@ -665,7 +611,11 @@ class SQLiteManager:
                     "data": data,
                 }
         except (ValueError, sqlite3.Error) as e:
-            self._log("error", f"Error fetching one from {table_name}: {e}")
+            _log_db_event(
+                f"Error fetching one from {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
             return {"success": False, "message": str(e), "data": None}
 
     def update(
@@ -755,7 +705,9 @@ class SQLiteManager:
                     "data": {"rowcount": cursor.rowcount},
                 }
         except (ValueError, sqlite3.Error) as e:
-            self._log("error", f"Error updating {table_name}: {e}")
+            _log_db_event(
+                f"Error updating {table_name}: {e}", "error", urgency="critical"
+            )
             return {"success": False, "message": str(e), "data": None}
 
     def delete(self, table_name: str, where: Dict[str, Any]) -> Dict[str, Any]:
@@ -830,7 +782,9 @@ class SQLiteManager:
                     "data": {"rowcount": cursor.rowcount},
                 }
         except (ValueError, sqlite3.Error) as e:
-            self._log("error", f"Error deleting from {table_name}: {e}")
+            _log_db_event(
+                f"Error deleting from {table_name}: {e}", "error", urgency="critical"
+            )
             return {"success": False, "message": str(e), "data": None}
 
 
@@ -883,6 +837,7 @@ def _initialize_store():
         "researches.db.sqlite3",
         "chats.db.sqlite3",
         "logs.db.sqlite3",
+        "migrations.db.sqlite3",
     ]
 
     # Initialize connection for each database to create the file if it doesn't exist
@@ -931,3 +886,4 @@ scrapes_db_manager = SQLiteManager(db_folder / "scrapes.db.sqlite3")
 buckets_db_manager = SQLiteManager(db_folder / "buckets.db.sqlite3")
 researches_db_manager = SQLiteManager(db_folder / "researches.db.sqlite3")
 chats_db_manager = SQLiteManager(db_folder / "chats.db.sqlite3")
+migrations_db_manager = SQLiteManager(db_folder / "migrations.db.sqlite3")
