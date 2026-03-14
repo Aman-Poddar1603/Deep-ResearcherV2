@@ -3,13 +3,13 @@ BucketStore — physical file-system layer for bucket storage.
 
 Directory layout (rooted at this file's directory):
     <bucket_id>/
-        images/
-        videos/
+    image/
+    video/
         files/
         audio/
-        others/
+    other/
 
-Stored paths in the DB are relative to this root, e.g. "abc123/images/photo.jpg".
+Stored paths in the DB are relative to this root, e.g. "abc123/image/photo.jpg".
 """
 
 import shutil
@@ -17,28 +17,28 @@ from hashlib import md5
 from pathlib import Path
 from uuid import uuid4
 
-BUCKET_SUBFOLDERS = ["images", "videos", "files", "audio", "others"]
+BUCKET_SUBFOLDERS = ["image", "audio", "video", "files", "other"]
 
 # file extension → subfolder mapping
 _FORMAT_MAP: dict[str, str] = {
-    # images
-    "jpg": "images",
-    "jpeg": "images",
-    "png": "images",
-    "gif": "images",
-    "webp": "images",
-    "svg": "images",
-    "bmp": "images",
-    "tiff": "images",
-    "ico": "images",
-    # videos
-    "mp4": "videos",
-    "avi": "videos",
-    "mov": "videos",
-    "mkv": "videos",
-    "wmv": "videos",
-    "flv": "videos",
-    "webm": "videos",
+    # image
+    "jpg": "image",
+    "jpeg": "image",
+    "png": "image",
+    "gif": "image",
+    "webp": "image",
+    "svg": "image",
+    "bmp": "image",
+    "tiff": "image",
+    "ico": "image",
+    # video
+    "mp4": "video",
+    "avi": "video",
+    "mov": "video",
+    "mkv": "video",
+    "wmv": "video",
+    "flv": "video",
+    "webm": "video",
     # audio
     "mp3": "audio",
     "wav": "audio",
@@ -81,7 +81,7 @@ class BucketStore:
 
     def _subfolder_for_format(self, file_format: str) -> str:
         ext = file_format.lstrip(".").lower()
-        return _FORMAT_MAP.get(ext, "others")
+        return _FORMAT_MAP.get(ext, "other")
 
     def _rel_path(self, bucket_id: str, subfolder: str, file_name: str) -> str:
         """Return relative path string stored in the DB."""

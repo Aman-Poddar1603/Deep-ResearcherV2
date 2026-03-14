@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -10,74 +10,169 @@ import {
     Files,
     ArrowRight,
     FolderOpen,
-    HardDrive
+    HardDrive,
+    Loader2,
 } from 'lucide-react'
+import {
+    getBucket,
+    listBucketItems,
+    type BucketItemRecord,
+    type BucketRecord,
+} from '@/lib/apis'
+import {
+    getBucketAllowedTypeLabel,
+    normalizeBucketAllowedType,
+    parseBucketAllowedTypes,
+    type BucketAllowedType,
+} from '@/lib/bucket-types'
 
-// Asset type definitions
 interface AssetType {
-    id: string
+    id: BucketAllowedType
     name: string
     description: string
     icon: React.ElementType
     count: number
-    size: string
+    sizeInBytes: number
     color: string
     gradient: string
 }
 
-// Mock bucket data
-const mockBucketData: Record<string, { name: string; types: AssetType[] }> = {
-    'bucket-1': {
-        name: 'Research Assets',
-        types: [
-            { id: 'images', name: 'Images', description: 'Photos, screenshots, and graphics', icon: Image, count: 245, size: '890 MB', color: 'text-blue-400', gradient: 'from-blue-500/20 to-blue-600/5' },
-            { id: 'videos', name: 'Videos', description: 'Recordings and video content', icon: Video, count: 12, size: '1.2 GB', color: 'text-purple-400', gradient: 'from-purple-500/20 to-purple-600/5' },
-            { id: 'files', name: 'Files', description: 'Documents, PDFs, and spreadsheets', icon: FileText, count: 89, size: '156 MB', color: 'text-green-400', gradient: 'from-green-500/20 to-green-600/5' },
-            { id: 'audio', name: 'Audio', description: 'Music, recordings, and sound files', icon: Music, count: 5, size: '45 MB', color: 'text-orange-400', gradient: 'from-orange-500/20 to-orange-600/5' },
-            { id: 'others', name: 'Others', description: 'Miscellaneous files and data', icon: Files, count: 23, size: '89 MB', color: 'text-pink-400', gradient: 'from-pink-500/20 to-pink-600/5' },
-        ]
+const TYPE_VISUALS: Record<BucketAllowedType, Omit<AssetType, 'id' | 'name' | 'count' | 'sizeInBytes'>> = {
+    image: {
+        description: 'Photos, screenshots, and graphics',
+        icon: Image,
+        color: 'text-blue-400',
+        gradient: 'from-blue-500/20 to-blue-600/5',
     },
-    'bucket-2': {
-        name: 'Product Screenshots',
-        types: [
-            { id: 'images', name: 'Images', description: 'Photos, screenshots, and graphics', icon: Image, count: 567, size: '1.6 GB', color: 'text-blue-400', gradient: 'from-blue-500/20 to-blue-600/5' },
-            { id: 'videos', name: 'Videos', description: 'Recordings and video content', icon: Video, count: 0, size: '0 MB', color: 'text-purple-400', gradient: 'from-purple-500/20 to-purple-600/5' },
-            { id: 'files', name: 'Files', description: 'Documents, PDFs, and spreadsheets', icon: FileText, count: 12, size: '24 MB', color: 'text-green-400', gradient: 'from-green-500/20 to-green-600/5' },
-            { id: 'audio', name: 'Audio', description: 'Music, recordings, and sound files', icon: Music, count: 0, size: '0 MB', color: 'text-orange-400', gradient: 'from-orange-500/20 to-orange-600/5' },
-            { id: 'others', name: 'Others', description: 'Miscellaneous files and data', icon: Files, count: 8, size: '12 MB', color: 'text-pink-400', gradient: 'from-pink-500/20 to-pink-600/5' },
-        ]
+    video: {
+        description: 'Recordings and video content',
+        icon: Video,
+        color: 'text-purple-400',
+        gradient: 'from-purple-500/20 to-purple-600/5',
+    },
+    files: {
+        description: 'Documents, PDFs, spreadsheets, and general files',
+        icon: FileText,
+        color: 'text-green-400',
+        gradient: 'from-green-500/20 to-green-600/5',
+    },
+    audio: {
+        description: 'Music, recordings, and sound files',
+        icon: Music,
+        color: 'text-orange-400',
+        gradient: 'from-orange-500/20 to-orange-600/5',
+    },
+    other: {
+        description: 'Archives, configs, and uncategorized files',
+        icon: Files,
+        color: 'text-pink-400',
+        gradient: 'from-pink-500/20 to-pink-600/5',
     },
 }
 
-// Default bucket data for unknown IDs
-const defaultBucketData = {
-    name: 'Unknown Bucket',
-    types: [
-        { id: 'images', name: 'Images', description: 'Photos, screenshots, and graphics', icon: Image, count: 0, size: '0 MB', color: 'text-blue-400', gradient: 'from-blue-500/20 to-blue-600/5' },
-        { id: 'videos', name: 'Videos', description: 'Recordings and video content', icon: Video, count: 0, size: '0 MB', color: 'text-purple-400', gradient: 'from-purple-500/20 to-purple-600/5' },
-        { id: 'files', name: 'Files', description: 'Documents, PDFs, and spreadsheets', icon: FileText, count: 0, size: '0 MB', color: 'text-green-400', gradient: 'from-green-500/20 to-green-600/5' },
-        { id: 'audio', name: 'Audio', description: 'Music, recordings, and sound files', icon: Music, count: 0, size: '0 MB', color: 'text-orange-400', gradient: 'from-orange-500/20 to-orange-600/5' },
-        { id: 'others', name: 'Others', description: 'Miscellaneous files and data', icon: Files, count: 0, size: '0 MB', color: 'text-pink-400', gradient: 'from-pink-500/20 to-pink-600/5' },
-    ]
+const formatBytes = (bytes: number): string => {
+    if (bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let value = bytes
+    let unitIndex = 0
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024
+        unitIndex += 1
+    }
+
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
 const BucketTypes = () => {
     const { bucketId } = useParams()
     const navigate = useNavigate()
     const [hoveredType, setHoveredType] = useState<string | null>(null)
+    const [bucket, setBucket] = useState<BucketRecord | null>(null)
+    const [items, setItems] = useState<BucketItemRecord[]>([])
+    const [isLoading, setIsLoading] = useState(true)
 
-    const bucketData = useMemo(() => {
-        return mockBucketData[bucketId || ''] || defaultBucketData
+    useEffect(() => {
+        if (!bucketId) return
+
+        let isCancelled = false
+        setIsLoading(true)
+
+        const loadBucketData = async () => {
+            try {
+                const bucketRecord = await getBucket(bucketId)
+                if (isCancelled) return
+                setBucket(bucketRecord)
+
+                const itemPage = await listBucketItems({
+                    bucketId,
+                    page: 1,
+                    size: Math.min(Math.max(bucketRecord.total_files, 1), 5000),
+                    sortBy: 'created_at',
+                    sortOrder: 'desc',
+                })
+                if (isCancelled) return
+                setItems(itemPage.items)
+            } catch (error) {
+                if (isCancelled) return
+                console.error('Failed to load bucket types', error)
+                setBucket(null)
+                setItems([])
+            } finally {
+                if (!isCancelled) {
+                    setIsLoading(false)
+                }
+            }
+        }
+
+        void loadBucketData()
+
+        return () => {
+            isCancelled = true
+        }
     }, [bucketId])
 
-    const totalItems = useMemo(() => {
-        return bucketData.types.reduce((acc, type) => acc + type.count, 0)
-    }, [bucketData])
+    const bucketTypes = useMemo(() => {
+        if (!bucket) return []
+
+        return parseBucketAllowedTypes(bucket.allowed_file_types).map((type) => {
+            const relevantItems = items.filter(
+                (item) => normalizeBucketAllowedType(item.file_format) === type,
+            )
+            const visual = TYPE_VISUALS[type]
+
+            return {
+                id: type,
+                name: getBucketAllowedTypeLabel(type),
+                description: visual.description,
+                icon: visual.icon,
+                color: visual.color,
+                gradient: visual.gradient,
+                count: relevantItems.length,
+                sizeInBytes: relevantItems.reduce((sum, item) => sum + item.file_size, 0),
+            } satisfies AssetType
+        })
+    }, [bucket, items])
 
     const totalSize = useMemo(() => {
-        // Simplified size calculation - in real app would parse and sum properly
-        return '2.4 GB'
-    }, [])
+        return formatBytes(bucket?.total_size ?? 0)
+    }, [bucket?.total_size])
+
+    if (isLoading) {
+        return (
+            <div className="flex h-full items-center justify-center">
+                <Loader2 className="size-8 animate-spin text-muted-foreground" />
+            </div>
+        )
+    }
+
+    if (!bucket) {
+        return (
+            <div className="flex h-full items-center justify-center">
+                <p className="text-muted-foreground">Bucket not found.</p>
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
@@ -92,12 +187,12 @@ const BucketTypes = () => {
                             </div>
                             <div>
                                 <h1 className="text-2xl font-semibold tracking-tight">
-                                    {bucketData.name}
+                                    {bucket.name}
                                 </h1>
                                 <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                                     <span className="flex items-center gap-1.5">
                                         <Files className="size-4" />
-                                        {totalItems} items
+                                        {bucket.total_files} items
                                     </span>
                                     <span className="flex items-center gap-1.5">
                                         <HardDrive className="size-4" />
@@ -121,7 +216,7 @@ const BucketTypes = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {bucketData.types.map((type) => {
+                        {bucketTypes.map((type) => {
                             const Icon = type.icon
                             const isHovered = hoveredType === type.id
                             const isEmpty = type.count === 0
@@ -136,7 +231,7 @@ const BucketTypes = () => {
                                     )}
                                     onMouseEnter={() => setHoveredType(type.id)}
                                     onMouseLeave={() => setHoveredType(null)}
-                                    onClick={() => !isEmpty && navigate(`/data/bucket/${bucketId}/${type.id}`)}
+                                    onClick={() => navigate(`/data/bucket/${bucketId}/${type.id}`)}
                                 >
                                     {/* Gradient Background */}
                                     <div className={cn(
@@ -177,7 +272,7 @@ const BucketTypes = () => {
                                                 <span className="text-sm text-muted-foreground">items</span>
                                             </div>
                                             <span className="text-sm text-muted-foreground font-medium">
-                                                {type.size}
+                                                {formatBytes(type.sizeInBytes)}
                                             </span>
                                         </div>
 
@@ -192,6 +287,14 @@ const BucketTypes = () => {
                                 </Card>
                             )
                         })}
+
+                        {bucketTypes.length === 0 && (
+                            <Card className="border-dashed border-muted-foreground/20">
+                                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                                    This bucket has no allowed types configured.
+                                </CardContent>
+                            </Card>
+                        )}
                     </div>
                 </div>
             </div>

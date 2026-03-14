@@ -29,19 +29,21 @@ import {
 } from '@/components/ui/dropdown-menu'
 import CreateBucketModal from '@/components/modals/CreateBucketModal'
 import { createBucket, deleteBucket, listBuckets, type BucketRecord } from '@/lib/apis'
+import {
+  formatBucketAllowedTypes,
+  getBucketAllowedTypeLabel,
+  parseBucketAllowedTypes,
+  serializeBucketAllowedTypes,
+  type BucketAllowedType,
+} from '@/lib/bucket-types'
 
-// Mock bucket data
 interface Bucket {
   id: string
   name: string
   description: string
-  stats: {
-    images: number
-    videos: number
-    files: number
-    audio: number
-    others: number
-  }
+  allowedTypes: BucketAllowedType[]
+  allowedTypesLabel: string
+  totalFiles: number
   totalSize: string
   createdAt: string
   lastUpdated: string
@@ -69,17 +71,14 @@ const formatDate = (value: string): string => {
 }
 
 const mapBucketRecord = (record: BucketRecord, index: number): Bucket => {
+  const allowedTypes = parseBucketAllowedTypes(record.allowed_file_types)
   return {
     id: record.id,
     name: record.name,
     description: record.description || 'No description available',
-    stats: {
-      images: 0,
-      videos: 0,
-      files: record.total_files,
-      audio: 0,
-      others: 0,
-    },
+    allowedTypes,
+    allowedTypesLabel: formatBucketAllowedTypes(record.allowed_file_types),
+    totalFiles: record.total_files,
     totalSize: formatBytes(record.total_size),
     createdAt: formatDate(record.created_at),
     lastUpdated: formatDate(record.updated_at),
@@ -96,6 +95,14 @@ const getColorClasses = (color: string) => {
     'pink-400': { text: 'text-pink-400', bg: 'bg-pink-400/10', border: 'border-pink-400/30' },
   }
   return colorMap[color] || colorMap['blue-400']
+}
+
+const BUCKET_TYPE_VISUALS: Record<BucketAllowedType, { icon: React.ElementType; color: string; bg: string }> = {
+  image: { icon: Image, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+  audio: { icon: Music, color: 'text-orange-400', bg: 'bg-orange-400/10' },
+  video: { icon: Video, color: 'text-purple-400', bg: 'bg-purple-400/10' },
+  files: { icon: FileText, color: 'text-green-400', bg: 'bg-green-400/10' },
+  other: { icon: Files, color: 'text-pink-400', bg: 'bg-pink-400/10' },
 }
 
 const Bucket = () => {
@@ -128,16 +135,21 @@ const Bucket = () => {
     void loadBuckets()
   }, [])
 
-  const handleCreateBucket = async (name: string) => {
+  const handleCreateBucket = async (name: string, selectedModules: BucketAllowedType[]) => {
     const trimmed = name.trim()
-    if (!trimmed) return
+    if (!trimmed || selectedModules.length === 0) return false
+
+    const allowedFileTypes = serializeBucketAllowedTypes(selectedModules)
+    if (!allowedFileTypes) {
+      alert('Please select at least one valid content type')
+      return false
+    }
 
     try {
       const created = await createBucket({
         name: trimmed,
-        description: 'Created from Deep Researcher UI',
-        allowed_file_types:
-          'pdf,doc,docx,xls,xlsx,png,jpg,jpeg,webp,mp4,mp3,txt,csv,json,zip',
+        description: `Created from Deep Researcher UI (${selectedModules.map(getBucketAllowedTypeLabel).join(', ')})`,
+        allowed_file_types: allowedFileTypes,
         created_by:
           localStorage.getItem('dr_profile_email') ||
           localStorage.getItem('dr_profile_name') ||
@@ -147,9 +159,11 @@ const Bucket = () => {
       })
 
       setBuckets((prev) => [mapBucketRecord(created, 0), ...prev])
+      return true
     } catch (error) {
       console.error('Failed to create bucket', error)
       alert(error instanceof Error ? error.message : 'Failed to create bucket')
+      return false
     }
   }
 
@@ -168,10 +182,6 @@ const Bucket = () => {
     bucket.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     bucket.description.toLowerCase().includes(searchQuery.toLowerCase())
   )
-
-  const getTotalItems = (stats: Bucket['stats']) => {
-    return stats.images + stats.videos + stats.files + stats.audio + stats.others
-  }
 
   return (
     <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
@@ -274,27 +284,29 @@ const Bucket = () => {
                 </CardHeader>
 
                 <CardContent className="flex-1 px-5 py-3">
-                  {/* Asset Type Stats */}
-                  <div className="grid grid-cols-5 gap-2">
-                    <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-                      <Image className="w-4 h-4 text-blue-400 mb-1" />
-                      <span className="text-xs font-medium">{bucket.stats.images}</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                        Allowed Types
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {bucket.allowedTypes.length}/5 enabled
+                      </span>
                     </div>
-                    <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-                      <Video className="w-4 h-4 text-purple-400 mb-1" />
-                      <span className="text-xs font-medium">{bucket.stats.videos}</span>
-                    </div>
-                    <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-                      <FileText className="w-4 h-4 text-green-400 mb-1" />
-                      <span className="text-xs font-medium">{bucket.stats.files}</span>
-                    </div>
-                    <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-                      <Music className="w-4 h-4 text-orange-400 mb-1" />
-                      <span className="text-xs font-medium">{bucket.stats.audio}</span>
-                    </div>
-                    <div className="flex flex-col items-center p-2 rounded-lg bg-muted/30">
-                      <Files className="w-4 h-4 text-pink-400 mb-1" />
-                      <span className="text-xs font-medium">{bucket.stats.others}</span>
+                    <div className="flex flex-wrap gap-2">
+                      {bucket.allowedTypes.map((type) => {
+                        const visual = BUCKET_TYPE_VISUALS[type]
+                        const Icon = visual.icon
+                        return (
+                          <Badge key={type} variant="secondary" className={cn('gap-1.5 border', visual.bg, visual.color)}>
+                            <Icon className="w-3.5 h-3.5" />
+                            {getBucketAllowedTypeLabel(type)}
+                          </Badge>
+                        )
+                      })}
+                      {bucket.allowedTypes.length === 0 && (
+                        <span className="text-xs text-muted-foreground">{bucket.allowedTypesLabel}</span>
+                      )}
                     </div>
                   </div>
 
@@ -302,7 +314,7 @@ const Bucket = () => {
                   <div className="flex items-center justify-between mt-4 pt-3 border-t border-muted-foreground/10">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Files className="w-4 h-4" />
-                      <span className="text-xs">{getTotalItems(bucket.stats)} items</span>
+                      <span className="text-xs">{bucket.totalFiles} items</span>
                     </div>
                     <Badge variant="secondary" className="text-xs font-normal">
                       {bucket.totalSize}

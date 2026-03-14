@@ -868,7 +868,7 @@ List attachments.
       "attachment_id": "uuid",
       "message_id": "message-uuid",
       "attachment_type": "image",
-      "attachment_path": "/bucket/uuid/images/photo.png",
+      "attachment_path": "/bucket/uuid/image/photo.png",
       "attachment_size": 204800,
       "created_at": "2026-03-14T10:00:00+00:00",
       "updated_at": "2026-03-14T10:00:00+00:00"
@@ -902,7 +902,7 @@ Create an attachment record.
 {
   "message_id": "message-uuid",
   "attachment_type": "image",
-  "attachment_path": "bucket-uuid/images/photo.png",
+  "attachment_path": "bucket-uuid/image/photo.png",
   "attachment_size": 204800
 }
 ```
@@ -938,11 +938,11 @@ Buckets are named storage containers. Each bucket maps to a physical directory o
 
 ```
 src/store/bucket/<bucket_id>/
-    images/
-    videos/
+  image/
+  audio/
+  video/
     files/
-    audio/
-    others/
+  other/
 ```
 
 File format is auto-detected from the extension and routed to the correct subfolder. The stored `file_path` (relative path) is saved in the DB and can be used to construct download URLs.
@@ -959,7 +959,7 @@ Any stored bucket/workspace asset can be fetched using this endpoint.
 
 `asset_path` should be the stored DB path, for example:
 
-- `bucket-uuid/images/photo.png`
+- `bucket-uuid/image/photo.png`
 - `workspace/banner/9bd4d6b7a6f5f5ad4f23a31b5ab4f89b.png`
 
 **Response `200`** — file stream  
@@ -1221,7 +1221,7 @@ List bucket items.
       "connected_workspace_ids": "ws-uuid-1,ws-uuid-2",
       "source": "upload",
       "file_name": "diagram.png",
-      "file_path": "bucket-uuid/images/diagram.png",
+      "file_path": "bucket-uuid/image/diagram.png",
       "file_format": "png",
       "file_size": 51200,
       "summary": null,
@@ -1467,11 +1467,11 @@ When uploading files, the backend automatically places them in the correct subfo
 
 | Extensions                                                                   | Subfolder |
 | ---------------------------------------------------------------------------- | --------- |
-| jpg, jpeg, png, gif, webp, svg, bmp, tiff, ico                               | `images/` |
-| mp4, avi, mov, mkv, wmv, flv, webm                                           | `videos/` |
+| jpg, jpeg, png, gif, webp, svg, bmp, tiff, ico                               | `image/`  |
+| mp4, avi, mov, mkv, wmv, flv, webm                                           | `video/`  |
 | mp3, wav, ogg, flac, aac, m4a                                                | `audio/`  |
 | pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, json, xml, zip, tar, gz, rar | `files/`  |
-| anything else                                                                | `others/` |
+| anything else                                                                | `other/`  |
 
 ---
 

@@ -21,19 +21,27 @@ import {
   Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { type BucketAllowedType } from "@/lib/bucket-types";
 
 interface CreateBucketModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string) => void;
+  onCreate: (name: string, selectedTypes: BucketAllowedType[]) => Promise<boolean> | boolean;
 }
 
 const MEDIA_TYPES = [
-  { id: "images", label: "Images", icon: ImageIcon, color: "text-blue-400", bg: "bg-blue-400/10" },
-  { id: "videos", label: "Videos", icon: Video, color: "text-purple-400", bg: "bg-purple-400/10" },
-  { id: "files", label: "Files", icon: FileText, color: "text-green-400", bg: "bg-green-400/10" },
+  { id: "image", label: "Image", icon: ImageIcon, color: "text-blue-400", bg: "bg-blue-400/10" },
   { id: "audio", label: "Audio", icon: Music, color: "text-orange-400", bg: "bg-orange-400/10" },
-];
+  { id: "video", label: "Video", icon: Video, color: "text-purple-400", bg: "bg-purple-400/10" },
+  { id: "files", label: "Files", icon: FileText, color: "text-green-400", bg: "bg-green-400/10" },
+  { id: "other", label: "Other", icon: MoreHorizontal, color: "text-pink-400", bg: "bg-pink-400/10" },
+] as const satisfies ReadonlyArray<{
+  id: BucketAllowedType;
+  label: string;
+  icon: typeof ImageIcon;
+  color: string;
+  bg: string;
+}>;
 
 const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
   isOpen,
@@ -41,19 +49,21 @@ const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
   onCreate,
 }) => {
   const [bucketName, setBucketName] = useState("");
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<BucketAllowedType[]>([]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (bucketName.trim()) {
-      onCreate(bucketName.trim());
+    const trimmedName = bucketName.trim();
+    if (trimmedName && selectedTypes.length > 0) {
+      const created = await onCreate(trimmedName, selectedTypes);
+      if (created === false) return;
       setBucketName("");
       setSelectedTypes([]);
       onClose();
     }
   };
 
-  const toggleType = (id: string) => {
+  const toggleType = (id: BucketAllowedType) => {
     setSelectedTypes(prev =>
       prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
     );
@@ -107,11 +117,11 @@ const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
               </label>
               <div className="flex items-center gap-1.5 opacity-60">
                 <Info className="w-3 h-3" />
-                <span className="text-[10px]">Affects storage optimization</span>
+                <span className="text-[10px]">Only 5 types supported. Choose once, then immutable</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {MEDIA_TYPES.map((type) => {
                 const Icon = type.icon;
                 const isSelected = selectedTypes.includes(type.id);
@@ -141,21 +151,15 @@ const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
                   </button>
                 );
               })}
-
-              {/* Other (System Required) */}
-              <div className="flex items-center gap-3 p-4 rounded-xl border-2 bg-white/5 border-white/5 opacity-50 cursor-not-allowed">
-                <div className="p-2 rounded-lg bg-white/5">
-                  <MoreHorizontal className="w-5 h-5 text-muted-foreground/60" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-semibold text-sm text-muted-foreground/80">Other Data</span>
-                  <span className="text-[9px] uppercase tracking-tighter">System Default</span>
-                </div>
-              </div>
             </div>
           </div>
 
           <DialogFooter className="pt-4  flex flex-row items-center justify-end gap-3 translate-x-3">
+            <p className="mr-auto text-[11px] text-muted-foreground">
+              {selectedTypes.length === 0
+                ? "Select at least one content type"
+                : `${selectedTypes.length} type${selectedTypes.length > 1 ? "s" : ""} selected`}
+            </p>
             <Button
               type="button"
               variant="ghost"
@@ -166,7 +170,7 @@ const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
             </Button>
             <Button
               type="submit"
-              disabled={!bucketName.trim()}
+              disabled={!bucketName.trim() || selectedTypes.length === 0}
               className="px-8 rounded-xl h-11 bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl shadow-primary/20 transition-all font-bold gap-2"
             >
               <Plus className="w-4 h-4" />

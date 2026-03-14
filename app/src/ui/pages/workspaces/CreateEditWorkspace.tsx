@@ -45,8 +45,10 @@ import {
   updateWorkspace,
   getWorkspaceRecord,
   listBuckets,
+  listWorkspaceRecords,
   uploadWorkspaceBanner,
   uploadWorkspaceIcon,
+  type BucketRecord,
   type WorkspaceRecord,
 } from "@/lib/apis";
 import CreateBucketModal from "@/components/modals/CreateBucketModal";
@@ -64,6 +66,12 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/sonner";
 import { resolveApiAssetUrl } from "@/lib/utils";
+import {
+  formatBucketAllowedTypes,
+  getBucketAllowedTypeLabel,
+  serializeBucketAllowedTypes,
+  type BucketAllowedType,
+} from "@/lib/bucket-types";
 
 // Icons available for workspace
 const WORKSPACE_ICONS = [
@@ -142,9 +150,36 @@ interface WorkspaceFormData {
 interface BucketOption {
   id: string;
   name: string;
+  description: string | null;
+  allowedFileTypes: string;
+  totalSize: number;
+  totalFiles: number;
 }
 
 const DEFAULT_CREATED_BY = "local-user";
+
+const formatBytes = (bytes: number): string => {
+  if (bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const toBucketOption = (bucket: BucketRecord): BucketOption => ({
+  id: bucket.id,
+  name: bucket.name,
+  description: bucket.description,
+  allowedFileTypes: bucket.allowed_file_types,
+  totalSize: bucket.total_size,
+  totalFiles: bucket.total_files,
+});
 
 const isWorkspaceAssetPath = (value?: string | null) =>
   Boolean(value && (value.includes("/") || /^https?:\/\//i.test(value)));
@@ -200,6 +235,8 @@ const CreateEditWorkspace = () => {
   const [isLoadingStorage, setIsLoadingStorage] = useState(false);
   const [bucketSearch, setBucketSearch] = useState("");
   const [isBucketModalOpen, setIsBucketModalOpen] = useState(false);
+  const [connectedWorkspaceNames, setConnectedWorkspaceNames] = useState<string[]>([]);
+  const [isLoadingConnectedWorkspaces, setIsLoadingConnectedWorkspaces] = useState(false);
 
   const selectedBucket = buckets.find((bucket) => bucket.id === formData.bucket) ?? null;
 
@@ -270,10 +307,7 @@ const CreateEditWorkspace = () => {
         sortOrder: "desc",
       });
 
-      const bucketOptions = response.items.map((bucket) => ({
-        id: bucket.id,
-        name: bucket.name,
-      }));
+      const bucketOptions = response.items.map(toBucketOption);
 
       setBuckets(bucketOptions);
 
@@ -293,9 +327,48 @@ const CreateEditWorkspace = () => {
     }
   }, [currentStep, loadStorageData]);
 
-  const handleAddBucket = async (name: string) => {
+  useEffect(() => {
+    if (currentStep !== 3 || !formData.bucket) {
+      setConnectedWorkspaceNames([]);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingConnectedWorkspaces(true);
+
+    listWorkspaceRecords({
+      page: 1,
+      size: 200,
+      connectedBucketId: formData.bucket,
+      sortBy: "updated_at",
+      sortOrder: "desc",
+    })
+      .then((workspaces) => {
+        if (isCancelled) return;
+        setConnectedWorkspaceNames(
+          workspaces
+            .map((workspace) => workspace.name)
+            .filter((name): name is string => name.trim().length > 0),
+        );
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.error("Failed to load connected workspaces", err);
+        setConnectedWorkspaceNames([]);
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setIsLoadingConnectedWorkspaces(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentStep, formData.bucket]);
+
+  const handleAddBucket = async (name: string, selectedModules: BucketAllowedType[]) => {
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (!trimmedName || selectedModules.length === 0) return false;
 
     const alreadyExists = buckets.some(
       (bucket) => bucket.name.toLowerCase() === trimmedName.toLowerCase(),
@@ -308,15 +381,21 @@ const CreateEditWorkspace = () => {
       if (existingBucket) {
         setFormData((prev) => ({ ...prev, bucket: existingBucket.id }));
       }
-      return;
+      toast.info("Bucket already exists. Selected the existing one.");
+      return true;
+    }
+
+    const allowedFileTypes = serializeBucketAllowedTypes(selectedModules);
+    if (!allowedFileTypes) {
+      toast.error("No valid content types were selected for this bucket.");
+      return false;
     }
 
     try {
       const createdBucket = await createBucket({
         name: trimmedName,
-        description: "Workspace storage bucket",
-        allowed_file_types:
-          "pdf,doc,docx,xls,xlsx,png,jpg,jpeg,webp,mp4,mp3,txt,csv,json,zip",
+        description: `Workspace storage bucket for ${selectedModules.map(getBucketAllowedTypeLabel).join(", ")}`,
+        allowed_file_types: allowedFileTypes,
         created_by:
           localStorage.getItem("dr_profile_email") ||
           localStorage.getItem("dr_profile_name") ||
@@ -325,13 +404,16 @@ const CreateEditWorkspace = () => {
         status: true,
       });
 
-      const option = { id: createdBucket.id, name: createdBucket.name };
+      const option = toBucketOption(createdBucket);
       setBuckets((prev) => [option, ...prev]);
       setFormData((prev) => ({ ...prev, bucket: option.id }));
+      toast.success("Bucket created with selected content types");
+      return true;
     } catch (err) {
       console.error("Failed to create bucket", err);
       const message = err instanceof Error ? err.message : "Failed to create bucket";
       toast.error(message);
+      return false;
     }
   };
 
@@ -393,6 +475,7 @@ const CreateEditWorkspace = () => {
         aiMode: formData.aiMode,
         enableResearch: formData.enableResearch,
         enableChat: formData.enableChat,
+        connectedBucketId: formData.bucket || null,
         bucket: formData.bucket || null,
         bannerImage: formData.bannerImage ?? null,
         customIcon: formData.customIcon ?? null,
@@ -924,26 +1007,59 @@ const CreateEditWorkspace = () => {
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground mb-4 line-clamp-1">
-                              Primary storage for workspace research data, logs, and generated assets.
+                              {selectedBucket.description || "Primary storage for workspace research data, logs, and generated assets."}
                             </p>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                               <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Supported Types</p>
-                                <div className="flex items-center gap-1.5 overflow-hidden">
-                                  <span className="text-sm font-semibold truncate">images, audio, video, files, others</span>
-                                  <Info className="w-3 h-3 text-muted-foreground shrink-0" />
-                                </div>
+                                {(() => {
+                                  const supportedTypes = formatBucketAllowedTypes(selectedBucket.allowedFileTypes);
+                                  const isLong = supportedTypes.length > 40;
+                                  const truncated = isLong ? `${supportedTypes.slice(0, 40)}...` : supportedTypes;
+
+                                  return (
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div className="flex items-center gap-1.5 overflow-hidden w-fit max-w-full cursor-help">
+                                            <span className="text-sm font-semibold truncate border-b border-dashed border-muted-foreground/30 hover:text-primary hover:border-primary/50 transition-all">
+                                              {truncated}
+                                            </span>
+                                            {isLong && <Info className="w-3 h-3 text-muted-foreground shrink-0" />}
+                                          </div>
+                                        </TooltipTrigger>
+                                        {isLong && (
+                                          <TooltipContent side="top" className="max-w-72 p-3 border-primary/20 bg-neutral-900/95 backdrop-blur-xl">
+                                            <div className="space-y-1.5">
+                                              <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Allowed Bucket Types</p>
+                                              <p className="text-xs leading-relaxed text-neutral-300 wrap-break-word">{supportedTypes}</p>
+                                            </div>
+                                          </TooltipContent>
+                                        )}
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                })()}
                               </div>
                               <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Current Size</p>
-                                <p className="text-sm font-semibold">1.24 GB</p>
+                                <p className="text-sm font-semibold">{formatBytes(selectedBucket.totalSize)}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">{selectedBucket.totalFiles} files</p>
                               </div>
                               <div className="min-w-0">
                                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter mb-1">Connected Workspaces</p>
                                 {(() => {
-                                  const workspaces = "Research-Workspace-Alpha, Analysis-Beta, Deep-Research-Project-2024, Resource-Hub, Archive-Workspace-v1, Marketing-Assets, Legal-Docs-Storage";
-                                  const truncated = workspaces.length > 30 ? workspaces.slice(0, 30) + "..." : workspaces;
+                                  if (isLoadingConnectedWorkspaces) {
+                                    return <p className="text-sm font-semibold text-muted-foreground">Loading...</p>;
+                                  }
+
+                                  if (connectedWorkspaceNames.length === 0) {
+                                    return <p className="text-sm font-semibold text-muted-foreground">No connected workspaces</p>;
+                                  }
+
+                                  const workspaces = connectedWorkspaceNames.join(", ");
+                                  const truncated = workspaces.length > 40 ? `${workspaces.slice(0, 40)}...` : workspaces;
                                   return (
                                     <TooltipProvider>
                                       <Tooltip>

@@ -1271,6 +1271,7 @@ export interface WorkspaceCreate {
   enableResearch?: boolean;
   enableChat?: boolean;
   connectedBucketId?: string | null;
+  bucket?: string | null;
 }
 
 export interface WorkspacePatch {
@@ -1396,7 +1397,7 @@ export const updateWorkspace = async (
     icon: payload.icon ?? null,
     accent_clr: payload.accentColor ?? null,
     banner_img: payload.bannerUrl ?? null,
-    connected_bucket_id: payload.connectedBucketId ?? null,
+    connected_bucket_id: payload.connectedBucketId ?? payload.bucket ?? null,
     ai_config: toWorkspaceAiConfig(payload.aiMode),
     workspace_research_agents: payload.enableResearch ?? true,
     workspace_chat_agents: payload.enableChat ?? true,

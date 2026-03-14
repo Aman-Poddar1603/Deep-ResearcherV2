@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { cn } from '@/lib/utils'
+import { cn, resolveApiAssetUrl } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -28,105 +28,155 @@ import {
   Calendar,
   HardDrive,
   ArrowUpDown,
-  Filter,
-  ChevronDown
+  Loader2,
 } from 'lucide-react'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu'
+  getBucket,
+  listBucketItems,
+  type BucketItemRecord,
+  type BucketRecord,
+} from '@/lib/apis'
+import {
+  getBucketAllowedTypeLabel,
+  normalizeBucketAllowedType,
+  parseBucketAllowedTypes,
+  type BucketAllowedType,
+} from '@/lib/bucket-types'
 
-// Asset item type
-interface AssetItem {
-  id: string
-  name: string
-  type: 'images' | 'videos' | 'files' | 'audio' | 'others'
-  size: string
-  createdAt: string
-  thumbnail?: string
-  format: string
-}
-
-// Generate mock data
-const generateMockAssets = (type: string, count: number): AssetItem[] => {
-  const formats: Record<string, string[]> = {
-    images: ['PNG', 'JPG', 'WEBP', 'SVG', 'GIF'],
-    videos: ['MP4', 'MOV', 'AVI', 'WEBM'],
-    files: ['PDF', 'DOCX', 'XLSX', 'TXT', 'CSV'],
-    audio: ['MP3', 'WAV', 'FLAC', 'AAC'],
-    others: ['ZIP', 'RAR', 'JSON', 'XML', 'YAML']
-  }
-
-  const names: Record<string, string[]> = {
-    images: ['Screenshot', 'Photo', 'Diagram', 'Chart', 'Banner', 'Icon', 'Logo', 'Background'],
-    videos: ['Recording', 'Demo', 'Tutorial', 'Presentation', 'Interview'],
-    files: ['Report', 'Document', 'Spreadsheet', 'Analysis', 'Summary', 'Data Export'],
-    audio: ['Recording', 'Podcast', 'Interview', 'Music Track', 'Voiceover'],
-    others: ['Archive', 'Backup', 'Config', 'Data Bundle', 'Export Package']
-  }
-
-  const typeFormats = formats[type] || formats.others
-  const typeNames = names[type] || names.others
-
-  return Array.from({ length: count }).map((_, i) => ({
-    id: `asset-${type}-${i + 1}`,
-    name: `${typeNames[Math.floor(Math.random() * typeNames.length)]}_${Date.now() + i}.${typeFormats[Math.floor(Math.random() * typeFormats.length)].toLowerCase()}`,
-    type: type as AssetItem['type'],
-    size: `${(Math.random() * 10 + 0.1).toFixed(1)} MB`,
-    createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-    format: typeFormats[Math.floor(Math.random() * typeFormats.length)],
-    thumbnail: type === 'images' ? `https://picsum.photos/seed/${i}/200/150` : undefined
-  }))
-}
-
-const typeConfig: Record<string, { icon: React.ElementType; color: string; label: string }> = {
-  images: { icon: Image, color: 'text-blue-400', label: 'Images' },
-  videos: { icon: Video, color: 'text-purple-400', label: 'Videos' },
+const typeConfig: Record<BucketAllowedType, { icon: React.ElementType; color: string; label: string }> = {
+  image: { icon: Image, color: 'text-blue-400', label: 'Image' },
+  video: { icon: Video, color: 'text-purple-400', label: 'Video' },
   files: { icon: FileText, color: 'text-green-400', label: 'Files' },
   audio: { icon: Music, color: 'text-orange-400', label: 'Audio' },
-  others: { icon: Files, color: 'text-pink-400', label: 'Others' }
+  other: { icon: Files, color: 'text-pink-400', label: 'Other' }
+}
+
+const formatBytes = (bytes: number): string => {
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+const formatDate = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const openAsset = (item: BucketItemRecord) => {
+  const url = resolveApiAssetUrl(item.file_path)
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+const downloadAsset = (item: BucketItemRecord) => {
+  const url = resolveApiAssetUrl(item.file_path)
+  if (!url) return
+  const link = document.createElement('a')
+  link.href = url
+  link.download = item.file_name
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 const BucketItems = () => {
-  const { type } = useParams()
+  const { bucketId, type } = useParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'name' | 'size'>('newest')
+  const [bucket, setBucket] = useState<BucketRecord | null>(null)
+  const [items, setItems] = useState<BucketItemRecord[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const currentType = type || 'images'
-  const config = typeConfig[currentType] || typeConfig.images
+  useEffect(() => {
+    if (!bucketId) return
+
+    let isCancelled = false
+    setIsLoading(true)
+
+    const loadBucketItems = async () => {
+      try {
+        const bucketRecord = await getBucket(bucketId)
+        if (isCancelled) return
+        setBucket(bucketRecord)
+
+        const itemPage = await listBucketItems({
+          bucketId,
+          page: 1,
+          size: Math.min(Math.max(bucketRecord.total_files, 1), 5000),
+          sortBy: 'created_at',
+          sortOrder: 'desc',
+        })
+        if (isCancelled) return
+        setItems(itemPage.items.filter((item) => !item.is_deleted))
+      } catch (error) {
+        if (isCancelled) return
+        console.error('Failed to load bucket items', error)
+        setBucket(null)
+        setItems([])
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadBucketItems()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [bucketId])
+
+  const allowedTypes = useMemo(() => {
+    return parseBucketAllowedTypes(bucket?.allowed_file_types)
+  }, [bucket?.allowed_file_types])
+
+  const currentType = useMemo<BucketAllowedType>(() => {
+    const normalizedRouteType = normalizeBucketAllowedType(type)
+    if (normalizedRouteType && (allowedTypes.length === 0 || allowedTypes.includes(normalizedRouteType))) {
+      return normalizedRouteType
+    }
+    return allowedTypes[0] ?? 'files'
+  }, [allowedTypes, type])
+
+  const config = typeConfig[currentType] || typeConfig.files
   const Icon = config.icon
 
-  // Generate mock data based on type
   const assets = useMemo(() => {
-    // Using a fixed count to avoid impure Math.random in render
-    const count = 25
-    return generateMockAssets(currentType, count)
-  }, [currentType])
+    return items.filter((item) => normalizeBucketAllowedType(item.file_format) === currentType)
+  }, [currentType, items])
 
-  // Filter and sort
   const filteredAssets = useMemo(() => {
     let filtered = assets.filter(asset =>
-      asset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.format.toLowerCase().includes(searchQuery.toLowerCase())
+      asset.file_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      asset.file_format.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (asset.summary || '').toLowerCase().includes(searchQuery.toLowerCase())
     )
 
     switch (sortOrder) {
       case 'newest':
-        filtered = [...filtered].reverse()
+        filtered = [...filtered].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         break
       case 'oldest':
-        // Already in order
+        filtered = [...filtered].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
         break
       case 'name':
-        filtered = [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+        filtered = [...filtered].sort((a, b) => a.file_name.localeCompare(b.file_name))
         break
       case 'size':
-        filtered = [...filtered].sort((a, b) => parseFloat(b.size) - parseFloat(a.size))
+        filtered = [...filtered].sort((a, b) => b.file_size - a.file_size)
         break
     }
 
@@ -138,7 +188,7 @@ const BucketItems = () => {
     if (selectedIds.size === filteredAssets.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(filteredAssets.map(a => a.id)))
+      setSelectedIds(new Set(filteredAssets.map((asset) => asset.id)))
     }
   }
 
@@ -150,6 +200,22 @@ const BucketItems = () => {
       newSelected.add(id)
     }
     setSelectedIds(newSelected)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!bucket) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-muted-foreground">Bucket not found.</p>
+      </div>
+    )
   }
 
   return (
@@ -167,7 +233,7 @@ const BucketItems = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight">
-                  {config.label}
+                  {getBucketAllowedTypeLabel(currentType)}
                 </h1>
                 <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1.5">
@@ -176,7 +242,7 @@ const BucketItems = () => {
                   </span>
                   <span className="flex items-center gap-1.5">
                     <HardDrive className="size-4" />
-                    {(filteredAssets.reduce((acc, a) => acc + parseFloat(a.size), 0)).toFixed(1)} MB
+                    {formatBytes(filteredAssets.reduce((acc, asset) => acc + asset.file_size, 0))}
                   </span>
                 </div>
               </div>
@@ -212,26 +278,8 @@ const BucketItems = () => {
               />
             </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <Filter className="size-4" />
-                  Filter
-                  <ChevronDown className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem>All Formats</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>PNG</DropdownMenuItem>
-                <DropdownMenuItem>JPG</DropdownMenuItem>
-                <DropdownMenuItem>WEBP</DropdownMenuItem>
-                <DropdownMenuItem>Other</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as typeof sortOrder)}>
-              <SelectTrigger className="w-[160px]">
+              <SelectTrigger className="w-40">
                 <ArrowUpDown className="size-4 mr-2" />
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
@@ -291,10 +339,10 @@ const BucketItems = () => {
                   )}
                 >
                   <div className="relative aspect-4/3 bg-muted/30">
-                    {asset.thumbnail ? (
+                    {currentType === 'image' && resolveApiAssetUrl(asset.file_path) ? (
                       <img
-                        src={asset.thumbnail}
-                        alt={asset.name}
+                        src={resolveApiAssetUrl(asset.file_path) || undefined}
+                        alt={asset.file_name}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -305,10 +353,10 @@ const BucketItems = () => {
 
                     {/* Overlay */}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <Button size="icon" variant="secondary" className="h-8 w-8">
+                      <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => openAsset(asset)}>
                         <Eye className="size-4" />
                       </Button>
-                      <Button size="icon" variant="secondary" className="h-8 w-8">
+                      <Button size="icon" variant="secondary" className="h-8 w-8" onClick={() => downloadAsset(asset)}>
                         <Download className="size-4" />
                       </Button>
                     </div>
@@ -328,16 +376,16 @@ const BucketItems = () => {
                       variant="secondary"
                       className="absolute top-2 right-2 text-[10px] font-medium"
                     >
-                      {asset.format}
+                      {asset.file_format.toUpperCase()}
                     </Badge>
                   </div>
                   <CardContent className="p-3">
-                    <p className="text-sm font-medium truncate" title={asset.name}>
-                      {asset.name}
+                    <p className="text-sm font-medium truncate" title={asset.file_name}>
+                      {asset.file_name}
                     </p>
                     <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
-                      <span>{asset.size}</span>
-                      <span>{asset.createdAt}</span>
+                      <span>{formatBytes(asset.file_size)}</span>
+                      <span>{formatDate(asset.created_at)}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -360,31 +408,31 @@ const BucketItems = () => {
                   />
 
                   <div className="size-12 rounded-lg bg-muted/50 flex items-center justify-center shrink-0 overflow-hidden">
-                    {asset.thumbnail ? (
-                      <img src={asset.thumbnail} alt="" className="w-full h-full object-cover" />
+                    {currentType === 'image' && resolveApiAssetUrl(asset.file_path) ? (
+                      <img src={resolveApiAssetUrl(asset.file_path) || undefined} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <Icon className={cn("size-6", config.color)} />
                     )}
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{asset.name}</p>
+                    <p className="font-medium text-sm truncate">{asset.file_name}</p>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="text-[10px]">{asset.format}</Badge>
-                      <span>{asset.size}</span>
+                      <Badge variant="outline" className="text-[10px]">{asset.file_format.toUpperCase()}</Badge>
+                      <span>{formatBytes(asset.file_size)}</span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Calendar className="size-3.5" />
-                    {asset.createdAt}
+                    {formatDate(asset.created_at)}
                   </div>
 
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openAsset(asset)}>
                       <Eye className="size-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadAsset(asset)}>
                       <Download className="size-4" />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive">
@@ -402,7 +450,7 @@ const BucketItems = () => {
               <Icon className={cn("size-16 opacity-30 mb-4", config.color)} />
               <h3 className="text-lg font-medium text-muted-foreground">No assets found</h3>
               <p className="text-sm text-muted-foreground/60 mt-1">
-                {searchQuery ? 'Try adjusting your search query' : 'Upload some assets to get started'}
+                {searchQuery ? 'Try adjusting your search query' : `${bucket.name} has no ${config.label.toLowerCase()} items yet`}
               </p>
             </div>
           )}
