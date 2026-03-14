@@ -117,7 +117,10 @@
 		],
 		"win": {
 			"icon": "public/brand/inner_logo_dr_light.png",
-			"target": "nsis"
+			"target": [
+				"nsis",
+				"msi"
+			]
 		},
 		"nsis": {
 			"oneClick": false,
