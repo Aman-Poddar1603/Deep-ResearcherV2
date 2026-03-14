@@ -13,6 +13,7 @@ import {
   Database,
   Plus,
   Pencil,
+  X,
   Image as ImageIcon,
   Video,
   FileText,
@@ -109,9 +110,21 @@ const CreateBucketModal: React.FC<CreateBucketModalProps> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-3xl w-[95vw] sm:w-[50vw] bg-neutral-950/95 backdrop-blur-xl border-white/10 shadow-2xl overflow-hidden p-0 gap-0">
+    <Dialog open={isOpen} onOpenChange={isSaving ? undefined : onClose}>
+      {/* [&>button]:hidden suppresses the default shadcn close button which breaks under p-0 */}
+      <DialogContent className="sm:max-w-3xl w-[95vw] sm:w-[50vw] bg-neutral-950/95 backdrop-blur-xl border-white/10 shadow-2xl overflow-hidden p-0 gap-0 [&>button]:hidden">
         <div className="absolute inset-0 bg-linear-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
+
+        {/* Custom close button */}
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isSaving}
+          aria-label="Close"
+          className="absolute top-4 right-4 z-50 size-8 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/15 border border-white/10 hover:border-white/25 text-muted-foreground hover:text-foreground transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <X className="w-4 h-4" />
+        </button>
 
         <DialogHeader className="p-8 pb-4 relative z-10">
           <div className="flex items-center gap-4 mb-2">
