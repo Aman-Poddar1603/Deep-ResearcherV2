@@ -4,7 +4,7 @@ import sqlite3
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.version_constants import get_raw_version
@@ -303,55 +303,113 @@ class SQLiteManager:
         clause = "WHERE " + " AND ".join(conditions)
         return clause, tuple(where.values())
 
-    def create_table(self, table_name: str, schema: Dict[str, str]) -> Dict[str, Any]:
+    def create_table(
+        self,
+        table_name: str,
+        schema: Dict[str, str],
+        indexes: Optional[List[Union[str, List[str]]]] = None,
+    ) -> Dict[str, Any]:
         """
-        ## Description
+        Create a SQLite table dynamically and optionally create indexes.
 
-        Creates a table dynamically mapping user-provided dictionary schema
-        to SQLite string constraints.
+        This function builds a `CREATE TABLE` statement using the provided
+        schema dictionary and executes it. After the table is created,
+        optional indexes may also be created.
 
-        ## Parameters
+        Foreign keys are enforced because the connection enables
+        `PRAGMA foreign_keys = ON`.
 
-        - `table_name` (`str`)
-          - Description: The name of the table to create.
-          - Constraints: Must be alphanumeric/underscores only.
-          - Example: `"users_info"`
+        Args:
+            table_name (str):
+                Name of the table to create. Must match the identifier regex
+                `^[a-zA-Z0-9_]+$`.
 
-        - `schema` (`Dict[str, str]`)
-          - Description: Mapping of columns to SQL Data Types and options.
-          - Constraints: Values must be standard SQLite definitions.
-          - Example: `{"id": "INTEGER PRIMARY KEY", "name": "TEXT"}`
+            schema (Dict[str, str]):
+                Mapping of column names to SQLite column definitions
+                (type + constraints). The SQL definition is inserted directly
+                into the query.
 
-        ## Returns
+                Example:
+                ```python
+                {
+                    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                    "user_id": "INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE",
+                    "title": "TEXT",
+                    "body": "TEXT"
+                }
+                ```
 
-        `dict`
+            indexes (Optional[List[Union[str, List[str], Dict[str, Any]]]]):
+                Optional index definitions.
 
-        Structure:
+                Supported formats:
 
-        ```json
-        {
-            "success": "true | false",
-            "message": "Status description",
-            "data": null
-        }
-        ```
+                - Single column index:
+                    `"user_id"`
 
-        ## Raises
+                - Compound index:
+                    `["user_id", "created_at"]`
 
-        - `None` (Catches exceptions internally to return error schema).
+                - Descriptor dictionary:
+                    ```python
+                    {
+                        "cols": ["user_id", "title"],
+                        "unique": True,
+                        "name": "uq_posts_user_title"
+                    }
+                    ```
 
-        ## Side Effects
+                Descriptor fields:
+                    - cols (`List[str]`): Columns included in the index.
+                    - name (`Optional[str]`): Custom index name.
+                    - unique (`Optional[bool]`): Whether the index is UNIQUE.
 
-        - Updates underlying DDL making new tables available in database.
-        - Writes information/error logs on the system logger.
+        Returns:
+            `Dict[str, Any]`: Dictionary containing the execution result.
 
-        ## Debug Notes
+            Structure:
+                ```python
+                {
+                    "success": bool,
+                    "message": str,
+                    "data": None
+                }
+                ```
 
-        - Prints SQL trace into DRLogger upon failures to aid debugging.
+        Notes:
+            - SQLite has limited ALTER TABLE support. Changing foreign keys
+              often requires recreating the table.
+            - Column definitions are used as provided and must be valid SQL.
+            - Index creation failures are logged but do not cause the table
+              creation to fail.
 
-        ## Customization
+        Examples:
+            Create table with indexes:
+                ```python
+                sqlite_mgr.create_table(
+                    "posts",
+                    {
+                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                        "user_id": "INTEGER",
+                        "title": "TEXT",
+                        "body": "TEXT"
+                    },
+                    indexes=["user_id", "title"]
+                )
+                ```
 
-        - Currently uses generic string replacement. For strict type safety, type mapping logic can be defined.
+            Create table with compound index:
+                ```python
+                sqlite_mgr.create_table(
+                    "events",
+                    {
+                        "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+                        "user_id": "INTEGER",
+                        "created_at": "INTEGER"
+                    },
+                    indexes=[["user_id", "created_at"]]
+                )
+                ```
         """
         if not isinstance(schema, dict):
             return {
@@ -374,6 +432,48 @@ class SQLiteManager:
                 cursor = conn.cursor()
                 cursor.execute(query)
                 conn.commit()
+
+                # Create indexes if provided
+                if indexes:
+                    for idx_entry in indexes:
+                        # Normalize to list of columns
+                        cols = (
+                            [idx_entry]
+                            if isinstance(idx_entry, str)
+                            else list(idx_entry)
+                        )
+                        if not cols:
+                            continue
+                        # Validate column names
+                        try:
+                            valid_cols = [self._validate_identifier(c) for c in cols]
+                        except ValueError as e:
+                            _log_db_event(
+                                f"Invalid index column in indexes for table '{valid_table}': {e}",
+                                "warning",
+                                urgency="moderate",
+                            )
+                            continue
+                        # Build index name deterministically and validate
+                        index_name = f"idx_{valid_table}_" + "_".join(valid_cols)
+                        try:
+                            index_name = self._validate_identifier(index_name)
+                        except ValueError:
+                            # fallback: a safe sanitized index name (replace non-alnum with underscore)
+                            index_name = re.sub(r"[^a-zA-Z0-9_]+", "_", index_name)
+
+                        index_sql = f"CREATE INDEX IF NOT EXISTS {index_name} ON {valid_table} ({', '.join(valid_cols)})"
+                        try:
+                            cursor.execute(index_sql)
+                        except sqlite3.Error as e:
+                            # Log index creation failure but do not fail the whole operation
+                            _log_db_event(
+                                f"Failed to create index {index_name} on {valid_table}: {e}",
+                                "error",
+                                urgency="moderate",
+                            )
+                    conn.commit()
+
             _log_db_event(
                 f"Table '{valid_table}' ensured to exist.", "info", urgency="none"
             )
