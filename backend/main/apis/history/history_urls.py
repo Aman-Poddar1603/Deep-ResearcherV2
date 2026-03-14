@@ -1,4 +1,5 @@
-from typing import NoReturn
+from datetime import datetime
+from typing import Literal, NoReturn
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
@@ -43,6 +44,16 @@ def list_history(
     workspace_id: str | None = Query(default=None, alias="workspaceId"),
     user_id: str | None = Query(default=None, alias="userId"),
     include_deleted: bool = False,
+    activity_contains: str | None = Query(default=None, alias="activityContains"),
+    url_contains: str | None = Query(default=None, alias="urlContains"),
+    created_from: datetime | None = Query(default=None, alias="createdFrom"),
+    created_to: datetime | None = Query(default=None, alias="createdTo"),
+    last_seen_from: datetime | None = Query(default=None, alias="lastSeenFrom"),
+    last_seen_to: datetime | None = Query(default=None, alias="lastSeenTo"),
+    sort_by: Literal["last_seen", "created_at", "activity", "type"] = Query(
+        default="last_seen", alias="sortBy"
+    ),
+    sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
 ) -> HistoryItemResponse:
     try:
         return history_view.get_history(
@@ -52,6 +63,14 @@ def list_history(
             include_deleted=include_deleted,
             workspace_id=workspace_id,
             user_id=user_id,
+            activity_contains=activity_contains,
+            url_contains=url_contains,
+            created_from=created_from,
+            created_to=created_to,
+            last_seen_from=last_seen_from,
+            last_seen_to=last_seen_to,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
     except Exception as exc:
         _raise_history_http_error("List history items", exc)

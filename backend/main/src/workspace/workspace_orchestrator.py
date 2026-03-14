@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from main.apis.models.workspaces import WorkspaceCreate, WorkspaceOut, WorkspacePatch
 from main.src.store.DBManager import main_db_manager
@@ -105,6 +105,17 @@ class WorkspaceOrchestrator:
 
         return WorkspaceOut(**row)
 
+    def _parse_datetime(self, value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            normalized = value.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(normalized)
+            except ValueError:
+                pass
+        return datetime.min
+
     def createWorkspace(self, workspace_data: WorkspaceCreate) -> WorkspaceOut:
         _log_system_workspace_event(
             f"Attempting to create workspace: {workspace_data.name}"
@@ -167,10 +178,26 @@ class WorkspaceOrchestrator:
         )
         return self._format_row_to_workspace_out(result["data"])
 
-    def getAllWorkspaces(self) -> list[WorkspaceOut]:
+    def getAllWorkspaces(
+        self,
+        page: int = 1,
+        size: int = 200,
+        name_contains: str | None = None,
+        desc_contains: str | None = None,
+        ai_config: Literal["auto", "local", "online"] | None = None,
+        connected_bucket_id: str | None = None,
+        sort_by: Literal["updated_at", "created_at", "name"] = "updated_at",
+        sort_order: Literal["asc", "desc"] = "desc",
+    ) -> list[WorkspaceOut]:
         _log_system_workspace_event("Fetching all workspaces")
 
-        result = main_db_manager.fetch_all(self.table_name)
+        where: dict[str, Any] = {}
+        if ai_config is not None:
+            where["ai_config"] = ai_config
+        if connected_bucket_id is not None:
+            where["connected_bucket_id"] = _nullish_to_none(connected_bucket_id)
+
+        result = main_db_manager.fetch_all(self.table_name, where=where)
 
         if not result.get("success"):
             _log_system_workspace_event(
@@ -183,6 +210,42 @@ class WorkspaceOrchestrator:
         workspaces = [
             self._format_row_to_workspace_out(row) for row in result.get("data", [])
         ]
+
+        if name_contains:
+            term = name_contains.strip().lower()
+            workspaces = [
+                workspace
+                for workspace in workspaces
+                if term in (workspace.name or "").lower()
+            ]
+        if desc_contains:
+            term = desc_contains.strip().lower()
+            workspaces = [
+                workspace
+                for workspace in workspaces
+                if term in (workspace.desc or "").lower()
+            ]
+
+        reverse_order = sort_order == "desc"
+        if sort_by == "created_at":
+            workspaces.sort(
+                key=lambda workspace: self._parse_datetime(workspace.created_at),
+                reverse=reverse_order,
+            )
+        elif sort_by == "name":
+            workspaces.sort(
+                key=lambda workspace: (workspace.name or "").lower(),
+                reverse=reverse_order,
+            )
+        else:
+            workspaces.sort(
+                key=lambda workspace: self._parse_datetime(workspace.updated_at),
+                reverse=reverse_order,
+            )
+
+        offset = (page - 1) * size
+        workspaces = workspaces[offset : offset + size]
+
         _log_system_workspace_event(
             f"Successfully fetched {len(workspaces)} workspaces", level="success"
         )

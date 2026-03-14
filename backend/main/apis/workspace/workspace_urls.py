@@ -1,6 +1,6 @@
 from typing import Literal, NoReturn
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from main.apis.models.workspaces import (
     WorkspaceCreate,
@@ -78,10 +78,32 @@ def _raise_workspace_http_error(action: str, exc: Exception) -> NoReturn:
 
 
 @router.get("/", response_model=list[WorkspaceOut], status_code=status.HTTP_200_OK)
-def get_all_workspaces() -> list[WorkspaceOut]:
+def get_all_workspaces(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=200, ge=1, le=500),
+    name_contains: str | None = Query(default=None, alias="nameContains"),
+    desc_contains: str | None = Query(default=None, alias="descContains"),
+    ai_config: Literal["auto", "local", "online"] | None = Query(
+        default=None, alias="aiConfig"
+    ),
+    connected_bucket_id: str | None = Query(default=None, alias="connectedBucketId"),
+    sort_by: Literal["updated_at", "created_at", "name"] = Query(
+        default="updated_at", alias="sortBy"
+    ),
+    sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
+) -> list[WorkspaceOut]:
     try:
         _log_system_workspace_event("Fetching all workspaces API invoked", level="info")
-        return workspace_view.getAllWorkspaces()
+        return workspace_view.getAllWorkspaces(
+            page=page,
+            size=size,
+            name_contains=name_contains,
+            desc_contains=desc_contains,
+            ai_config=ai_config,
+            connected_bucket_id=connected_bucket_id,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
     except Exception as exc:
         _raise_workspace_http_error("Fetch all workspaces", exc)
 

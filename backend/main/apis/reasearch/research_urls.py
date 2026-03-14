@@ -45,7 +45,15 @@ def get_all_research(
     size: int = Query(default=20, ge=1, le=200),
     workspace_id: str | None = Query(default=None, alias="workspaceId"),
     title_contains: str | None = Query(default=None, alias="titleContains"),
-    sort_by: Literal["id", "title"] = Query(default="id", alias="sortBy"),
+    desc_contains: str | None = Query(default=None, alias="descContains"),
+    prompt_contains: str | None = Query(default=None, alias="promptContains"),
+    chat_access: bool | None = Query(default=None, alias="chatAccess"),
+    background_processing: bool | None = Query(
+        default=None, alias="backgroundProcessing"
+    ),
+    sort_by: Literal["id", "title", "workspace_id"] = Query(
+        default="id", alias="sortBy"
+    ),
     sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
 ) -> ResearchListResponse:
     try:
@@ -54,6 +62,10 @@ def get_all_research(
             size=size,
             workspace_id=workspace_id,
             title_contains=title_contains,
+            desc_contains=desc_contains,
+            prompt_contains=prompt_contains,
+            chat_access=chat_access,
+            background_processing=background_processing,
             sort_by=sort_by,
             sort_order=sort_order,
         )

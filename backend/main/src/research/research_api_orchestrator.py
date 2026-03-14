@@ -63,7 +63,11 @@ class ResearchOrchestrator:
         size: int = 20,
         workspace_id: str | None = None,
         title_contains: str | None = None,
-        sort_by: Literal["id", "title"] = "id",
+        desc_contains: str | None = None,
+        prompt_contains: str | None = None,
+        chat_access: bool | None = None,
+        background_processing: bool | None = None,
+        sort_by: Literal["id", "title", "workspace_id"] = "id",
         sort_order: Literal["asc", "desc"] = "desc",
     ) -> ResearchListResponse:
         where = {"workspace_id": workspace_id} if workspace_id else None
@@ -77,10 +81,26 @@ class ResearchOrchestrator:
         if title_contains:
             term = title_contains.strip().lower()
             rows = [row for row in rows if term in (row.title or "").lower()]
+        if desc_contains:
+            term = desc_contains.strip().lower()
+            rows = [row for row in rows if term in (row.desc or "").lower()]
+        if prompt_contains:
+            term = prompt_contains.strip().lower()
+            rows = [row for row in rows if term in (row.prompt or "").lower()]
+        if chat_access is not None:
+            rows = [row for row in rows if row.chat_access is chat_access]
+        if background_processing is not None:
+            rows = [
+                row
+                for row in rows
+                if row.background_processing is background_processing
+            ]
 
         reverse_order = sort_order == "desc"
         if sort_by == "title":
             rows.sort(key=lambda row: (row.title or "").lower(), reverse=reverse_order)
+        elif sort_by == "workspace_id":
+            rows.sort(key=lambda row: row.workspace_id or "", reverse=reverse_order)
         else:
             rows.sort(key=lambda row: row.id, reverse=reverse_order)
 

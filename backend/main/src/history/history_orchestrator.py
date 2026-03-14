@@ -1,6 +1,6 @@
 import math
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from main.apis.models.history import (
     HistoryActions,
@@ -42,9 +42,15 @@ class HistoryOrchestrator:
         include_deleted: bool = False,
         workspace_id: str | None = None,
         user_id: str | None = None,
+        activity_contains: str | None = None,
+        url_contains: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        last_seen_from: datetime | None = None,
+        last_seen_to: datetime | None = None,
+        sort_by: Literal["last_seen", "created_at", "activity", "type"] = "last_seen",
+        sort_order: Literal["asc", "desc"] = "desc",
     ) -> HistoryItemResponse:
-        del include_deleted
-
         where: dict[str, Any] = {}
         if item_type is not None:
             where["type"] = item_type.value
@@ -60,7 +66,65 @@ class HistoryOrchestrator:
         items = [
             HistoryItem.model_validate(item) for item in (result.get("data") or [])
         ]
-        items.sort(key=lambda item: self._parse_datetime(item.last_seen), reverse=True)
+
+        if not include_deleted:
+            items = [
+                item
+                for item in items
+                if "delete" not in (item.actions or "").strip().lower()
+            ]
+
+        if activity_contains:
+            term = activity_contains.strip().lower()
+            items = [item for item in items if term in (item.activity or "").lower()]
+        if url_contains:
+            term = url_contains.strip().lower()
+            items = [item for item in items if term in (item.url or "").lower()]
+
+        if created_from is not None:
+            items = [
+                item
+                for item in items
+                if self._parse_datetime(item.created_at) >= created_from
+            ]
+        if created_to is not None:
+            items = [
+                item
+                for item in items
+                if self._parse_datetime(item.created_at) <= created_to
+            ]
+        if last_seen_from is not None:
+            items = [
+                item
+                for item in items
+                if self._parse_datetime(item.last_seen) >= last_seen_from
+            ]
+        if last_seen_to is not None:
+            items = [
+                item
+                for item in items
+                if self._parse_datetime(item.last_seen) <= last_seen_to
+            ]
+
+        reverse_order = sort_order == "desc"
+        if sort_by == "created_at":
+            items.sort(
+                key=lambda item: self._parse_datetime(item.created_at),
+                reverse=reverse_order,
+            )
+        elif sort_by == "activity":
+            items.sort(
+                key=lambda item: (item.activity or "").lower(), reverse=reverse_order
+            )
+        elif sort_by == "type":
+            items.sort(
+                key=lambda item: (item.type or "").lower(), reverse=reverse_order
+            )
+        else:
+            items.sort(
+                key=lambda item: self._parse_datetime(item.last_seen),
+                reverse=reverse_order,
+            )
 
         total_items = len(items)
         total_pages = math.ceil(total_items / size) if total_items > 0 else 0

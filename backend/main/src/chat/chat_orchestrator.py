@@ -1,6 +1,6 @@
 import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from main.apis.models.chats import (
     ChatAttachmentCreate,
@@ -43,6 +43,17 @@ class ChatOrchestrator:
                 payload[key] = value.isoformat()
         return payload
 
+    def _parse_datetime(self, value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            normalized = value.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(normalized)
+            except ValueError:
+                pass
+        return datetime.min
+
     def _fetch_one(
         self, table_name: str, where: dict[str, Any], not_found: str
     ) -> dict[str, Any]:
@@ -56,9 +67,29 @@ class ChatOrchestrator:
         return row
 
     def listThreads(
-        self, page: int = 1, size: int = 20, workspace_id: str | None = None
+        self,
+        page: int = 1,
+        size: int = 20,
+        workspace_id: str | None = None,
+        user_id: str | None = None,
+        created_by: str | None = None,
+        is_pinned: bool | None = None,
+        thread_title_contains: str | None = None,
+        sort_by: Literal[
+            "updated_at", "created_at", "thread_title", "pinned_order"
+        ] = "updated_at",
+        sort_order: Literal["asc", "desc"] = "desc",
     ) -> ChatThreadListResponse:
-        where = {"workspace_id": workspace_id} if workspace_id else None
+        where: dict[str, Any] = {}
+        if workspace_id is not None:
+            where["workspace_id"] = workspace_id
+        if user_id is not None:
+            where["user_id"] = user_id
+        if created_by is not None:
+            where["created_by"] = created_by
+        if is_pinned is not None:
+            where["is_pinned"] = is_pinned
+
         result = chats_db_manager.fetch_all(self.thread_table, where=where)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to list chat threads")
@@ -66,7 +97,32 @@ class ChatOrchestrator:
         rows = [
             ChatThreadRecord.model_validate(item) for item in (result.get("data") or [])
         ]
-        rows.sort(key=lambda row: row.updated_at or row.created_at, reverse=True)
+
+        if thread_title_contains:
+            term = thread_title_contains.strip().lower()
+            rows = [row for row in rows if term in (row.thread_title or "").lower()]
+
+        reverse_order = sort_order == "desc"
+        if sort_by == "created_at":
+            rows.sort(
+                key=lambda row: self._parse_datetime(row.created_at),
+                reverse=reverse_order,
+            )
+        elif sort_by == "thread_title":
+            rows.sort(
+                key=lambda row: (row.thread_title or "").lower(), reverse=reverse_order
+            )
+        elif sort_by == "pinned_order":
+            rows.sort(
+                key=lambda row: (row.pinned_order is None, row.pinned_order or 0),
+                reverse=reverse_order,
+            )
+        else:
+            rows.sort(
+                key=lambda row: self._parse_datetime(row.updated_at or row.created_at),
+                reverse=reverse_order,
+            )
+
         page_items, total_items, total_pages, offset = self._paginate(rows, page, size)
         return ChatThreadListResponse(
             items=page_items,
@@ -134,9 +190,26 @@ class ChatOrchestrator:
             raise ValueError(result.get("message") or "Failed to delete chat thread")
 
     def listMessages(
-        self, page: int = 1, size: int = 20, thread_id: str | None = None
+        self,
+        page: int = 1,
+        size: int = 20,
+        thread_id: str | None = None,
+        role: str | None = None,
+        parent_id: str | None = None,
+        content_contains: str | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+        sort_by: Literal["message_seq", "created_at", "updated_at"] = "message_seq",
+        sort_order: Literal["asc", "desc"] = "asc",
     ) -> ChatMessageListResponse:
-        where = {"thread_id": thread_id} if thread_id else None
+        where: dict[str, Any] = {}
+        if thread_id is not None:
+            where["thread_id"] = thread_id
+        if role is not None:
+            where["role"] = role
+        if parent_id is not None:
+            where["parent_id"] = parent_id
+
         result = chats_db_manager.fetch_all(self.message_table, where=where)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to list chat messages")
@@ -144,7 +217,43 @@ class ChatOrchestrator:
             ChatMessageRecord.model_validate(item)
             for item in (result.get("data") or [])
         ]
-        rows.sort(key=lambda row: (row.message_seq or 0, row.created_at), reverse=False)
+
+        if content_contains:
+            term = content_contains.strip().lower()
+            rows = [row for row in rows if term in (row.content or "").lower()]
+        if created_from is not None:
+            rows = [
+                row
+                for row in rows
+                if self._parse_datetime(row.created_at) >= created_from
+            ]
+        if created_to is not None:
+            rows = [
+                row
+                for row in rows
+                if self._parse_datetime(row.created_at) <= created_to
+            ]
+
+        reverse_order = sort_order == "desc"
+        if sort_by == "created_at":
+            rows.sort(
+                key=lambda row: self._parse_datetime(row.created_at),
+                reverse=reverse_order,
+            )
+        elif sort_by == "updated_at":
+            rows.sort(
+                key=lambda row: self._parse_datetime(row.updated_at or row.created_at),
+                reverse=reverse_order,
+            )
+        else:
+            rows.sort(
+                key=lambda row: (
+                    row.message_seq or 0,
+                    self._parse_datetime(row.created_at),
+                ),
+                reverse=reverse_order,
+            )
+
         page_items, total_items, total_pages, offset = self._paginate(rows, page, size)
         return ChatMessageListResponse(
             items=page_items,
@@ -198,9 +307,23 @@ class ChatOrchestrator:
             raise ValueError(result.get("message") or "Failed to delete chat message")
 
     def listAttachments(
-        self, page: int = 1, size: int = 20, message_id: str | None = None
+        self,
+        page: int = 1,
+        size: int = 20,
+        message_id: str | None = None,
+        attachment_type: str | None = None,
+        min_attachment_size: int | None = None,
+        max_attachment_size: int | None = None,
+        path_contains: str | None = None,
+        sort_by: Literal["created_at", "updated_at", "attachment_size"] = "created_at",
+        sort_order: Literal["asc", "desc"] = "desc",
     ) -> ChatAttachmentListResponse:
-        where = {"message_id": message_id} if message_id else None
+        where: dict[str, Any] = {}
+        if message_id is not None:
+            where["message_id"] = message_id
+        if attachment_type is not None:
+            where["attachment_type"] = attachment_type
+
         result = chats_db_manager.fetch_all(self.attachment_table, where=where)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to list chat attachments")
@@ -208,7 +331,33 @@ class ChatOrchestrator:
             ChatAttachmentRecord.model_validate(item)
             for item in (result.get("data") or [])
         ]
-        rows.sort(key=lambda row: row.created_at, reverse=True)
+
+        if min_attachment_size is not None:
+            rows = [
+                row for row in rows if (row.attachment_size or 0) >= min_attachment_size
+            ]
+        if max_attachment_size is not None:
+            rows = [
+                row for row in rows if (row.attachment_size or 0) <= max_attachment_size
+            ]
+        if path_contains:
+            term = path_contains.strip().lower()
+            rows = [row for row in rows if term in (row.attachment_path or "").lower()]
+
+        reverse_order = sort_order == "desc"
+        if sort_by == "updated_at":
+            rows.sort(
+                key=lambda row: self._parse_datetime(row.updated_at or row.created_at),
+                reverse=reverse_order,
+            )
+        elif sort_by == "attachment_size":
+            rows.sort(key=lambda row: row.attachment_size or 0, reverse=reverse_order)
+        else:
+            rows.sort(
+                key=lambda row: self._parse_datetime(row.created_at),
+                reverse=reverse_order,
+            )
+
         page_items, total_items, total_pages, offset = self._paginate(rows, page, size)
         return ChatAttachmentListResponse(
             items=page_items,
