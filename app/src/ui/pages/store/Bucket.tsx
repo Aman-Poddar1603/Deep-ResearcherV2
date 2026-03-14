@@ -6,6 +6,16 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   FolderOpen,
   Plus,
   Search,
@@ -112,6 +122,11 @@ const Bucket = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingBucket, setEditingBucket] = useState<EditBucketData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [bucketToDelete, setBucketToDelete] = useState<Bucket | null>(null)
+  const [confirmCode, setConfirmCode] = useState('')
+  const [userCodeInput, setUserCodeInput] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const loadBuckets = async () => {
     setIsLoading(true)
@@ -197,12 +212,27 @@ const Bucket = () => {
 
   const handleDeleteBucket = async (bucketId: string, event: React.MouseEvent) => {
     event.stopPropagation()
+    const bucket = buckets.find((b) => b.id === bucketId)
+    if (!bucket) return
+    const code = Math.random().toString(36).slice(2, 7).toUpperCase()
+    setBucketToDelete(bucket)
+    setConfirmCode(code)
+    setUserCodeInput('')
+    setDeleteConfirmOpen(true)
+  }
+
+  const performDelete = async () => {
+    if (!bucketToDelete || userCodeInput !== confirmCode || isDeleting) return
+    setIsDeleting(true)
     try {
-      await deleteBucket(bucketId)
-      setBuckets((prev) => prev.filter((bucket) => bucket.id !== bucketId))
+      await deleteBucket(bucketToDelete.id)
+      setBuckets((prev) => prev.filter((b) => b.id !== bucketToDelete.id))
+      setDeleteConfirmOpen(false)
+      setBucketToDelete(null)
     } catch (error) {
       console.error('Failed to delete bucket', error)
-      alert(error instanceof Error ? error.message : 'Failed to delete bucket')
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -397,6 +427,39 @@ const Bucket = () => {
         editBucket={editingBucket}
         onEdit={handleEditBucket}
       />
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!isDeleting) setDeleteConfirmOpen(open) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Bucket</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <span className="font-semibold text-foreground">{bucketToDelete?.name}</span> and all its stored files. Any workspaces connected to this bucket will <span className="font-semibold text-destructive">lose their storage</span> and become non-functional until a new bucket is assigned. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="px-1 py-2 space-y-2">
+            <p className="text-sm text-muted-foreground">
+              To confirm, type <span className="font-mono font-bold text-foreground select-all">{confirmCode}</span> below:
+            </p>
+            <Input
+              value={userCodeInput}
+              onChange={(e) => setUserCodeInput(e.target.value.toUpperCase())}
+              placeholder="Type the code to confirm"
+              className="font-mono"
+              autoFocus
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmOpen(false)} disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={performDelete}
+              disabled={userCodeInput !== confirmCode || isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete Bucket'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
