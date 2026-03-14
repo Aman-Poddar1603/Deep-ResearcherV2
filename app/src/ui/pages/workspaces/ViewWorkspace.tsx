@@ -2,6 +2,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   FileText,
   MessageSquare,
@@ -47,6 +48,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { toast } from '@/components/ui/sonner'
 import { fetchLinkMetadata, type LinkMetadata, cn, resolveApiAssetUrl } from '@/lib/utils'
 import {
   getWorkspaceRecord,
@@ -301,6 +313,10 @@ const ViewWorkspace = () => {
   const [files, setFiles] = useState<BucketItemRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [confirmCode, setConfirmCode] = useState('')
+  const [userCodeInput, setUserCodeInput] = useState('')
   const [accentColor, setAccentColor] = useState('#C084FC')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -341,6 +357,21 @@ const ViewWorkspace = () => {
     loadAll()
   }, [id])
 
+  const generateRandomCode = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    let result = ''
+    for (let i = 0; i < 8; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length))
+    }
+    return result
+  }
+
+  const initiateWorkspaceDelete = () => {
+    setConfirmCode(generateRandomCode())
+    setUserCodeInput('')
+    setDeleteConfirmOpen(true)
+  }
+
   const handleUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? [])
     if (selected.length === 0 || !workspace?.connected_bucket_id) return
@@ -365,13 +396,18 @@ const ViewWorkspace = () => {
   }
 
   const handleDeleteWorkspace = async () => {
-    if (!id || !confirm('Delete this workspace? This cannot be undone.')) return
+    if (!id || userCodeInput !== confirmCode || isDeletingWorkspace) return
+    setIsDeletingWorkspace(true)
     try {
       await deleteWorkspaceRecord(id)
-      navigate('/workspaces')
+      toast.success('Workspace deleted permanently')
+      setDeleteConfirmOpen(false)
+      navigate('/workspaces/all')
     } catch (err) {
       console.error('Delete failed:', err)
-      alert('Failed to delete workspace.')
+      toast.error(err instanceof Error ? err.message : 'Failed to delete workspace.')
+    } finally {
+      setIsDeletingWorkspace(false)
     }
   }
 
@@ -488,7 +524,7 @@ const ViewWorkspace = () => {
                     variant="outline"
                     size="sm"
                     className="gap-2 text-destructive hover:text-destructive"
-                    onClick={handleDeleteWorkspace}
+                    onClick={initiateWorkspaceDelete}
                   >
                     <Trash2 className="w-4 h-4" />
                     Delete
@@ -729,6 +765,40 @@ const ViewWorkspace = () => {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. It will permanently delete this workspace.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
+              <p className="text-sm text-center text-muted-foreground">
+                To confirm, type <span className="font-mono font-bold text-foreground select-all">{confirmCode}</span> below:
+              </p>
+            </div>
+            <Input
+              value={userCodeInput}
+              onChange={(e) => setUserCodeInput(e.target.value.toUpperCase())}
+              placeholder="Enter confirmation code"
+              className="text-center font-mono tracking-widest uppercase"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmOpen(false)} disabled={isDeletingWorkspace}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteWorkspace}
+              disabled={userCodeInput !== confirmCode || isDeletingWorkspace}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingWorkspace ? 'Deleting...' : 'Confirm Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
