@@ -13,7 +13,9 @@ Stored paths in the DB are relative to this root, e.g. "abc123/images/photo.jpg"
 """
 
 import shutil
+from hashlib import md5
 from pathlib import Path
+from uuid import uuid4
 
 BUCKET_SUBFOLDERS = ["images", "videos", "files", "audio", "others"]
 
@@ -67,8 +69,10 @@ class BucketStore:
     """Manages physical file storage for buckets."""
 
     def __init__(self, root: Path | None = None) -> None:
-        # Default root is the directory this module lives in
-        self.root: Path = root or Path(__file__).parent
+        # Keep file storage rooted at src/store/bucket even if this module moves.
+        self.root: Path = root or (
+            Path(__file__).resolve().parents[1] / "store" / "bucket"
+        )
 
     # ------------------------------------------------------------------ helpers
 
@@ -83,9 +87,30 @@ class BucketStore:
         """Return relative path string stored in the DB."""
         return f"{bucket_id}/{subfolder}/{file_name}"
 
+    def _workspace_rel_path(self, section: str, file_name: str) -> str:
+        """Return relative workspace-asset path stored in DB."""
+        return f"workspace/{section}/{file_name}"
+
     def abs_path(self, rel_path: str) -> Path:
         """Resolve a stored relative path to an absolute Path."""
         return self.root / rel_path
+
+    def resolve_asset_path(self, stored_path: str) -> Path:
+        """
+        Resolve and validate stored path to prevent directory traversal.
+        Supports plain relative paths and "/bucket/assets/<path>" URLs.
+        """
+        normalized = stored_path.strip().lstrip("/")
+        if normalized.startswith("bucket/assets/"):
+            normalized = normalized[len("bucket/assets/") :]
+
+        resolved = (self.root / normalized).resolve()
+        root_resolved = self.root.resolve()
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError as exc:
+            raise ValueError("Invalid asset path") from exc
+        return resolved
 
     # ----------------------------------------------------------- bucket dirs
 
@@ -119,6 +144,38 @@ class BucketStore:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(content)
         return self._rel_path(bucket_id, subfolder, file_name)
+
+    def save_workspace_asset(
+        self,
+        asset_type: str,
+        original_file_name: str,
+        content: bytes,
+    ) -> str:
+        """
+        Save workspace banner/icon file using unique md5 name.
+
+        asset_type: "banner" or "icons"
+        Returns relative path (e.g. "workspace/banner/<md5>.png").
+        """
+        if asset_type not in {"banner", "icons"}:
+            raise ValueError("asset_type must be 'banner' or 'icons'")
+
+        ext = Path(original_file_name).suffix.lower() or ".bin"
+        unique_hash = md5(
+            (str(uuid4()) + str(len(content))).encode("utf-8") + content
+        ).hexdigest()
+        file_name = f"{unique_hash}{ext}"
+
+        rel_path = self._workspace_rel_path(asset_type, file_name)
+        dest = self.root / rel_path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+        return rel_path
+
+    def build_asset_url(self, stored_path: str) -> str:
+        """Build API asset URL from a stored relative path."""
+        normalized = stored_path.lstrip("/")
+        return f"/bucket/assets/{normalized}"
 
     def delete_file(self, stored_path: str) -> bool:
         """

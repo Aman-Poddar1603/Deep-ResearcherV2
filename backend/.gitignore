@@ -16,3 +16,5 @@ database/
 *.sqlite3
 *.db
 *.sqlite
+
+main/src/store/bucket/

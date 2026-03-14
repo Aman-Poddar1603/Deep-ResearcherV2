@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Literal, NoReturn
 
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse
 
 from main.apis.models.bucket import (
     BucketCreate,
@@ -14,6 +15,7 @@ from main.apis.models.bucket import (
     BucketRecord,
 )
 from main.src.bucket import bucket_orchestrator
+from main.src.bucket.bucket_store import bucket_store
 
 router = APIRouter(prefix="/bucket", tags=["bucket"])
 
@@ -73,6 +75,18 @@ def list_buckets(
         )
     except Exception as exc:
         _raise_bucket_http_error("List buckets", exc)
+
+
+@router.get("/assets/{asset_path:path}")
+def get_asset(asset_path: str) -> FileResponse:
+    """Serve files stored under src/store/bucket using relative asset paths."""
+    try:
+        resolved_path = bucket_store.resolve_asset_path(asset_path)
+        if not resolved_path.exists() or not resolved_path.is_file():
+            raise KeyError(f"Asset {asset_path} not found")
+        return FileResponse(path=resolved_path)
+    except Exception as exc:
+        _raise_bucket_http_error(f"Fetch asset {asset_path}", exc)
 
 
 @router.get("/{bucket_id}", response_model=BucketRecord)
@@ -229,6 +243,19 @@ def get_bucket_item(item_id: str) -> BucketItemRecord:
         return bucket_view.getBucketItem(item_id)
     except Exception as exc:
         _raise_bucket_http_error(f"Fetch bucket item {item_id}", exc)
+
+
+@router.get("/items/{item_id}/asset")
+def get_bucket_item_asset(item_id: str) -> FileResponse:
+    """Serve an uploaded bucket file directly by item id."""
+    try:
+        item = bucket_view.getBucketItem(item_id)
+        resolved_path = bucket_store.resolve_asset_path(item.file_path)
+        if not resolved_path.exists() or not resolved_path.is_file():
+            raise KeyError(f"Asset for bucket item {item_id} not found")
+        return FileResponse(path=resolved_path)
+    except Exception as exc:
+        _raise_bucket_http_error(f"Fetch asset for bucket item {item_id}", exc)
 
 
 @router.post(

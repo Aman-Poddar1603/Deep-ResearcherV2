@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from main.apis.models.workspaces import WorkspaceCreate, WorkspaceOut, WorkspacePatch
 from main.src.store.DBManager import main_db_manager
+from main.src.bucket.bucket_store import bucket_store
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.version_constants import get_raw_version
 
@@ -115,6 +116,70 @@ class WorkspaceOrchestrator:
             except ValueError:
                 pass
         return datetime.min
+
+    def _set_workspace_asset_url(
+        self,
+        workspace_id: str,
+        field_name: Literal["banner_img", "icon"],
+        asset_url: str,
+    ) -> WorkspaceOut:
+        self.getWorkspace(workspace_id)
+
+        result = main_db_manager.update(
+            self.table_name,
+            {
+                field_name: asset_url,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            {"id": workspace_id},
+        )
+        if not result.get("success"):
+            raise ValueError(
+                result.get("message") or "Failed to update workspace asset"
+            )
+        return self.getWorkspace(workspace_id)
+
+    def uploadWorkspaceBanner(
+        self,
+        workspace_id: str,
+        file_name: str,
+        content: bytes,
+    ) -> WorkspaceOut:
+        if not content:
+            raise ValueError("Banner image is empty")
+
+        stored_path = bucket_store.save_workspace_asset(
+            asset_type="banner",
+            original_file_name=file_name,
+            content=content,
+        )
+        asset_url = bucket_store.build_asset_url(stored_path)
+        return self._set_workspace_asset_url(
+            workspace_id=workspace_id,
+            field_name="banner_img",
+            asset_url=asset_url,
+        )
+
+    def uploadWorkspaceIcon(
+        self,
+        workspace_id: str,
+        file_name: str,
+        content: bytes,
+    ) -> WorkspaceOut:
+        if not content:
+            raise ValueError("Workspace icon is empty")
+
+        stored_path = bucket_store.save_workspace_asset(
+            asset_type="icons",
+            original_file_name=file_name,
+            content=content,
+        )
+        asset_url = bucket_store.build_asset_url(stored_path)
+        return self._set_workspace_asset_url(
+            workspace_id=workspace_id,
+            field_name="icon",
+            asset_url=asset_url,
+        )
 
     def createWorkspace(self, workspace_data: WorkspaceCreate) -> WorkspaceOut:
         _log_system_workspace_event(

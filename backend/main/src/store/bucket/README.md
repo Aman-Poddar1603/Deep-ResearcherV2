@@ -1,3 +1,0 @@
-In this "bucket/" folder, we will implement the code related to bucket management. This includes functions for creating, updating, and deleting buckets, as well as managing the data stored within these buckets. There is no code in this folder only static files.
-
-And the subfolders hace to generated automatically when the bucket is created. Each bucket will have  these [images, videos, files, audio, others]. and under each subfolder, the corresponding data will be stored. This structure allows for organized storage and easy retrieval of different types of data within each bucket.

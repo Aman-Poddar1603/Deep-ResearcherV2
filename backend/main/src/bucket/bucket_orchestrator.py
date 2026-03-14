@@ -13,7 +13,7 @@ from main.apis.models.bucket import (
     BucketRecord,
 )
 from main.src.store.DBManager import buckets_db_manager
-from main.src.store.bucket.bucket_store import bucket_store
+from main.src.bucket.bucket_store import bucket_store
 
 
 class BucketOrchestrator:

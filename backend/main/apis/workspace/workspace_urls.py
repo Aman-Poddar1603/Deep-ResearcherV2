@@ -1,6 +1,15 @@
 from typing import Literal, NoReturn
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 
 from main.apis.models.workspaces import (
     WorkspaceCreate,
@@ -108,6 +117,56 @@ def get_all_workspaces(
         _raise_workspace_http_error("Fetch all workspaces", exc)
 
 
+@router.post(
+    "/{workspace_id}/upload/banner",
+    response_model=WorkspaceOut,
+    status_code=status.HTTP_200_OK,
+)
+async def upload_workspace_banner(
+    workspace_id: str,
+    file: UploadFile = File(...),
+) -> WorkspaceOut:
+    try:
+        _log_system_workspace_event(
+            f"Uploading banner for workspace {workspace_id}",
+            level="info",
+        )
+        content = await file.read()
+        file_name = file.filename or "banner.bin"
+        return workspace_view.uploadWorkspaceBanner(
+            workspace_id=workspace_id,
+            file_name=file_name,
+            content=content,
+        )
+    except Exception as exc:
+        _raise_workspace_http_error(f"Upload banner for workspace {workspace_id}", exc)
+
+
+@router.post(
+    "/{workspace_id}/upload/icon",
+    response_model=WorkspaceOut,
+    status_code=status.HTTP_200_OK,
+)
+async def upload_workspace_icon(
+    workspace_id: str,
+    file: UploadFile = File(...),
+) -> WorkspaceOut:
+    try:
+        _log_system_workspace_event(
+            f"Uploading icon for workspace {workspace_id}",
+            level="info",
+        )
+        content = await file.read()
+        file_name = file.filename or "icon.bin"
+        return workspace_view.uploadWorkspaceIcon(
+            workspace_id=workspace_id,
+            file_name=file_name,
+            content=content,
+        )
+    except Exception as exc:
+        _raise_workspace_http_error(f"Upload icon for workspace {workspace_id}", exc)
+
+
 @router.get(
     "/{workspace_id}",
     response_model=WorkspaceOut,
@@ -138,6 +197,68 @@ def create_workspace(payload: WorkspaceCreate) -> WorkspaceOut:
         return workspace_view.createWorkspace(payload)
     except Exception as exc:
         _raise_workspace_http_error("Create workspace", exc)
+
+
+@router.post(
+    "/create-with-assets",
+    response_model=WorkspaceOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_workspace_with_assets(
+    name: str = Form(...),
+    desc: str = Form(...),
+    icon: str | None = Form(default=None),
+    accent_clr: str | None = Form(default=None),
+    banner_img: str | None = Form(default=None),
+    connected_bucket_id: str | None = Form(default=None),
+    ai_config: Literal["auto", "local", "online"] = Form(default="auto"),
+    workspace_resources_id: str | None = Form(default=None),
+    workspace_research_agents: bool = Form(default=True),
+    workspace_chat_agents: bool = Form(default=True),
+    banner_file: UploadFile | None = File(default=None),
+    icon_file: UploadFile | None = File(default=None),
+) -> WorkspaceOut:
+    """
+    Create workspace and optionally upload banner/icon in the same request.
+
+    This is intended for first-time create flow where workspace_id is not known yet.
+    """
+    try:
+        payload = WorkspaceCreate(
+            name=name,
+            desc=desc,
+            icon=icon,
+            accent_clr=accent_clr,
+            banner_img=banner_img,
+            connected_bucket_id=connected_bucket_id,
+            ai_config=ai_config,
+            workspace_resources_id=workspace_resources_id,
+            workspace_research_agents=workspace_research_agents,
+            workspace_chat_agents=workspace_chat_agents,
+        )
+        workspace = workspace_view.createWorkspace(payload)
+
+        if banner_file is not None:
+            banner_content = await banner_file.read()
+            if banner_content:
+                workspace = workspace_view.uploadWorkspaceBanner(
+                    workspace_id=workspace.id,
+                    file_name=banner_file.filename or "banner.bin",
+                    content=banner_content,
+                )
+
+        if icon_file is not None:
+            icon_content = await icon_file.read()
+            if icon_content:
+                workspace = workspace_view.uploadWorkspaceIcon(
+                    workspace_id=workspace.id,
+                    file_name=icon_file.filename or "icon.bin",
+                    content=icon_content,
+                )
+
+        return workspace
+    except Exception as exc:
+        _raise_workspace_http_error("Create workspace with assets", exc)
 
 
 @router.put(

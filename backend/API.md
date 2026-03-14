@@ -178,6 +178,76 @@ Delete a workspace.
 
 ---
 
+## Workspace Asset Upload APIs
+
+Workspace image uploads are handled via separate APIs. Files are stored as:
+
+- `src/store/bucket/workspace/banner/<unique_md5>.<ext>`
+- `src/store/bucket/workspace/icons/<unique_md5>.<ext>`
+
+Uploaded filenames are replaced with a unique MD5 hash. Saved values in workspace fields (`banner_img`, `icon`) are API asset URLs.
+
+### `POST /workspace/create-with-assets`
+
+Create workspace and upload banner/icon in the same request (best for first-time create flow when `workspace_id` is not available yet).
+
+**Content-Type:** `multipart/form-data`
+
+**Form fields:**
+
+| Field                       | Type                                | Required | Notes                     |
+| --------------------------- | ----------------------------------- | -------- | ------------------------- |
+| `name`                      | string                              | ✅       | workspace name            |
+| `desc`                      | string                              | ✅       | workspace description     |
+| `icon`                      | string\|null                        | ❌       | optional text icon value  |
+| `accent_clr`                | string\|null                        | ❌       | color                     |
+| `banner_img`                | string\|null                        | ❌       | optional pre-set URL/text |
+| `connected_bucket_id`       | string\|null                        | ❌       |                           |
+| `ai_config`                 | `"auto"` \| `"local"` \| `"online"` | ❌       | default `auto`            |
+| `workspace_resources_id`    | string\|null                        | ❌       |                           |
+| `workspace_research_agents` | boolean                             | ❌       | default `true`            |
+| `workspace_chat_agents`     | boolean                             | ❌       | default `true`            |
+| `banner_file`               | file                                | ❌       | uploaded banner image     |
+| `icon_file`                 | file                                | ❌       | uploaded icon image       |
+
+**Response `201`** — `WorkspaceOut`
+
+**Recommended flow:**
+
+1. Use this endpoint for first-time workspace creation when ID does not exist yet.
+2. If `banner_file` and/or `icon_file` are included, the response already contains updated `banner_img`/`icon` asset URLs.
+3. Use edit-mode upload APIs only after workspace is created.
+
+---
+
+### `POST /workspace/{workspace_id}/upload/banner`
+
+Upload workspace banner image and update `banner_img` with accessible URL.
+
+**Content-Type:** `multipart/form-data`
+
+| Field  | Type | Required |
+| ------ | ---- | -------- |
+| `file` | file | ✅       |
+
+**Response `200`** — `WorkspaceOut`
+
+---
+
+### `POST /workspace/{workspace_id}/upload/icon`
+
+Upload workspace icon and update `icon` with accessible URL.
+
+**Content-Type:** `multipart/form-data`
+
+| Field  | Type | Required |
+| ------ | ---- | -------- |
+| `file` | file | ✅       |
+
+**Response `200`** — `WorkspaceOut`
+
+---
+
 ---
 
 # 2. Research API
@@ -881,6 +951,22 @@ File format is auto-detected from the extension and routed to the correct subfol
 
 ## Buckets
 
+## Asset Access URL
+
+Any stored bucket/workspace asset can be fetched using this endpoint.
+
+### `GET /bucket/assets/{asset_path}`
+
+`asset_path` should be the stored DB path, for example:
+
+- `bucket-uuid/images/photo.png`
+- `workspace/banner/9bd4d6b7a6f5f5ad4f23a31b5ab4f89b.png`
+
+**Response `200`** — file stream  
+**Response `404`** — file not found
+
+---
+
 ### `GET /bucket/`
 
 List all buckets.
@@ -1062,6 +1148,8 @@ const item = await res.json();
 ```
 
 > `file_path` is the relative path from the bucket store root. Use it to reference the file in your app.
+>
+> Asset URL format: `/bucket/assets/{file_path}`
 
 ---
 
@@ -1159,6 +1247,15 @@ Get a single bucket item.
 
 **Response `200`** — `BucketItemRecord`  
 **Response `404`** — Not found
+
+---
+
+### `GET /bucket/items/{item_id}/asset`
+
+Get the actual uploaded file stream for a bucket item by item id.
+
+**Response `200`** — file stream  
+**Response `404`** — item or file not found
 
 ---
 
