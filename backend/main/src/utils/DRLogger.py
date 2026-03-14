@@ -4,11 +4,11 @@ This module provides the DRLogger class and a singleton instance for logging mes
 into the logs database using the DBManager module.
 """
 
-from typing import Literal, Dict, Any, List, Union
 import datetime
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Union
 
 LogType = Literal["success", "error", "warning", "info"]
 LogOrigin = Literal["system", "user"]
@@ -22,34 +22,35 @@ VALID_MODULES: List[str] = [
     "CHATS",
     "BUCKET",
     "TOOLS",
-    "UTILS"
+    "UTILS",
+    "MIGRATIONS",
 ]
 
 
 class DRLogger:
     """
     Logger class handling safe persistence of logs to SQLite database.
-    
+
     Purpose:
-        Provides structured logging across multiple modules. Logs are stored in separate 
+        Provides structured logging across multiple modules. Logs are stored in separate
         tables per module. Lazily initializes SQLite connection to avoid circular dependencies.
-        
+
     Args:
         None
-        
+
     Returns:
         None
-    
+
     Raises:
         None
-        
+
     Side Effects:
         Modifies the underlying logs.db.sqlite3 database by inserting rows
         and creating tables if they do not exist.
-        
+
     Debug Notes:
         Check SQLite files in the store/database directory if logs aren't persisting.
-        
+
     Customization Notes:
         Add items to VALID_MODULES to expand the app's logged components.
     """
@@ -62,12 +63,12 @@ class DRLogger:
             "logNo": "INTEGER PRIMARY KEY AUTOINCREMENT",
             "logId": "TEXT UNIQUE",
             "type": "TEXT",
-            "message": "TEXT",         
+            "message": "TEXT",
             "timestamp": "TEXT",
             "origin": "TEXT",
-            "module": "VARCHAR(255)", 
+            "module": "VARCHAR(255)",
             "urgency": "TEXT",
-            "app_version": "TEXT"
+            "app_version": "TEXT",
         }
         self.logs_db_manager = None
 
@@ -110,15 +111,15 @@ class DRLogger:
         origin: LogOrigin,
         module: Union[str, List[str]],
         urgency: LogUrgency,
-        app_version: str
+        app_version: str,
     ) -> Dict[str, Any]:
         """
         Records a log entry into the appropriate module table(s).
-        
+
         Purpose:
             Safely logs a single application message. Everything is cast to strings.
             Type safety is intentionally relaxed for module and message as requested.
-            
+
         Args:
             log_type (str): Severity/type of the log (success|error|warning|info).
             message (Any): Descriptive message, any type (converted to string).
@@ -137,7 +138,8 @@ class DRLogger:
                 "CHATS",
                 "BUCKET",
                 "TOOLS",
-                "UTILS"
+                "UTILS",
+                "MIGRATIONS",
             ]
             ```
 
@@ -169,9 +171,9 @@ class DRLogger:
 
             if safe_mod not in VALID_MODULES:
                 results[safe_mod] = {
-                    "success": False, 
+                    "success": False,
                     "message": f"Module '{safe_mod}' is not in VALID_MODULES",
-                    "data": None
+                    "data": None,
                 }
                 continue
 
@@ -185,13 +187,14 @@ class DRLogger:
                 "origin": safe_origin,
                 "module": safe_mod,
                 "urgency": safe_urgency,
-                "app_version": safe_app_version
+                "app_version": safe_app_version,
             }
 
             res = db_mgr.insert(table_name, data_to_insert)
             results[safe_mod] = res
 
         return results
+
 
 # Singleton instance to be exported for usage SDK style
 dr_logger = DRLogger()
