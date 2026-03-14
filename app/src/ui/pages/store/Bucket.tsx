@@ -27,8 +27,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import CreateBucketModal from '@/components/modals/CreateBucketModal'
-import { createBucket, deleteBucket, listBuckets, type BucketRecord } from '@/lib/apis'
+import CreateBucketModal, { type EditBucketData } from '@/components/modals/CreateBucketModal'
+import { createBucket, deleteBucket, patchBucket, listBuckets, type BucketRecord } from '@/lib/apis'
 import {
   formatBucketAllowedTypes,
   getBucketAllowedTypeLabel,
@@ -110,6 +110,7 @@ const Bucket = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [buckets, setBuckets] = useState<Bucket[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingBucket, setEditingBucket] = useState<EditBucketData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
   const loadBuckets = async () => {
@@ -165,6 +166,33 @@ const Bucket = () => {
       alert(error instanceof Error ? error.message : 'Failed to create bucket')
       return false
     }
+  }
+
+  const handleEditBucket = async (id: string, name: string): Promise<boolean> => {
+    try {
+      const updated = await patchBucket(id, { name: name.trim() })
+      setBuckets((prev) =>
+        prev.map((b) =>
+          b.id === id ? { ...b, name: updated.name, lastUpdated: formatDate(updated.updated_at) } : b
+        )
+      )
+      setEditingBucket(null)
+      return true
+    } catch (error) {
+      console.error('Failed to update bucket', error)
+      return false
+    }
+  }
+
+  const handleOpenEdit = (bucket: Bucket, event: React.MouseEvent) => {
+    event.stopPropagation()
+    setEditingBucket({
+      id: bucket.id,
+      name: bucket.name,
+      description: bucket.description,
+      allowedTypes: bucket.allowedTypes,
+    })
+    setIsModalOpen(true)
   }
 
   const handleDeleteBucket = async (bucketId: string, event: React.MouseEvent) => {
@@ -262,7 +290,7 @@ const Bucket = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={e => e.stopPropagation()}>
+                        <DropdownMenuItem onClick={(e) => handleOpenEdit(bucket, e)}>
                           <Edit className="w-4 h-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
@@ -364,8 +392,10 @@ const Bucket = () => {
 
       <CreateBucketModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => { setIsModalOpen(false); setEditingBucket(null); }}
         onCreate={handleCreateBucket}
+        editBucket={editingBucket}
+        onEdit={handleEditBucket}
       />
     </div>
   )
