@@ -24,7 +24,6 @@ import {
   FileVideo,
   FileAudio,
   FileSpreadsheet,
-  Palette,
   Plus,
   Upload,
   Loader2,
@@ -180,21 +179,6 @@ const AI_MODE_INFO = {
   offline: { icon: Cpu, label: 'Offline', description: 'Local models only' },
   online: { icon: Globe, label: 'Online', description: 'Cloud-based models' },
 }
-
-const ACCENT_COLORS = [
-  '#60A5FA',
-  '#4ADE80',
-  '#C084FC',
-  '#F472B6',
-  '#FACC15',
-  '#F87171',
-  '#FB923C',
-  '#818CF8',
-  '#22D3EE',
-  '#2DD4BF',
-  '#34D399',
-  '#A78BFA',
-] as const
 
 // Complete class name mappings (Tailwind needs complete class names for JIT)
 const getAccentClasses = (color: string) => {
@@ -357,12 +341,6 @@ const ViewWorkspace = () => {
     loadAll()
   }, [id])
 
-  const toggleAccentColor = () => {
-    const currentIndex = ACCENT_COLORS.indexOf(accentColor as typeof ACCENT_COLORS[number])
-    const nextIndex = (currentIndex + 1) % ACCENT_COLORS.length
-    setAccentColor(ACCENT_COLORS[nextIndex])
-  }
-
   const handleUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files ?? [])
     if (selected.length === 0 || !workspace?.connected_bucket_id) return
@@ -497,16 +475,6 @@ const ViewWorkspace = () => {
 
                 {/* Actions */}
                 <div className="flex gap-2 shrink-0 flex-wrap">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleAccentColor}
-                    className={cn("gap-2", accent.text, accent.border, accent.hoverBg)}
-                    title="Toggle accent color"
-                  >
-                    <Palette className="w-4 h-4" />
-                    Color
-                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
