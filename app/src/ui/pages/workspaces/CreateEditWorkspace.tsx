@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   Card,
   CardContent,
@@ -39,7 +39,16 @@ import {
   Settings2,
   FolderPlus,
 } from "lucide-react";
-import { createWorkspace } from "@/lib/apis";
+import {
+  createBucket,
+  createWorkspace,
+  updateWorkspace,
+  getWorkspaceRecord,
+  listBuckets,
+  uploadWorkspaceBanner,
+  uploadWorkspaceIcon,
+  type WorkspaceRecord,
+} from "@/lib/apis";
 import CreateBucketModal from "@/components/modals/CreateBucketModal";
 import {
   Search,
@@ -53,6 +62,8 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/sonner";
+import { resolveApiAssetUrl } from "@/lib/utils";
 
 // Icons available for workspace
 const WORKSPACE_ICONS = [
@@ -76,18 +87,18 @@ const WORKSPACE_ICONS = [
 
 // Color palette for accent colors
 const ACCENT_COLORS = [
-  { name: "Blue", class: "text-blue-400", bg: "bg-blue-400" },
-  { name: "Green", class: "text-green-400", bg: "bg-green-400" },
-  { name: "Purple", class: "text-purple-400", bg: "bg-purple-400" },
-  { name: "Pink", class: "text-pink-400", bg: "bg-pink-400" },
-  { name: "Yellow", class: "text-yellow-400", bg: "bg-yellow-400" },
-  { name: "Red", class: "text-red-400", bg: "bg-red-400" },
-  { name: "Orange", class: "text-orange-400", bg: "bg-orange-400" },
-  { name: "Indigo", class: "text-indigo-400", bg: "bg-indigo-400" },
-  { name: "Cyan", class: "text-cyan-400", bg: "bg-cyan-400" },
-  { name: "Teal", class: "text-teal-400", bg: "bg-teal-400" },
-  { name: "Emerald", class: "text-emerald-400", bg: "bg-emerald-400" },
-  { name: "Violet", class: "text-violet-400", bg: "bg-violet-400" },
+  { name: "Blue", hex: "#60A5FA", class: "text-blue-400", bg: "bg-blue-400" },
+  { name: "Green", hex: "#4ADE80", class: "text-green-400", bg: "bg-green-400" },
+  { name: "Purple", hex: "#C084FC", class: "text-purple-400", bg: "bg-purple-400" },
+  { name: "Pink", hex: "#F472B6", class: "text-pink-400", bg: "bg-pink-400" },
+  { name: "Yellow", hex: "#FACC15", class: "text-yellow-400", bg: "bg-yellow-400" },
+  { name: "Red", hex: "#F87171", class: "text-red-400", bg: "bg-red-400" },
+  { name: "Orange", hex: "#FB923C", class: "text-orange-400", bg: "bg-orange-400" },
+  { name: "Indigo", hex: "#818CF8", class: "text-indigo-400", bg: "bg-indigo-400" },
+  { name: "Cyan", hex: "#22D3EE", class: "text-cyan-400", bg: "bg-cyan-400" },
+  { name: "Teal", hex: "#2DD4BF", class: "text-teal-400", bg: "bg-teal-400" },
+  { name: "Emerald", hex: "#34D399", class: "text-emerald-400", bg: "bg-emerald-400" },
+  { name: "Violet", hex: "#A78BFA", class: "text-violet-400", bg: "bg-violet-400" },
 ];
 
 // AI Modes
@@ -118,7 +129,7 @@ interface WorkspaceFormData {
   name: string;
   description: string;
   icon: { icon: LucideIcon; name: string; color: string } | null;
-  accentColor: { name: string; class: string; bg: string } | null;
+  accentColor: { name: string; hex: string; class: string; bg: string } | null;
   bannerImage: File | null;
   aiMode: string;
   resources: File[];
@@ -128,8 +139,44 @@ interface WorkspaceFormData {
   customIcon: File | null;
 }
 
+interface BucketOption {
+  id: string;
+  name: string;
+}
+
+const DEFAULT_CREATED_BY = "local-user";
+
+const isWorkspaceAssetPath = (value?: string | null) =>
+  Boolean(value && (value.includes("/") || /^https?:\/\//i.test(value)));
+
+const normalizeWorkspaceValue = (value?: string | null) =>
+  (value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const normalizeHexColor = (value?: string | null): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+
+  const fullHex = trimmed.match(/^#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/);
+  if (fullHex) {
+    return `#${fullHex[1].toUpperCase()}`;
+  }
+
+  const shortHex = trimmed.match(/^#([0-9a-fA-F]{3,4})$/);
+  if (shortHex) {
+    const rgb = shortHex[1].slice(0, 3);
+    const expanded = rgb.split("").map((c) => `${c}${c}`).join("").toUpperCase();
+    return `#${expanded}`;
+  }
+
+  return null;
+};
+
 const CreateEditWorkspace = () => {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const isEditMode = Boolean(id);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(false);
+  const [existingWorkspace, setExistingWorkspace] = useState<WorkspaceRecord | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState<WorkspaceFormData>({
@@ -149,21 +196,89 @@ const CreateEditWorkspace = () => {
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
 
-  const [buckets, setBuckets] = useState<string[]>([]);
+  const [buckets, setBuckets] = useState<BucketOption[]>([]);
   const [isLoadingStorage, setIsLoadingStorage] = useState(false);
   const [bucketSearch, setBucketSearch] = useState("");
   const [isBucketModalOpen, setIsBucketModalOpen] = useState(false);
 
+  const selectedBucket = buckets.find((bucket) => bucket.id === formData.bucket) ?? null;
+
+  // Load existing workspace data when in edit mode
+  useEffect(() => {
+    if (!id) return;
+    setIsLoadingWorkspace(true);
+    getWorkspaceRecord(id)
+      .then((ws) => {
+        setExistingWorkspace(ws);
+        const iconMatch =
+          WORKSPACE_ICONS.find(
+            (item) =>
+              normalizeWorkspaceValue(item.name) ===
+              normalizeWorkspaceValue(ws.icon),
+          ) ?? null;
+        const colorMatch =
+          ACCENT_COLORS.find(
+            (c) =>
+              c.hex.toLowerCase() === (normalizeHexColor(ws.accent_clr) ?? "").toLowerCase() ||
+              normalizeWorkspaceValue(c.name) ===
+              normalizeWorkspaceValue(ws.accent_clr),
+          ) ??
+          ACCENT_COLORS[0];
+        const aiMode =
+          ws.ai_config === "local" ? "offline" : (ws.ai_config ?? "auto");
+
+        if (ws.banner_img) {
+          setBannerPreview(resolveApiAssetUrl(ws.banner_img));
+        }
+
+        if (isWorkspaceAssetPath(ws.icon)) {
+          setIconPreview(resolveApiAssetUrl(ws.icon));
+        } else {
+          setIconPreview(null);
+        }
+
+        setFormData((prev) => ({
+          ...prev,
+          name: ws.name,
+          description: ws.desc ?? "",
+          icon: iconMatch,
+          accentColor: colorMatch,
+          aiMode,
+          enableResearch: ws.workspace_research_agents,
+          enableChat: ws.workspace_chat_agents,
+          bucket: ws.connected_bucket_id ?? "",
+          bannerImage: null,
+          customIcon: null,
+        }));
+      })
+      .catch((err) => {
+        console.error("Failed to load workspace for editing:", err);
+        toast.error(err instanceof Error ? err.message : "Failed to load workspace");
+      })
+      .finally(() => {
+        setIsLoadingWorkspace(false);
+      });
+  }, [id]);
+
   const loadStorageData = useCallback(async () => {
     setIsLoadingStorage(true);
     try {
-      // Empty logic to fetch available buckets (simulated)
-      console.log("Fetching buckets...");
-      // For now, create temporary buckets
-      const tempBuckets = ["Main Storage", "Research Data", "Archive", "Temporary"];
-      setBuckets(tempBuckets);
-      if (!formData.bucket && tempBuckets.length > 0) {
-        setFormData(prev => ({ ...prev, bucket: tempBuckets[0] }));
+      const response = await listBuckets({
+        page: 1,
+        size: 200,
+        sortBy: "updated_at",
+        sortOrder: "desc",
+      });
+
+      const bucketOptions = response.items.map((bucket) => ({
+        id: bucket.id,
+        name: bucket.name,
+      }));
+
+      setBuckets(bucketOptions);
+
+      if (!formData.bucket && bucketOptions.length > 0) {
+        setFormData((prev) => ({ ...prev, bucket: bucketOptions[0].id }));
       }
     } catch (err) {
       console.error("Failed to load storage data", err);
@@ -178,15 +293,50 @@ const CreateEditWorkspace = () => {
     }
   }, [currentStep, loadStorageData]);
 
-  const handleAddBucket = (name: string) => {
-    if (name && !buckets.includes(name)) {
-      setBuckets([...buckets, name]);
-      setFormData({ ...formData, bucket: name });
+  const handleAddBucket = async (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
+    const alreadyExists = buckets.some(
+      (bucket) => bucket.name.toLowerCase() === trimmedName.toLowerCase(),
+    );
+
+    if (alreadyExists) {
+      const existingBucket = buckets.find(
+        (bucket) => bucket.name.toLowerCase() === trimmedName.toLowerCase(),
+      );
+      if (existingBucket) {
+        setFormData((prev) => ({ ...prev, bucket: existingBucket.id }));
+      }
+      return;
+    }
+
+    try {
+      const createdBucket = await createBucket({
+        name: trimmedName,
+        description: "Workspace storage bucket",
+        allowed_file_types:
+          "pdf,doc,docx,xls,xlsx,png,jpg,jpeg,webp,mp4,mp3,txt,csv,json,zip",
+        created_by:
+          localStorage.getItem("dr_profile_email") ||
+          localStorage.getItem("dr_profile_name") ||
+          DEFAULT_CREATED_BY,
+        deletable: true,
+        status: true,
+      });
+
+      const option = { id: createdBucket.id, name: createdBucket.name };
+      setBuckets((prev) => [option, ...prev]);
+      setFormData((prev) => ({ ...prev, bucket: option.id }));
+    } catch (err) {
+      console.error("Failed to create bucket", err);
+      const message = err instanceof Error ? err.message : "Failed to create bucket";
+      toast.error(message);
     }
   };
 
-  const filteredBuckets = buckets.filter(b =>
-    b.toLowerCase().includes(bucketSearch.toLowerCase())
+  const filteredBuckets = buckets.filter((bucket) =>
+    bucket.name.toLowerCase().includes(bucketSearch.toLowerCase()),
   );
 
   const totalSteps = 4;
@@ -195,9 +345,9 @@ const CreateEditWorkspace = () => {
   const isStep1Valid =
     formData.name.trim().length > 0 && formData.description.trim().length > 0;
   const isStep2Valid =
-    (formData.icon !== null || formData.customIcon !== null) &&
+    (formData.icon !== null || formData.customIcon !== null || iconPreview !== null) &&
     formData.accentColor !== null;
-  const isStep3Valid = formData.aiMode !== "" && formData.bucket !== ""; // Bucket is now required
+  const isStep3Valid = formData.aiMode !== ""; // Bucket is optional
   const isStep4Valid = true; // All fields optional
 
   const canProceed = () => {
@@ -228,37 +378,85 @@ const CreateEditWorkspace = () => {
   };
 
   const handleSubmit = async () => {
-    // Prevent double submits
     if (isSaving) return;
-
     setIsSaving(true);
     try {
-      // Map UI form data to the payload expected by the API helper.
       const payload = {
         name: formData.name,
         description: formData.description,
-        // The API expects simple identifiers for icon/accentColor in this implementation.
-        icon: formData.icon?.name ?? null,
-        accentColor: formData.accentColor?.name ?? null,
+        icon:
+          formData.customIcon != null
+            ? existingWorkspace?.icon ?? null
+            : formData.icon?.name ?? existingWorkspace?.icon ?? null,
+        accentColor: formData.accentColor?.hex ?? null,
+        bannerUrl: existingWorkspace?.banner_img ?? null,
         aiMode: formData.aiMode,
         enableResearch: formData.enableResearch,
         enableChat: formData.enableChat,
-        bucket: formData.bucket,
+        bucket: formData.bucket || null,
         bannerImage: formData.bannerImage ?? null,
         customIcon: formData.customIcon ?? null,
         resources: formData.resources ?? [],
       };
 
-      const created = await createWorkspace(payload);
-      console.log("Created workspace:", created);
+      if (isEditMode && id) {
+        let savedWorkspace = await updateWorkspace(id, payload);
 
-      // Navigate to workspace list after creation
-      navigate("/workspaces/all");
+        if (formData.bannerImage) {
+          savedWorkspace = await uploadWorkspaceBanner(id, formData.bannerImage);
+        }
+
+        if (formData.customIcon) {
+          savedWorkspace = await uploadWorkspaceIcon(id, formData.customIcon);
+        }
+
+        setExistingWorkspace((prev) =>
+          prev
+            ? {
+              ...prev,
+              name: savedWorkspace.name,
+              desc: savedWorkspace.description,
+              icon: savedWorkspace.icon ?? null,
+              accent_clr: savedWorkspace.accentColor ?? existingWorkspace?.accent_clr ?? null,
+              banner_img: savedWorkspace.bannerUrl ?? null,
+              connected_bucket_id: savedWorkspace.connectedBucketId ?? null,
+              ai_config: savedWorkspace.aiMode === "offline" ? "local" : savedWorkspace.aiMode,
+              workspace_research_agents: savedWorkspace.enableResearch,
+              workspace_chat_agents: savedWorkspace.enableChat,
+            }
+            : prev,
+        );
+        setBannerPreview(resolveApiAssetUrl(savedWorkspace.bannerUrl));
+        if (isWorkspaceAssetPath(savedWorkspace.icon)) {
+          setIconPreview(resolveApiAssetUrl(savedWorkspace.icon));
+          setFormData((prev) => ({ ...prev, customIcon: null, icon: null, bannerImage: null }));
+        } else {
+          setFormData((prev) => ({ ...prev, customIcon: null, bannerImage: null }));
+        }
+        const normalizedSavedAccent = normalizeHexColor(savedWorkspace.accentColor);
+        if (normalizedSavedAccent) {
+          const nextAccent = ACCENT_COLORS.find(
+            (c) => c.hex.toLowerCase() === normalizedSavedAccent.toLowerCase(),
+          );
+          if (nextAccent) {
+            setFormData((prev) => ({ ...prev, accentColor: nextAccent }));
+          }
+        }
+        toast.success("Workspace updated");
+        navigate(`/workspaces/view/${id}`);
+      } else {
+        const created = await createWorkspace(payload);
+        setBannerPreview(resolveApiAssetUrl(created.bannerUrl));
+        if (isWorkspaceAssetPath(created.icon)) {
+          setIconPreview(resolveApiAssetUrl(created.icon));
+        }
+        toast.success("Workspace created");
+        navigate(`/workspaces/view/${created.id}`);
+      }
     } catch (err) {
-      console.error("Failed to create workspace", err);
-      // Minimal user feedback - adapt to your toast system if present
+      console.error(`Failed to ${isEditMode ? "update" : "create"} workspace`, err);
       const message = err instanceof Error ? err.message : String(err);
-      alert("Failed to create workspace: " + message);
+      toast.error(`Failed to ${isEditMode ? "update" : "create"} workspace: ${message}`);
     } finally {
       setIsSaving(false);
     }
@@ -297,6 +495,14 @@ const CreateEditWorkspace = () => {
     }
   };
 
+  if (isLoadingWorkspace) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 h-full text-foreground overflow-y-auto animate-in fade-in duration-500">
       {/* Header */}
@@ -309,10 +515,12 @@ const CreateEditWorkspace = () => {
               </div>
               <div className="flex flex-col gap-2">
                 <h1 className="text-xl font-semibold tracking-tight">
-                  Create New Workspace
+                  {isEditMode ? "Edit Workspace" : "Create New Workspace"}
                 </h1>
                 <p className="text-muted-foreground">
-                  Set up your research environment in a few simple steps.
+                  {isEditMode
+                    ? "Update your workspace settings."
+                    : "Set up your research environment in a few simple steps."}
                 </p>
               </div>
             </div>
@@ -334,10 +542,10 @@ const CreateEditWorkspace = () => {
             >
               <div
                 className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${isCompleted
-                    ? "bg-primary border-primary text-primary-foreground"
-                    : isActive
-                      ? "border-primary text-primary"
-                      : "border-muted-foreground/30 text-muted-foreground"
+                  ? "bg-primary border-primary text-primary-foreground"
+                  : isActive
+                    ? "border-primary text-primary"
+                    : "border-muted-foreground/30 text-muted-foreground"
                   }`}
               >
                 {isCompleted ? <Check className="w-5 h-5" /> : stepNumber}
@@ -435,8 +643,8 @@ const CreateEditWorkspace = () => {
                         type="button"
                         onClick={() => setFormData({ ...formData, icon: item, customIcon: null })}
                         className={`aspect-square rounded-xl border-2 transition-all hover:scale-105 flex items-center justify-center ${isSelected
-                            ? "border-primary bg-primary/10 shadow-md"
-                            : "border-muted-foreground/20 bg-muted/10 hover:border-primary/50"
+                          ? "border-primary bg-primary/10 shadow-md"
+                          : "border-muted-foreground/20 bg-muted/10 hover:border-primary/50"
                           }`}
                       >
                         <Icon className={`w-8 h-8 ${item.color}`} />
@@ -447,9 +655,9 @@ const CreateEditWorkspace = () => {
                   {/* Custom Icon Upload */}
                   <label
                     htmlFor="icon-upload"
-                    className={`aspect-square rounded-xl border-2 border-dashed transition-all cursor-pointer hover:scale-105 flex items-center justify-center relative overflow-hidden ${formData.customIcon
-                        ? "border-primary bg-primary/10 shadow-md"
-                        : "border-muted-foreground/20 bg-muted/10 hover:border-primary/50"
+                    className={`aspect-square rounded-xl border-2 border-dashed transition-all cursor-pointer hover:scale-105 flex items-center justify-center relative overflow-hidden ${(formData.customIcon || iconPreview)
+                      ? "border-primary bg-primary/10 shadow-md"
+                      : "border-muted-foreground/20 bg-muted/10 hover:border-primary/50"
                       }`}
                   >
                     {iconPreview ? (
@@ -506,8 +714,8 @@ const CreateEditWorkspace = () => {
                           setFormData({ ...formData, accentColor: color })
                         }
                         className={`relative p-0 rounded-lg border-2 transition-all hover:scale-105 aspect-square ${isSelected
-                            ? "border-primary shadow-lg"
-                            : "border-muted-foreground/20"
+                          ? "border-primary shadow-lg"
+                          : "border-muted-foreground/20"
                           }`}
                       >
                         <div className={`w-full h-full rounded-md ${color.bg}`}>
@@ -548,7 +756,7 @@ const CreateEditWorkspace = () => {
                         <img
                           src={bannerPreview}
                           alt="Banner Preview"
-                          className="w-full h-auto max-h-[500px] object-contain transition-transform group-hover:scale-[1.02]"
+                          className="w-full h-auto max-h-125 object-contain transition-transform group-hover:scale-[1.02]"
                         />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-white">
                           <Upload className="w-8 h-8 mb-2" />
@@ -675,17 +883,17 @@ const CreateEditWorkspace = () => {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {filteredBuckets.map((b) => (
+                    {filteredBuckets.map((bucketOption) => (
                       <button
-                        key={b}
-                        onClick={() => setFormData({ ...formData, bucket: b })}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-2 ${formData.bucket === b
-                            ? "bg-primary text-primary-foreground scale-110 shadow-lg z-10"
-                            : "bg-muted hover:bg-muted-foreground/10 text-muted-foreground"
+                        key={bucketOption.id}
+                        onClick={() => setFormData({ ...formData, bucket: bucketOption.id })}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-2 ${formData.bucket === bucketOption.id
+                          ? "bg-primary text-primary-foreground scale-110 shadow-lg z-10"
+                          : "bg-muted hover:bg-muted-foreground/10 text-muted-foreground"
                           }`}
                       >
                         <Database className="w-3 h-3" />
-                        {b}
+                        {bucketOption.name}
                       </button>
                     ))}
                     <button
@@ -701,7 +909,7 @@ const CreateEditWorkspace = () => {
                   )}
 
                   {/* Bucket Preview */}
-                  {formData.bucket && (
+                  {selectedBucket && (
                     <div className="mt-8 p-4 rounded-xl border border-primary/20 bg-primary/5 animate-in fade-in slide-in-from-bottom-2 duration-500">
                       <div className="flex items-start justify-between">
                         <div className="flex gap-4">
@@ -710,7 +918,7 @@ const CreateEditWorkspace = () => {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-bold text-lg truncate">{formData.bucket}</h4>
+                              <h4 className="font-bold text-lg truncate">{selectedBucket.name}</h4>
                               <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold uppercase tracking-wider">
                                 Active
                               </span>
@@ -798,8 +1006,8 @@ const CreateEditWorkspace = () => {
                       <div
                         key={mode.id}
                         className={`p-4 rounded-xl border-2 text-left transition-all ${isSelected
-                            ? "border-primary bg-primary/10 shadow-lg"
-                            : "border-muted-foreground/20 bg-muted/5"
+                          ? "border-primary bg-primary/10 shadow-lg"
+                          : "border-muted-foreground/20 bg-muted/5"
                           }`}
                       >
                         <Icon
@@ -931,15 +1139,15 @@ const CreateEditWorkspace = () => {
                       })
                     }
                     className={`relative w-14 h-7 rounded-full transition-colors ${formData.enableResearch
-                        ? "bg-primary"
-                        : "bg-muted-foreground/30"
+                      ? "bg-primary"
+                      : "bg-muted-foreground/30"
                       }`}
                     disabled={isSaving}
                   >
                     <div
                       className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${formData.enableResearch
-                          ? "translate-x-8"
-                          : "translate-x-1"
+                        ? "translate-x-8"
+                        : "translate-x-1"
                         }`}
                     />
                   </button>
@@ -963,8 +1171,8 @@ const CreateEditWorkspace = () => {
                       })
                     }
                     className={`relative w-14 h-7 rounded-full transition-colors ${formData.enableChat
-                        ? "bg-primary"
-                        : "bg-muted-foreground/30"
+                      ? "bg-primary"
+                      : "bg-muted-foreground/30"
                       }`}
                     disabled={isSaving}
                   >
@@ -1010,7 +1218,7 @@ const CreateEditWorkspace = () => {
               disabled={isSaving}
             >
               <Check className="w-4 h-4" />
-              {isSaving ? "Creating..." : "Create Workspace"}
+              {isSaving ? (isEditMode ? "Saving..." : "Creating...") : (isEditMode ? "Save Changes" : "Create Workspace")}
             </Button>
           )}
         </div>

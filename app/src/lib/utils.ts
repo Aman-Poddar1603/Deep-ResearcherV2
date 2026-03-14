@@ -5,6 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function resolveApiAssetUrl(path?: string | null) {
+  if (!path) return null
+  if (/^https?:\/\//i.test(path)) return path
+
+  const baseUrl =
+    (import.meta.env.VITE_BACKEND_URL as string | undefined) ??
+    'http://localhost:8000'
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${normalizedBase}${normalizedPath}`
+}
+
 export interface LinkMetadata {
   title?: string
   description?: string

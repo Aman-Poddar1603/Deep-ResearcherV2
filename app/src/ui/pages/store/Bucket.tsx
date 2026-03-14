@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import CreateBucketModal from '@/components/modals/CreateBucketModal'
+import { createBucket, deleteBucket, listBuckets, type BucketRecord } from '@/lib/apis'
 
 // Mock bucket data
 interface Bucket {
@@ -47,48 +48,44 @@ interface Bucket {
   color: string
 }
 
-const mockBuckets: Bucket[] = [
-  {
-    id: 'bucket-1',
-    name: 'Research Assets',
-    description: 'Media and files from market research projects',
-    stats: { images: 245, videos: 12, files: 89, audio: 5, others: 23 },
-    totalSize: '2.4 GB',
-    createdAt: 'Jan 15, 2024',
-    lastUpdated: '2 hours ago',
-    color: 'blue-400',
-  },
-  {
-    id: 'bucket-2',
-    name: 'Product Screenshots',
-    description: 'Competitor product screenshots and UI references',
-    stats: { images: 567, videos: 0, files: 12, audio: 0, others: 8 },
-    totalSize: '1.8 GB',
-    createdAt: 'Dec 20, 2023',
-    lastUpdated: '1 day ago',
-    color: 'purple-400',
-  },
-  {
-    id: 'bucket-3',
-    name: 'Interview Recordings',
-    description: 'Audio and video recordings from user interviews',
-    stats: { images: 15, videos: 45, files: 67, audio: 89, others: 3 },
-    totalSize: '8.7 GB',
-    createdAt: 'Nov 10, 2023',
-    lastUpdated: '3 days ago',
-    color: 'green-400',
-  },
-  {
-    id: 'bucket-4',
-    name: 'Data Exports',
-    description: 'Exported datasets and analytical reports',
-    stats: { images: 34, videos: 2, files: 456, audio: 0, others: 78 },
-    totalSize: '5.2 GB',
-    createdAt: 'Oct 5, 2023',
-    lastUpdated: '1 week ago',
-    color: 'orange-400',
-  },
-]
+const COLORS = ['blue-400', 'purple-400', 'green-400', 'orange-400', 'pink-400'] as const
+
+const formatBytes = (bytes: number): string => {
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+const formatDate = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const mapBucketRecord = (record: BucketRecord, index: number): Bucket => {
+  return {
+    id: record.id,
+    name: record.name,
+    description: record.description || 'No description available',
+    stats: {
+      images: 0,
+      videos: 0,
+      files: record.total_files,
+      audio: 0,
+      others: 0,
+    },
+    totalSize: formatBytes(record.total_size),
+    createdAt: formatDate(record.created_at),
+    lastUpdated: formatDate(record.updated_at),
+    color: COLORS[index % COLORS.length],
+  }
+}
 
 const getColorClasses = (color: string) => {
   const colorMap: Record<string, { text: string; bg: string; border: string }> = {
@@ -104,21 +101,67 @@ const getColorClasses = (color: string) => {
 const Bucket = () => {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
-  const [buckets, setBuckets] = useState<Bucket[]>(mockBuckets)
+  const [buckets, setBuckets] = useState<Bucket[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleCreateBucket = (name: string) => {
-    const newBucket: Bucket = {
-      id: `bucket-${buckets.length + 1}`,
-      name,
-      description: 'Newly created storage bucket',
-      stats: { images: 0, videos: 0, files: 0, audio: 0, others: 0 },
-      totalSize: '0 B',
-      createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      lastUpdated: 'Just now',
-      color: ['blue-400', 'purple-400', 'green-400', 'orange-400', 'pink-400'][Math.floor(Math.random() * 5)]
+  const loadBuckets = async () => {
+    setIsLoading(true)
+    try {
+      const response = await listBuckets({
+        page: 1,
+        size: 200,
+        sortBy: 'updated_at',
+        sortOrder: 'desc',
+      })
+
+      const mapped = response.items.map((item, index) => mapBucketRecord(item, index))
+      setBuckets(mapped)
+    } catch (error) {
+      console.error('Failed to fetch buckets', error)
+    } finally {
+      setIsLoading(false)
     }
-    setBuckets([newBucket, ...buckets])
+  }
+
+  useEffect(() => {
+    void loadBuckets()
+  }, [])
+
+  const handleCreateBucket = async (name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+
+    try {
+      const created = await createBucket({
+        name: trimmed,
+        description: 'Created from Deep Researcher UI',
+        allowed_file_types:
+          'pdf,doc,docx,xls,xlsx,png,jpg,jpeg,webp,mp4,mp3,txt,csv,json,zip',
+        created_by:
+          localStorage.getItem('dr_profile_email') ||
+          localStorage.getItem('dr_profile_name') ||
+          'local-user',
+        deletable: true,
+        status: true,
+      })
+
+      setBuckets((prev) => [mapBucketRecord(created, 0), ...prev])
+    } catch (error) {
+      console.error('Failed to create bucket', error)
+      alert(error instanceof Error ? error.message : 'Failed to create bucket')
+    }
+  }
+
+  const handleDeleteBucket = async (bucketId: string, event: React.MouseEvent) => {
+    event.stopPropagation()
+    try {
+      await deleteBucket(bucketId)
+      setBuckets((prev) => prev.filter((bucket) => bucket.id !== bucketId))
+    } catch (error) {
+      console.error('Failed to delete bucket', error)
+      alert(error instanceof Error ? error.message : 'Failed to delete bucket')
+    }
   }
 
   const filteredBuckets = buckets.filter(bucket =>
@@ -178,7 +221,7 @@ const Bucket = () => {
         <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10">
           {/* Create Bucket Card */}
           <Card
-            className="flex flex-col items-center justify-center min-h-[320px] border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0"
+            className="flex flex-col items-center justify-center min-h-80 border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0"
             onClick={() => setIsModalOpen(true)}
           >
             <div className="rounded-full bg-background p-4 mb-4 group-hover:scale-110 transition-transform shadow-sm border">
@@ -194,7 +237,7 @@ const Bucket = () => {
             return (
               <Card
                 key={bucket.id}
-                className="min-h-[320px] flex flex-col shadow-lg hover:shadow-2xl transition-all cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0 hover:border-primary/30"
+                className="min-h-80 flex flex-col shadow-lg hover:shadow-2xl transition-all cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0 hover:border-primary/30"
                 onClick={() => navigate(`/data/bucket/${bucket.id}`)}
               >
                 <CardHeader className="pt-5 pb-3 px-5">
@@ -213,7 +256,7 @@ const Bucket = () => {
                           <Edit className="w-4 h-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={e => e.stopPropagation()} className="text-destructive">
+                        <DropdownMenuItem onClick={(e) => handleDeleteBucket(bucket.id, e)} className="text-destructive">
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -289,7 +332,14 @@ const Bucket = () => {
         </div>
 
         {/* Empty State */}
-        {filteredBuckets.length === 0 && searchQuery && (
+        {isLoading && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <FolderOpen className="w-16 h-16 text-muted-foreground/30 mb-4 animate-pulse" />
+            <h3 className="text-lg font-medium text-muted-foreground">Loading buckets...</h3>
+          </div>
+        )}
+
+        {!isLoading && filteredBuckets.length === 0 && searchQuery && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <FolderOpen className="w-16 h-16 text-muted-foreground/30 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground">No buckets found</h3>
@@ -300,10 +350,10 @@ const Bucket = () => {
         )}
       </div>
 
-      <CreateBucketModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onCreate={handleCreateBucket} 
+      <CreateBucketModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreate={handleCreateBucket}
       />
     </div>
   )

@@ -1,10 +1,12 @@
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { Plus, FileText, MessageSquare, Files, Clock, Calendar, Briefcase, TrendingUp, Users, LucideIcon, FolderOpen } from 'lucide-react'
+import { Plus, FileText, MessageSquare, Files, Clock, Calendar, Briefcase, TrendingUp, Users, LucideIcon, FolderOpen, Brain, Sparkles, Globe, Database, Code, Network } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { getAllWorkspaces, listResearchRecords, listChatThreads, type WorkspaceOut } from '@/lib/apis'
+import { resolveApiAssetUrl } from '@/lib/utils'
 
-// Mock Data Type
-interface Workspace {
+interface WorkspaceCard {
   id: string
   title: string
   description: string
@@ -13,150 +15,141 @@ interface Workspace {
   fileCount: number
   createdAt: string
   lastUpdated: string
-  icon: LucideIcon
-  color: string
+  icon: LucideIcon | null
+  iconUrl: string | null
+  colorClass: string
+  colorHex: string | null
 }
 
-const mockWorkspaces: Workspace[] = [
-  {
-    id: '1',
-    title: 'Market Analysis 2024',
-    description: 'Deep dive into emerging tech markets and competitor landscape.',
-    researchCount: 5,
-    chatCount: 12,
-    fileCount: 8,
-    createdAt: 'Jan 15, 2024',
-    lastUpdated: '2 mins ago',
-    icon: TrendingUp,
-    color: 'text-blue-400',
-  },
-  {
-    id: '2',
-    title: 'Competitor Tracking',
-    description: 'Ongoing tracking of main competitors in the SaaS space.',
-    researchCount: 3,
-    chatCount: 8,
-    fileCount: 15,
-    createdAt: 'Dec 10, 2023',
-    lastUpdated: '1 hour ago',
-    icon: Users,
-    color: 'text-purple-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '2',
-    title: 'Competitor Tracking',
-    description: 'Ongoing tracking of main competitors in the SaaS space.',
-    researchCount: 3,
-    chatCount: 8,
-    fileCount: 15,
-    createdAt: 'Dec 10, 2023',
-    lastUpdated: '1 hour ago',
-    icon: Users,
-    color: 'text-purple-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-  {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4 surveys.',
-    researchCount: 8,
-    chatCount: 24,
-    fileCount: 42,
-    createdAt: 'Nov 20, 2023',
-    lastUpdated: '2 days ago',
-    icon: Briefcase,
-    color: 'text-green-400',
-  },
-]
+const isWorkspaceAssetPath = (value?: string | null) => {
+  return Boolean(value && (value.includes('/') || /^https?:\/\//i.test(value)))
+}
+
+const isHexColor = (value?: string | null): value is string => {
+  return Boolean(value && /^#[0-9a-fA-F]{6}$/.test(value))
+}
+
+const ICON_MAP: Record<string, LucideIcon> = {
+  briefcase: Briefcase,
+  'trending up': TrendingUp,
+  trendingup: TrendingUp,
+  users: Users,
+  brain: Brain,
+  sparkles: Sparkles,
+  globe: Globe,
+  database: Database,
+  code: Code,
+  network: Network,
+}
+
+const resolveAccentClass = (accentColor?: string | null): string => {
+  if (!accentColor) return 'text-primary'
+  const accent = accentColor.toLowerCase()
+  if (accent.includes('blue')) return 'text-blue-400'
+  if (accent.includes('green')) return 'text-green-400'
+  if (accent.includes('purple')) return 'text-purple-400'
+  if (accent.includes('pink')) return 'text-pink-400'
+  if (accent.includes('orange')) return 'text-orange-400'
+  return 'text-primary'
+}
+
+const resolveIcon = (icon?: string | null): LucideIcon => {
+  if (!icon) return FolderOpen
+  return ICON_MAP[icon.toLowerCase()] ?? FolderOpen
+}
+
+const toWorkspaceCard = (
+  workspace: WorkspaceOut,
+  researchCount: number,
+  chatCount: number,
+): WorkspaceCard => {
+  const iconUrl = isWorkspaceAssetPath(workspace.icon)
+    ? resolveApiAssetUrl(workspace.icon)
+    : null
+  const colorHex = isHexColor(workspace.accentColor)
+    ? workspace.accentColor
+    : null
+
+  return {
+    id: workspace.id,
+    title: workspace.name,
+    description: workspace.description || 'No description available.',
+    researchCount,
+    chatCount,
+    fileCount: 0,
+    createdAt: workspace.createdAt || 'Unknown',
+    lastUpdated: workspace.updatedAt || 'Unknown',
+    icon: iconUrl ? null : resolveIcon(workspace.icon),
+    iconUrl,
+    colorClass: colorHex ? 'text-primary' : resolveAccentClass(workspace.accentColor),
+    colorHex,
+  }
+}
 
 const AllWorkspaces = () => {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
+  const [workspaces, setWorkspaces] = useState<WorkspaceCard[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadData = async () => {
+      setIsLoading(true)
+      setErrorMessage(null)
+
+      try {
+        const [workspaceList, researchResponse, chatThreadsResponse] = await Promise.all([
+          getAllWorkspaces(),
+          listResearchRecords({ page: 1, size: 200 }),
+          listChatThreads({ page: 1, size: 200 }),
+        ])
+
+        if (isCancelled) return
+
+        const researchCountByWorkspace = researchResponse.items.reduce<Record<string, number>>((acc, item) => {
+          if (!item.workspace_id) return acc
+          acc[item.workspace_id] = (acc[item.workspace_id] ?? 0) + 1
+          return acc
+        }, {})
+
+        const chatCountByWorkspace = chatThreadsResponse.items.reduce<Record<string, number>>((acc, item) => {
+          if (!item.workspace_id) return acc
+          acc[item.workspace_id] = (acc[item.workspace_id] ?? 0) + 1
+          return acc
+        }, {})
+
+        const cards = workspaceList.map((workspace) => {
+          return toWorkspaceCard(
+            workspace,
+            researchCountByWorkspace[workspace.id] ?? 0,
+            chatCountByWorkspace[workspace.id] ?? 0,
+          )
+        })
+
+        setWorkspaces(cards)
+      } catch (error) {
+        if (isCancelled) return
+        const message = error instanceof Error ? error.message : 'Failed to load workspaces'
+        setErrorMessage(message)
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadData()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
   return (
     <div className="space-y-8 h-full text-foreground animate-in fade-in duration-500 overflow-y-auto">
-      
+
       {/* Header section */}
       <div className="border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
         <div className="w-full px-8 py-6">
@@ -174,11 +167,11 @@ const AllWorkspaces = () => {
         </div>
       </div>
 
-      
+
 
       <div className="p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-10">
         {/* Create Workspace Card */}
-        <Card className="flex flex-col items-center justify-center min-h-[300px] border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0" onClick={() => { navigate("/workspaces/new") }}>
+        <Card className="flex flex-col items-center justify-center min-h-75 border-dashed border-2 hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group bg-muted/10 p-0" onClick={() => { navigate("/workspaces/new") }}>
           <div className="rounded-full bg-background p-4 mb-4 group-hover:scale-110 transition-transform shadow-sm border">
             <Plus className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
           </div>
@@ -187,12 +180,21 @@ const AllWorkspaces = () => {
         </Card>
 
         {/* Existing Workspaces */}
-        {mockWorkspaces.map((workspace) => (
-          <Card key={workspace.id} className="min-h-[300px] flex flex-col shadow-lg hover:shadow-2xl transition-shadow cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0" onClick={() => navigate(`/workspaces/view/${workspace.id}`)}>
+        {workspaces.map((workspace) => (
+          <Card key={workspace.id} className="min-h-75 flex flex-col shadow-lg hover:shadow-2xl transition-shadow cursor-pointer relative overflow-hidden group border-muted-foreground/20 p-0 py-0 gap-0" onClick={() => navigate(`/workspaces/view/${workspace.id}`)}>
             <CardHeader className="pt-6 pb-2 px-6">
               <div className="flex justify-between items-start gap-4">
-                <div className={`p-2 rounded-lg bg-secondary/30 ${workspace.color}`}>
-                  <workspace.icon className="w-5 h-5" />
+                <div
+                  className={`p-2 rounded-lg bg-secondary/30 ${workspace.colorClass}`}
+                  style={workspace.colorHex ? { color: workspace.colorHex, backgroundColor: `${workspace.colorHex}1A` } : undefined}
+                >
+                  {workspace.iconUrl ? (
+                    <img src={workspace.iconUrl} alt={`${workspace.title} icon`} className="w-5 h-5 object-cover rounded" />
+                  ) : workspace.icon ? (
+                    <workspace.icon className="w-5 h-5" />
+                  ) : (
+                    <FolderOpen className="w-5 h-5" />
+                  )}
                 </div>
                 <div className="space-y-1 flex-1">
                   <CardTitle className="line-clamp-1 text-xl group-hover:text-primary transition-colors">{workspace.title}</CardTitle>
@@ -243,6 +245,32 @@ const AllWorkspaces = () => {
             </CardFooter>
           </Card>
         ))}
+
+        {!isLoading && workspaces.length === 0 && (
+          <Card className="min-h-75 border-dashed border-2 col-span-full flex items-center justify-center bg-muted/5 p-0">
+            <CardContent className="text-center">
+              <h3 className="font-semibold text-lg">No workspaces found</h3>
+              <p className="text-sm text-muted-foreground mt-1">Create your first workspace to get started.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {isLoading && (
+          <Card className="min-h-75 border-dashed border-2 col-span-full flex items-center justify-center bg-muted/5 p-0">
+            <CardContent className="text-center">
+              <h3 className="font-semibold text-lg">Loading workspaces...</h3>
+            </CardContent>
+          </Card>
+        )}
+
+        {errorMessage && (
+          <Card className="min-h-75 border-destructive/30 border col-span-full flex items-center justify-center bg-destructive/5 p-0">
+            <CardContent className="text-center">
+              <h3 className="font-semibold text-lg text-destructive">Failed to load workspaces</h3>
+              <p className="text-sm text-muted-foreground mt-1">{errorMessage}</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

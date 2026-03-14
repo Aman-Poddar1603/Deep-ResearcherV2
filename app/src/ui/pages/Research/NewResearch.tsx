@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useFilePicker } from 'use-file-picker'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -28,40 +28,44 @@ import {
   FileText,
   Zap
 } from 'lucide-react'
+import { createResearchRecord, createResearchSourceRecord, getAllWorkspaces } from '@/lib/apis'
 
-// Mock Data for Workspaces (Matches AllWorkspaces.tsx)
-const mockWorkspaces = [
+const WORKSPACE_STYLES = [
   {
-    id: '1',
-    title: 'Market Analysis 2024',
-    description: 'Deep dive into emerging tech markets.',
     icon: TrendingUp,
     color: 'text-blue-400',
     bgColor: 'bg-blue-400/10',
-    borderColor: 'border-blue-400/20'
+    borderColor: 'border-blue-400/20',
   },
   {
-    id: '2',
-    title: 'Competitor Tracking',
-    description: 'Ongoing tracking of main competitors.',
     icon: Users,
     color: 'text-purple-400',
     bgColor: 'bg-purple-400/10',
-    borderColor: 'border-purple-400/20'
+    borderColor: 'border-purple-400/20',
   },
   {
-    id: '3',
-    title: 'User Feedback Loop',
-    description: 'Analyzing user feedback from Q4.',
     icon: Briefcase,
     color: 'text-green-400',
     bgColor: 'bg-green-400/10',
-    borderColor: 'border-green-400/20'
+    borderColor: 'border-green-400/20',
   },
 ]
 
+interface WorkspaceOption {
+  id: string
+  title: string
+  description: string
+  icon: typeof Briefcase
+  color: string
+  bgColor: string
+  borderColor: string
+}
+
 export default function NewResearch() {
   const navigate = useNavigate()
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([])
+  const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(false)
+  const [isStartingResearch, setIsStartingResearch] = useState(false)
 
   // State
   const [title, setTitle] = useState('')
@@ -78,6 +82,45 @@ export default function NewResearch() {
   // Sources
   const [sources, setSources] = useState<{ type: 'url' | 'youtube' | 'file', value: string, name?: string, file?: File }[]>([])
   const [newUrl, setNewUrl] = useState('')
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadWorkspaces = async () => {
+      setIsLoadingWorkspaces(true)
+      try {
+        const workspaceRecords = await getAllWorkspaces()
+        if (isCancelled) return
+
+        const mapped = workspaceRecords.map((workspace, index) => {
+          const style = WORKSPACE_STYLES[index % WORKSPACE_STYLES.length]
+          return {
+            id: workspace.id,
+            title: workspace.name,
+            description: workspace.description || 'No description available',
+            icon: style.icon,
+            color: style.color,
+            bgColor: style.bgColor,
+            borderColor: style.borderColor,
+          }
+        })
+
+        setWorkspaces(mapped)
+      } catch (error) {
+        console.error('Failed to load workspaces', error)
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingWorkspaces(false)
+        }
+      }
+    }
+
+    void loadWorkspaces()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   const { openFilePicker, clear } = useFilePicker({
     accept: ['.pdf', '.docx', '.txt'],
@@ -120,13 +163,17 @@ export default function NewResearch() {
     setSources(sources.filter((_, i) => i !== index))
   }
 
-  const handleStartResearch = () => {
+  const handleStartResearch = async () => {
+    if (!selectedWorkspace || isStartingResearch) return
+
+    setIsStartingResearch(true)
+
     const researchData = {
       title: title || 'Deep Research Task (Auto-generated)',
       description: description || 'Auto-generated description based on context.',
       prompt,
       workspaceId: selectedWorkspace,
-      workspaceName: mockWorkspaces.find(ws => ws.id === selectedWorkspace)?.title || 'Unknown Workspace',
+      workspaceName: workspaces.find(ws => ws.id === selectedWorkspace)?.title || 'Unknown Workspace',
       preferences: {
         enableChat,
         allowBackendResearch,
@@ -135,7 +182,39 @@ export default function NewResearch() {
       },
       sources: sources.map(s => ({ type: s.type, value: s.value, name: s.name })),
     }
-    navigate('/researches/sim-001', { state: researchData })
+
+    try {
+      const createdResearch = await createResearchRecord({
+        title: researchData.title,
+        desc: researchData.description,
+        prompt: researchData.prompt,
+        workspace_id: researchData.workspaceId,
+        chat_access: enableChat,
+        background_processing: allowBackendResearch,
+        research_template_id: template,
+        custom_instructions: customInstructions || null,
+      })
+
+      const sourcePayloads = sources.map((source) => ({
+        research_id: createdResearch.id,
+        source_type: source.type,
+        source_url: source.value,
+      }))
+
+      await Promise.all(sourcePayloads.map((payload) => createResearchSourceRecord(payload)))
+
+      navigate(`/researches/${createdResearch.id}`, {
+        state: {
+          ...researchData,
+          id: createdResearch.id,
+        },
+      })
+    } catch (error) {
+      console.error('Failed to start research', error)
+      alert(error instanceof Error ? error.message : 'Failed to start research')
+    } finally {
+      setIsStartingResearch(false)
+    }
   }
 
   return (
@@ -184,7 +263,7 @@ export default function NewResearch() {
                     placeholder="Describe the goal of this research..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="bg-muted/30 min-h-[100px] resize-none"
+                    className="bg-muted/30 min-h-25 resize-none"
                   />
                 </div>
 
@@ -202,7 +281,7 @@ export default function NewResearch() {
                         if (val.length <= 5000) setPrompt(val)
                       }}
                       placeholder="Enter detailed instruction for the AI researcher..."
-                      className="min-h-[200px] border-none bg-transparent focus:ring-0"
+                      className="min-h-50 border-none bg-transparent focus:ring-0"
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">Provide specific questions, context, or formatting requirements.</p>
@@ -294,7 +373,7 @@ export default function NewResearch() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {mockWorkspaces.map((ws) => {
+              {workspaces.map((ws) => {
                 const isSelected = selectedWorkspace === ws.id
                 return (
                   <div
@@ -323,8 +402,20 @@ export default function NewResearch() {
                 )
               })}
 
+              {!isLoadingWorkspaces && workspaces.length === 0 && (
+                <div className="rounded-xl border border-dashed border-border/60 p-4 col-span-full text-center">
+                  <p className="text-sm text-muted-foreground">No workspaces available. Create one first.</p>
+                </div>
+              )}
+
+              {isLoadingWorkspaces && (
+                <div className="rounded-xl border border-dashed border-border/60 p-4 col-span-full text-center">
+                  <p className="text-sm text-muted-foreground">Loading workspaces...</p>
+                </div>
+              )}
+
               {/* Create New Workspace Placeholder */}
-              <div className="rounded-xl border border-dashed border-border/60 p-4 transition-all hover:border-primary/50 hover:bg-muted/50 cursor-pointer flex flex-col items-center justify-center text-center gap-2 min-h-[140px]">
+              <div className="rounded-xl border border-dashed border-border/60 p-4 transition-all hover:border-primary/50 hover:bg-muted/50 cursor-pointer flex flex-col items-center justify-center text-center gap-2 min-h-35">
                 <div className="size-10 rounded-full bg-muted flex items-center justify-center">
                   <Plus className="size-5 text-muted-foreground" />
                 </div>
@@ -401,7 +492,7 @@ export default function NewResearch() {
                     placeholder="e.g., Focus specifically on data from last 2 years, minimize technical jargon..."
                     value={customInstructions}
                     onChange={(e) => setCustomInstructions(e.target.value)}
-                    className="bg-muted/30 min-h-[80px] resize-none"
+                    className="bg-muted/30 min-h-20 resize-none"
                   />
                 </div>
 
@@ -420,10 +511,10 @@ export default function NewResearch() {
           </Button>
           <Button
             onClick={handleStartResearch}
-            disabled={!selectedWorkspace}
+            disabled={!selectedWorkspace || isStartingResearch}
             className="px-8 shadow-lg shadow-primary/20"
           >
-            Start Research
+            {isStartingResearch ? 'Starting...' : 'Start Research'}
             <ArrowRight className="size-4 ml-2" />
           </Button>
         </div>
