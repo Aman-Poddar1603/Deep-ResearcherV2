@@ -587,7 +587,7 @@ const CreateEditWorkspace = () => {
                 <CardContent className="px-6 pb-6">
                   <div className="relative rounded-xl overflow-hidden bg-background border border-muted-foreground/20 shadow-xl max-w-2xl mx-auto">
                     {/* Banner Section */}
-                    <div className="min-h-32 bg-muted relative overflow-hidden flex items-center justify-center border-b border-muted-foreground/10">
+                    <div className="min-h-32 bg-muted relative flex items-center justify-center border-b border-muted-foreground/10">
                       {bannerPreview ? (
                         <img
                           src={bannerPreview}
@@ -599,7 +599,7 @@ const CreateEditWorkspace = () => {
                       )}
 
                       {/* Icon Overlay */}
-                      <div className="absolute -bottom-6 left-6">
+                      <div className="absolute -bottom-6 left-6 z-10">
                         <div className={`size-16 rounded-2xl border-4 border-background bg-background shadow-lg flex items-center justify-center overflow-hidden`}>
                           <div className={`w-full h-full flex items-center justify-center bg-secondary/30 ${formData.accentColor.class}`}>
                             {iconPreview ? (
