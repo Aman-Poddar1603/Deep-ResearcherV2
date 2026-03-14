@@ -887,6 +887,34 @@ class SQLiteManager:
             )
             return {"success": False, "message": str(e), "data": None}
 
+    def delete_all(self, table_name: str) -> Dict[str, Any]:
+        """
+        Deletes all rows from a table.
+
+        Use this only for tables that are intentionally managed as whole-table
+        state, such as singleton settings tables.
+        """
+        try:
+            valid_table = self._validate_identifier(table_name)
+            query = f"DELETE FROM {valid_table}"
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query)
+                conn.commit()
+                return {
+                    "success": True,
+                    "message": "All record(s) deleted successfully",
+                    "data": {"rowcount": cursor.rowcount},
+                }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error deleting all from {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
 
 def _initialize_store():
     """

@@ -1,253 +1,179 @@
-from datetime import datetime, timezone
-import math
-from typing import Literal
+from datetime import datetime
+from typing import Literal, NoReturn
 
-from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
+from main.apis.models.research import (
+    ResearchCreate,
+    ResearchListResponse,
+    ResearchPatch,
+    ResearchRecord,
+    ResearchSourceCreate,
+    ResearchSourceListResponse,
+    ResearchSourcePatch,
+    ResearchSourceRecord,
+)
+from main.src.research import research_api_orchestrator
 
-# Router only: include this in main server from another file.
 router = APIRouter(prefix="/research", tags=["research"])
 
-
-class ResearchBase(BaseModel):
-    title: str = Field(..., min_length=2, max_length=200)
-    query: str = Field(..., min_length=2)
-    source_urls: list[str] = Field(default_factory=list)
-    status: str = Field(default="pending")
+research_view = research_api_orchestrator.ResearchOrchestrator()
 
 
-class ResearchCreate(ResearchBase):
-    pass
-
-
-class ResearchPut(ResearchBase):
-    pass
-
-
-class ResearchPatch(BaseModel):
-    title: str | None = Field(default=None, min_length=2, max_length=200)
-    query: str | None = Field(default=None, min_length=2)
-    source_urls: list[str] | None = None
-    status: str | None = None
-
-
-class ResearchOut(ResearchBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-
-class ResearchSourceUrlOut(BaseModel):
-    research_id: int
-    research_title: str
-    url: str
-    status: str
-    created_at: datetime
-    updated_at: datetime
-
-
-class ResearchSourceUrlsResponse(BaseModel):
-    items: list[ResearchSourceUrlOut]
-    page: int
-    size: int
-    total_items: int
-    total_pages: int
-    offset: int
-    has_next: bool
-    has_prev: bool
-    research_id: int | None = None
-
-
-# Basic in-memory template store. Replace with DBManager/service layer later.
-_research_store: dict[int, ResearchOut] = {}
-_next_id = 1
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _get_or_404(research_id: int) -> ResearchOut:
-    item = _research_store.get(research_id)
-    if item is None:
+def _raise_research_http_error(action: str, exc: Exception) -> NoReturn:
+    if isinstance(exc, HTTPException):
+        raise exc
+    if isinstance(exc, KeyError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Research item {research_id} not found",
+            detail=str(exc).strip("'"),
+        ) from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc) or f"Invalid request for {action.lower()}",
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Failed to {action.lower()}",
+    ) from exc
+
+
+@router.get("/", response_model=ResearchListResponse)
+def get_all_research(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+    workspace_id: str | None = Query(default=None, alias="workspaceId"),
+    title_contains: str | None = Query(default=None, alias="titleContains"),
+    sort_by: Literal["id", "title"] = Query(default="id", alias="sortBy"),
+    sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
+) -> ResearchListResponse:
+    try:
+        return research_view.getAllResearch(
+            page=page,
+            size=size,
+            workspace_id=workspace_id,
+            title_contains=title_contains,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
-    return item
+    except Exception as exc:
+        _raise_research_http_error("List research items", exc)
 
 
-@router.get("/", response_model=list[ResearchOut])
-def get_all_research() -> list[ResearchOut]:
-    return list(_research_store.values())
-
-
-@router.get("/urls", response_model=ResearchSourceUrlsResponse)
+@router.get("/urls", response_model=ResearchSourceListResponse)
 @router.get(
-    "/sources", response_model=ResearchSourceUrlsResponse, include_in_schema=False
+    "/sources", response_model=ResearchSourceListResponse, include_in_schema=False
 )
 def get_research_source_urls(
-    research_id: int | None = Query(default=None, alias="researchId", ge=1),
+    research_id: str | None = Query(default=None, alias="researchId"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
     created_from: datetime | None = Query(default=None, alias="createdFrom"),
     created_to: datetime | None = Query(default=None, alias="createdTo"),
     updated_from: datetime | None = Query(default=None, alias="updatedFrom"),
     updated_to: datetime | None = Query(default=None, alias="updatedTo"),
-    status_filter: str | None = Query(default=None, alias="status"),
-    title_contains: str | None = Query(default=None, alias="titleContains"),
+    source_type: str | None = Query(default=None, alias="sourceType"),
     url_contains: str | None = Query(default=None, alias="urlContains"),
     sort_by: Literal[
-        "created_at", "updated_at", "research_id", "research_title", "url"
+        "created_at", "updated_at", "research_id", "source_type", "source_url"
     ] = Query(default="created_at", alias="sortBy"),
     sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
-) -> ResearchSourceUrlsResponse:
-    if research_id is not None:
-        target = _research_store.get(research_id)
-        if target is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Research item {research_id} not found",
-            )
-        research_items = [target]
-    else:
-        # Keep ordering deterministic for easier UI reconciliation.
-        research_items = sorted(_research_store.values(), key=lambda item: item.id)
-
-    if created_from is not None:
-        research_items = [
-            item for item in research_items if item.created_at >= created_from
-        ]
-
-    if created_to is not None:
-        research_items = [
-            item for item in research_items if item.created_at <= created_to
-        ]
-
-    if updated_from is not None:
-        research_items = [
-            item for item in research_items if item.updated_at >= updated_from
-        ]
-
-    if updated_to is not None:
-        research_items = [
-            item for item in research_items if item.updated_at <= updated_to
-        ]
-
-    if status_filter:
-        normalized_status = status_filter.strip().lower()
-        research_items = [
-            item
-            for item in research_items
-            if item.status.strip().lower() == normalized_status
-        ]
-
-    if title_contains:
-        title_term = title_contains.strip().lower()
-        research_items = [
-            item for item in research_items if title_term in item.title.lower()
-        ]
-
-    flattened: list[ResearchSourceUrlOut] = []
-    for item in research_items:
-        for source_url in item.source_urls:
-            if url_contains and url_contains.strip().lower() not in source_url.lower():
-                continue
-
-            flattened.append(
-                ResearchSourceUrlOut(
-                    research_id=item.id,
-                    research_title=item.title,
-                    url=source_url,
-                    status=item.status,
-                    created_at=item.created_at,
-                    updated_at=item.updated_at,
-                )
-            )
-
-    reverse_order = sort_order == "desc"
-
-    if sort_by == "research_id":
-        flattened.sort(
-            key=lambda row: (row.research_id, row.url.lower()), reverse=reverse_order
+) -> ResearchSourceListResponse:
+    try:
+        return research_view.getResearchSourceUrls(
+            research_id=research_id,
+            page=page,
+            size=size,
+            created_from=created_from,
+            created_to=created_to,
+            updated_from=updated_from,
+            updated_to=updated_to,
+            source_type=source_type,
+            url_contains=url_contains,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
-    elif sort_by == "research_title":
-        flattened.sort(
-            key=lambda row: (row.research_title.lower(), row.url.lower()),
-            reverse=reverse_order,
-        )
-    elif sort_by == "url":
-        flattened.sort(key=lambda row: row.url.lower(), reverse=reverse_order)
-    elif sort_by == "updated_at":
-        flattened.sort(
-            key=lambda row: (row.updated_at, row.research_id, row.url.lower()),
-            reverse=reverse_order,
-        )
-    else:
-        flattened.sort(
-            key=lambda row: (row.created_at, row.research_id, row.url.lower()),
-            reverse=reverse_order,
-        )
-
-    total_items = len(flattened)
-    total_pages = math.ceil(total_items / size) if total_items > 0 else 0
-    offset = (page - 1) * size
-    page_items = flattened[offset : offset + size]
-
-    return ResearchSourceUrlsResponse(
-        items=page_items,
-        page=page,
-        size=size,
-        total_items=total_items,
-        total_pages=total_pages,
-        offset=offset,
-        has_next=page < total_pages,
-        has_prev=page > 1,
-        research_id=research_id,
-    )
+    except Exception as exc:
+        _raise_research_http_error("List research source urls", exc)
 
 
-@router.get("/{research_id}", response_model=ResearchOut)
-def get_research_by_id(research_id: int) -> ResearchOut:
-    return _get_or_404(research_id)
+@router.get("/{research_id}", response_model=ResearchRecord)
+def get_research_by_id(research_id: str) -> ResearchRecord:
+    try:
+        return research_view.getResearch(research_id)
+    except Exception as exc:
+        _raise_research_http_error(f"Fetch research {research_id}", exc)
 
 
-@router.post("/", response_model=ResearchOut, status_code=status.HTTP_201_CREATED)
-def create_research(payload: ResearchCreate) -> ResearchOut:
-    global _next_id
-
-    now = _utcnow()
-    item = ResearchOut(
-        id=_next_id, created_at=now, updated_at=now, **payload.model_dump()
-    )
-    _research_store[_next_id] = item
-    _next_id += 1
-    return item
+@router.post("/", response_model=ResearchRecord, status_code=status.HTTP_201_CREATED)
+def create_research(payload: ResearchCreate) -> ResearchRecord:
+    try:
+        return research_view.createResearch(payload)
+    except Exception as exc:
+        _raise_research_http_error("Create research", exc)
 
 
-@router.put("/{research_id}", response_model=ResearchOut)
-def replace_research(research_id: int, payload: ResearchPut) -> ResearchOut:
-    current = _get_or_404(research_id)
-    updated = ResearchOut(
-        id=current.id,
-        created_at=current.created_at,
-        updated_at=_utcnow(),
-        **payload.model_dump(),
-    )
-    _research_store[research_id] = updated
-    return updated
+@router.put("/{research_id}", response_model=ResearchRecord)
+def replace_research(research_id: str, payload: ResearchCreate) -> ResearchRecord:
+    try:
+        return research_view.updateResearch(research_id, payload)
+    except Exception as exc:
+        _raise_research_http_error(f"Replace research {research_id}", exc)
 
 
-@router.patch("/{research_id}", response_model=ResearchOut)
-def update_research(research_id: int, payload: ResearchPatch) -> ResearchOut:
-    current = _get_or_404(research_id)
-    patch_data = payload.model_dump(exclude_unset=True)
+@router.patch("/{research_id}", response_model=ResearchRecord)
+def update_research(research_id: str, payload: ResearchPatch) -> ResearchRecord:
+    try:
+        return research_view.patchResearch(research_id, payload)
+    except Exception as exc:
+        _raise_research_http_error(f"Patch research {research_id}", exc)
 
-    merged = current.model_dump()
-    merged.update(patch_data)
-    merged["updated_at"] = _utcnow()
 
-    updated = ResearchOut(**merged)
-    _research_store[research_id] = updated
-    return updated
+@router.delete("/{research_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_research(research_id: str) -> Response:
+    try:
+        research_view.deleteResearch(research_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as exc:
+        _raise_research_http_error(f"Delete research {research_id}", exc)
+
+
+@router.get("/sources/{source_id}", response_model=ResearchSourceRecord)
+def get_research_source(source_id: str) -> ResearchSourceRecord:
+    try:
+        return research_view.getResearchSource(source_id)
+    except Exception as exc:
+        _raise_research_http_error(f"Fetch research source {source_id}", exc)
+
+
+@router.post(
+    "/sources",
+    response_model=ResearchSourceRecord,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_research_source(payload: ResearchSourceCreate) -> ResearchSourceRecord:
+    try:
+        return research_view.createResearchSource(payload)
+    except Exception as exc:
+        _raise_research_http_error("Create research source", exc)
+
+
+@router.patch("/sources/{source_id}", response_model=ResearchSourceRecord)
+def patch_research_source(
+    source_id: str,
+    payload: ResearchSourcePatch,
+) -> ResearchSourceRecord:
+    try:
+        return research_view.patchResearchSource(source_id, payload)
+    except Exception as exc:
+        _raise_research_http_error(f"Patch research source {source_id}", exc)
+
+
+@router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_research_source(source_id: str) -> Response:
+    try:
+        research_view.deleteResearchSource(source_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as exc:
+        _raise_research_http_error(f"Delete research source {source_id}", exc)

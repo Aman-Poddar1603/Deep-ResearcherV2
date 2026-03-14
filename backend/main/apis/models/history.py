@@ -46,6 +46,17 @@ class HistoryItem(BaseModel):
     url: str | None = None
 
 
+class HistoryItemPatch(BaseModel):
+    user_id: str | None = None
+    workspace_id: str | None = None
+    activity: str | None = None
+    type: str | None = None
+    created_at: datetime | None = None
+    last_seen: datetime | None = None
+    actions: str | None = None
+    url: str | None = None
+
+
 class HistoryItemResponse(BaseModel):
     history_items: list[HistoryItem] = Field(default_factory=list)
     page: int = 1
