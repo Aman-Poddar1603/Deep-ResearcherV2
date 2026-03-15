@@ -5,7 +5,7 @@ Decoupled from logic/logging to prevent circular imports.
 
 MAJOR_CHANGE = 2
 NEW_FEATURE = 0
-MINOR_BUGFIXES = 1
+MINOR_BUGFIXES = 2
 
 def get_raw_version() -> str:
     """Returns the version string without any side effects or logging."""

@@ -109,10 +109,8 @@ const Settings = () => {
 
     // Appearance Settings
     const [theme, setTheme] = useState('system')
-    const [reducedMotion, setReducedMotion] = useState(false)
 
     // Research Settings
-    const [autoSave, setAutoSave] = useState(true)
     const [maxSearchDepth, setMaxSearchDepth] = useState('3')
     const [defaultReportFormat, setDefaultReportFormat] = useState('markdown')
 
@@ -122,7 +120,6 @@ const Settings = () => {
     const [soundEnabled, setSoundEnabled] = useState(false)
 
     // Data Settings
-    const [autoCleanup, setAutoCleanup] = useState(false)
     const [dataRetention, setDataRetention] = useState('30')
 
     // AI Settings
@@ -132,7 +129,6 @@ const Settings = () => {
     const [researchTemplate, setResearchTemplate] = useState('comprehensive')
     const [streamResponse, setStreamResponse] = useState(true)
     const [showSources, setShowSources] = useState(true)
-    const [detailedAnalysis, setDetailedAnalysis] = useState(true)
 
     // Danger Zone Logic
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -225,21 +221,17 @@ const Settings = () => {
 
         // Reset other settings
         setTheme('system')
-        setReducedMotion(false)
-        setAutoSave(true)
         setMaxSearchDepth('3')
         setDefaultReportFormat('markdown')
         setResearchComplete(true)
         setErrorAlerts(true)
         setSoundEnabled(false)
-        setAutoCleanup(false)
         setDataRetention('30')
         setAiPersonality('professional')
         setCustomPrompt('')
         setResearchTemplate('comprehensive')
         setStreamResponse(true)
         setShowSources(true)
-        setDetailedAnalysis(true)
     }
 
     const generateRandomCode = () => {
@@ -464,9 +456,6 @@ const Settings = () => {
                                 </SelectContent>
                             </Select>
                         </SettingItem>
-                        <SettingItem label="Reduce Motion" description="Minimize animations throughout the app">
-                            <Switch checked={reducedMotion} onCheckedChange={setReducedMotion} />
-                        </SettingItem>
                     </SettingsSection>
 
                     {/* Research Settings Section */}
@@ -476,9 +465,6 @@ const Settings = () => {
                         icon={<Globe className="size-5 text-primary" />}
                         delay="350ms"
                     >
-                        <SettingItem label="Auto-save Research" description="Automatically save research progress">
-                            <Switch checked={autoSave} onCheckedChange={setAutoSave} />
-                        </SettingItem>
                         <SettingItem label="Max Search Depth" description="Maximum levels of nested searches">
                             <Select value={maxSearchDepth} onValueChange={setMaxSearchDepth}>
                                 <SelectTrigger className="w-[100px] bg-background">
@@ -560,9 +546,6 @@ const Settings = () => {
                         <SettingItem label="Show Source Citations" description={`Display sources in ${researcherName} responses`}>
                             <Switch checked={showSources} onCheckedChange={setShowSources} />
                         </SettingItem>
-                        <SettingItem label="Detailed Analysis" description="Generate comprehensive, in-depth reports">
-                            <Switch checked={detailedAnalysis} onCheckedChange={setDetailedAnalysis} />
-                        </SettingItem>
                     </SettingsSection>
 
                     {/* Notifications Section */}
@@ -590,9 +573,6 @@ const Settings = () => {
                         icon={<Database className="size-5 text-primary" />}
                         delay="650ms"
                     >
-                        <SettingItem label="Auto Cleanup" description="Automatically remove old cached data">
-                            <Switch checked={autoCleanup} onCheckedChange={setAutoCleanup} />
-                        </SettingItem>
                         <SettingItem label="Data Retention" description="Keep research data for this many days">
                             <Select value={dataRetention} onValueChange={setDataRetention}>
                                 <SelectTrigger className="w-[120px] bg-background">
