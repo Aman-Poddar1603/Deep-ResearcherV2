@@ -48,6 +48,7 @@ import {
   listWorkspaceRecords,
   uploadWorkspaceBanner,
   uploadWorkspaceIcon,
+  uploadBucketFiles,
   type BucketRecord,
   type WorkspaceRecord,
 } from "@/lib/apis";
@@ -240,6 +241,7 @@ const CreateEditWorkspace = () => {
   const [isBucketModalOpen, setIsBucketModalOpen] = useState(false);
   const [connectedWorkspaceNames, setConnectedWorkspaceNames] = useState<string[]>([]);
   const [isLoadingConnectedWorkspaces, setIsLoadingConnectedWorkspaces] = useState(false);
+  const [isUploadingResources, setIsUploadingResources] = useState(false);
 
   const selectedBucket = buckets.find((bucket) => bucket.id === formData.bucket) ?? null;
 
@@ -482,7 +484,7 @@ const CreateEditWorkspace = () => {
         bucket: formData.bucket || null,
         bannerImage: formData.bannerImage ?? null,
         customIcon: formData.customIcon ?? null,
-        resources: formData.resources ?? [],
+        resources: [], // Resources already uploaded to bucket
       };
 
       if (isEditMode && id) {
@@ -548,35 +550,54 @@ const CreateEditWorkspace = () => {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
 
+      if (!selectedBucket) {
+        toast.error("Please select a storage bucket first.");
+        return;
+      }
+
       // Validate files against the selected bucket's allowed types
-      if (selectedBucket) {
-        const validation = validateFilesAgainstBucket(newFiles, selectedBucket.allowedFileTypes);
-        if (!validation.valid) {
-          toast.error(validation.rejectedReason);
-          // Only add the valid files (filter out rejected)
-          const validFiles = newFiles.filter((f) => !validation.rejectedFiles.includes(f.name));
-          if (validFiles.length > 0) {
-            setFormData({
-              ...formData,
-              resources: [...formData.resources, ...validFiles],
-            });
-          }
-          // Reset the input
+      const validation = validateFilesAgainstBucket(newFiles, selectedBucket.allowedFileTypes);
+      if (!validation.valid) {
+        toast.error(validation.rejectedReason);
+        // Only consider valid files
+        const validFiles = newFiles.filter((f) => !validation.rejectedFiles.includes(f.name));
+        if (validFiles.length === 0) {
           e.target.value = "";
           return;
         }
       }
 
-      setFormData({
-        ...formData,
-        resources: [...formData.resources, ...newFiles],
-      });
-      // Reset the input so the same file can be re-added if removed
-      e.target.value = "";
+      setIsUploadingResources(true);
+      try {
+        const creator = localStorage.getItem("dr_profile_email") ||
+          localStorage.getItem("dr_profile_name") ||
+          DEFAULT_CREATED_BY;
+
+        // Upload immediately to the bucket
+        const uploadedRecords = await uploadBucketFiles(selectedBucket.id, newFiles, {
+          created_by: creator,
+          source: `Workspace creation: ${formData.name}`,
+        });
+
+        // Add to local state to show in the list (using the File objects for display/size)
+        // In a real app, you might want to store the record details too
+        setFormData({
+          ...formData,
+          resources: [...formData.resources, ...newFiles],
+        });
+
+        toast.success(`Successfully uploaded ${uploadedRecords.length} file(s)`);
+      } catch (err) {
+        console.error("Resource upload failed:", err);
+        toast.error(err instanceof Error ? err.message : "Failed to upload resources");
+      } finally {
+        setIsUploadingResources(false);
+        e.target.value = "";
+      }
     }
   };
 
@@ -1215,16 +1236,14 @@ const CreateEditWorkspace = () => {
                     >
                       <Upload className="w-10 h-10 mb-2 text-muted-foreground" />
                       <p className="text-sm font-medium">
-                        Click to upload or drag and drop
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {getAcceptedExtensionLabels(selectedBucket.allowedFileTypes)}
+                        {isUploadingResources ? "Uploading resources..." : "Click to upload or drag and drop"}
                       </p>
                       <input
                         id="resource-upload"
                         type="file"
                         className="hidden"
                         multiple
+                        disabled={isUploadingResources}
                         accept={getAcceptExtensionsForBucketTypes(selectedBucket.allowedFileTypes)}
                         onChange={handleFileUpload}
                       />

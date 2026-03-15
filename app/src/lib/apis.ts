@@ -1091,7 +1091,8 @@ export const deleteBucket = async (bucketId: string): Promise<void> => {
 };
 
 export interface BucketUploadQuery {
-  created_by: string;
+  created_by?: string;
+  createdBy?: string;
   source?: string;
   summary?: string;
   connectedWorkspaceIds?: string;
@@ -1124,7 +1125,7 @@ export const uploadBucketFile = async (
   return requestData(
     api.post<BucketItemRecord>(
       withQuery(`/bucket/${encodeURIComponent(bucketId)}/upload`, {
-        created_by: query.created_by,
+        created_by: query.created_by ?? query.createdBy,
         source: query.source,
         summary: query.summary,
         connectedWorkspaceIds: query.connectedWorkspaceIds,
@@ -1150,7 +1151,7 @@ export const uploadBucketFiles = async (
   return requestData(
     api.post<BucketItemRecord[]>(
       withQuery(`/bucket/${encodeURIComponent(bucketId)}/upload/bulk`, {
-        created_by: query.created_by,
+        created_by: query.created_by ?? query.createdBy,
         source: query.source,
         summary: query.summary,
         connectedWorkspaceIds: query.connectedWorkspaceIds,
