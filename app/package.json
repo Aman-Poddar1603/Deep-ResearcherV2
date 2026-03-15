@@ -4,7 +4,7 @@
 	"description": "Autonomous AI-powered research platform for deep investigation and analysis.",
 	"author": "pixelThreader & Team",
 	"private": true,
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"type": "module",
 	"main": "dist-electron/main.js",
 	"scripts": {

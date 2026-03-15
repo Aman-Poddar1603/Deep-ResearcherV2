@@ -153,7 +153,7 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
 
 
 export const getVersion = () => {
-  return "2.0.2"
+  return "2.0.3"
 }
 
 /**
@@ -207,15 +207,15 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
  */
 export function truncateFileName(name: string, maxLength: number = 18): string {
   if (name.length <= maxLength) return name;
-  
+
   const lastDotIndex = name.lastIndexOf('.');
   if (lastDotIndex === -1) return `${name.slice(0, maxLength)}...`;
-  
+
   const ext = name.slice(lastDotIndex);
   const baseName = name.slice(0, lastDotIndex);
-  
+
   if (baseName.length <= maxLength) return name;
-  
+
   return `${baseName.slice(0, maxLength)}...${ext}`;
 }
 
