@@ -90,7 +90,7 @@ export default function NewResearch() {
     const loadWorkspaces = async () => {
       setIsLoadingWorkspaces(true)
       try {
-        const workspaceRecords = await getAllWorkspaces()
+        const { workspaces: workspaceRecords } = await getAllWorkspaces()
         if (isCancelled) return
 
         const mapped = workspaceRecords.map((workspace, index) => {

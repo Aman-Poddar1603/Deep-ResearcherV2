@@ -151,6 +151,87 @@ export async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
 }
 
 
+
 export const getVersion = () => {
   return "2.0.2"
+}
+
+/**
+ * Formats a date string or Date object into a readable format like "Jan 14, 2024"
+ */
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return String(date);
+
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/**
+ * Formats a date string or Date object into a relative time string like "2 mins ago"
+ */
+export function formatRelativeTime(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return String(date);
+
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - d.getTime()) / 1000);
+
+  // For future dates or just now
+  if (diffInSeconds < 0) return "just now";
+  if (diffInSeconds < 60) return `${diffInSeconds} sec ago`;
+
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) return `${diffInMinutes} min${diffInMinutes !== 1 ? "s" : ""} ago`;
+
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) return `${diffInHours} hour${diffInHours !== 1 ? "s" : ""} ago`;
+
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays < 30) return `${diffInDays} day${diffInDays !== 1 ? "s" : ""} ago`;
+
+  const diffInMonths = Math.floor(diffInDays / 30);
+  if (diffInMonths < 12) return `${diffInMonths} month${diffInMonths !== 1 ? "s" : ""} ago`;
+
+  const diffInYears = Math.floor(diffInMonths / 12);
+  return `${diffInYears} year${diffInYears !== 1 ? "s" : ""} ago`;
+}
+
+/**
+ * Truncates a filename after a certain number of characters while preserving the extension
+ */
+export function truncateFileName(name: string, maxLength: number = 18): string {
+  if (name.length <= maxLength) return name;
+  
+  const lastDotIndex = name.lastIndexOf('.');
+  if (lastDotIndex === -1) return `${name.slice(0, maxLength)}...`;
+  
+  const ext = name.slice(lastDotIndex);
+  const baseName = name.slice(0, lastDotIndex);
+  
+  if (baseName.length <= maxLength) return name;
+  
+  return `${baseName.slice(0, maxLength)}...${ext}`;
+}
+
+/**
+ * Formats bytes into a human-readable string (KB, MB, GB, etc.)
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }

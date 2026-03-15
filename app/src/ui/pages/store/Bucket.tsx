@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
+import { cn, formatDate, formatRelativeTime } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,11 +74,6 @@ const formatBytes = (bytes: number): string => {
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-const formatDate = (value: string): string => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 const mapBucketRecord = (record: BucketRecord, index: number): Bucket => {
   const allowedTypes = parseBucketAllowedTypes(record.allowed_file_types)
@@ -91,7 +86,7 @@ const mapBucketRecord = (record: BucketRecord, index: number): Bucket => {
     totalFiles: record.total_files,
     totalSize: formatBytes(record.total_size),
     createdAt: formatDate(record.created_at),
-    lastUpdated: formatDate(record.updated_at),
+    lastUpdated: formatRelativeTime(record.updated_at),
     color: COLORS[index % COLORS.length],
   }
 }
@@ -188,7 +183,7 @@ const Bucket = () => {
       const updated = await patchBucket(id, { name: name.trim() })
       setBuckets((prev) =>
         prev.map((b) =>
-          b.id === id ? { ...b, name: updated.name, lastUpdated: formatDate(updated.updated_at) } : b
+          b.id === id ? { ...b, name: updated.name, lastUpdated: formatRelativeTime(updated.updated_at) } : b
         )
       )
       setEditingBucket(null)

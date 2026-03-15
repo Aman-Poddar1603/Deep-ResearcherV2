@@ -7,7 +7,6 @@ import {
   FileText,
   MessageSquare,
   Files,
-  Calendar,
   Clock,
   TrendingUp,
   Sparkles,
@@ -52,8 +51,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from '@/components/ui/sonner'
-import { cn, resolveApiAssetUrl } from '@/lib/utils'
+import { cn, resolveApiAssetUrl, formatDate, formatRelativeTime, truncateFileName, formatBytes } from '@/lib/utils'
 import {
   getWorkspaceRecord,
   listResearchRecords,
@@ -155,18 +167,7 @@ const normalizeAccentColor = (color?: string | null) => {
   return '#C084FC'
 }
 
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
 
-const formatDate = (iso: string | null | undefined): string => {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
 
 const getFileIconComponent = (format: string, accentClass: string) => {
   const cls = cn('w-5 h-5', accentClass)
@@ -312,6 +313,12 @@ const ViewWorkspace = () => {
   const [confirmCode, setConfirmCode] = useState('')
   const [userCodeInput, setUserCodeInput] = useState('')
   const [accentColor, setAccentColor] = useState('#C084FC')
+  
+  // Pagination for files
+  const [filesPage, setFilesPage] = useState(1)
+  const [filesSize, setFilesSize] = useState(20)
+  const [totalFiles, setTotalFiles] = useState(0)
+  const [isFilesLoading, setIsFilesLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -332,14 +339,7 @@ const ViewWorkspace = () => {
         setChatThreads(chatPage.items)
 
         if (ws.connected_bucket_id) {
-          const bucketItems = await listBucketItems({
-            bucketId: ws.connected_bucket_id,
-            page: 1,
-            size: 20,
-            sortBy: 'created_at',
-            sortOrder: 'desc',
-          })
-          setFiles(bucketItems.items)
+          // Initial load will be handled by the separate useEffect
         }
       } catch (err) {
         console.error('Failed to load workspace:', err)
@@ -350,6 +350,33 @@ const ViewWorkspace = () => {
 
     loadAll()
   }, [id])
+
+  // Separate effect for loading files when pagination changes
+  useEffect(() => {
+    if (!id || !workspace?.connected_bucket_id) return
+    
+    const loadFiles = async () => {
+      setIsFilesLoading(true)
+      try {
+        const bucketItems = await listBucketItems({
+          bucketId: workspace.connected_bucket_id,
+          workspaceId: id,
+          page: filesPage,
+          size: filesSize,
+          sortBy: 'created_at',
+          sortOrder: 'desc',
+        })
+        setFiles(bucketItems.items)
+        setTotalFiles(bucketItems.total_items || 0)
+      } catch (err) {
+        console.error('Failed to load files:', err)
+      } finally {
+        setIsFilesLoading(false)
+      }
+    }
+    
+    loadFiles()
+  }, [id, workspace?.connected_bucket_id, filesPage, filesSize])
 
   const generateRandomCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -509,12 +536,11 @@ const ViewWorkspace = () => {
                   {/* Meta Info */}
                   <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4" />
                       Created {formatDate(workspace.created_at)}
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      Updated {formatDate(workspace.updated_at)}
+                      Updated {formatRelativeTime(workspace.updated_at)}
                     </div>
                     <div className="flex items-center gap-2">
                       <AiModeIcon className="w-4 h-4" />
@@ -690,7 +716,7 @@ const ViewWorkspace = () => {
                     </div>
                     <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                       <Clock className="w-3 h-3" />
-                      {formatDate(chat.updated_at)}
+                      {formatRelativeTime(chat.updated_at)}
                     </div>
                   </div>
                 ))
@@ -735,47 +761,122 @@ const ViewWorkspace = () => {
             ) : files.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-6">No files yet. Upload some files to get started.</p>
             ) : (
-              <div className="space-y-2">
-                {files.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-md bg-primary/10">
-                        {getFileIconComponent(file.file_format, accent.text)}
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-sm">{file.file_name}</h4>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                          <span className="uppercase">{file.file_format}</span>
-                          <span>â€¢</span>
-                          <span>{formatBytes(file.file_size)}</span>
-                          <span>â€¢</span>
-                          <span>Uploaded {formatDate(file.created_at)}</span>
+              <div className="space-y-6">
+                <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-3 relative", isFilesLoading && "opacity-50 pointer-events-none")}>
+                  {isFilesLoading && (
+                    <div className="absolute inset-x-0 -top-1 flex justify-center z-10">
+                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    </div>
+                  )}
+                  {files.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-muted-foreground/10 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="p-2 rounded-md bg-primary/10 shrink-0">
+                          {getFileIconComponent(file.file_format, accent.text)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <h4 className="font-medium text-sm cursor-help truncate inline-block max-w-full">
+                                  {truncateFileName(file.file_name, 18)}
+                                </h4>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" align="start">
+                                <p className="text-xs font-mono">
+                                  {file.file_name} <span className="text-muted-foreground opacity-70 ml-1">• {formatBytes(file.file_size)}</span>
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                            <span className="uppercase">{file.file_format}</span>
+                            <span>•</span>
+                            <span>{formatBytes(file.file_size)}</span>
+                            <span>•</span>
+                            <span>Uploaded {formatDate(file.created_at)}</span>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex gap-1 shrink-0 ml-4">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn("h-8 w-8 p-0", accent.hoverText)}
+                          onClick={() => handleView(file)}
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={cn("h-8 w-8 p-0", accent.hoverText)}
+                          onClick={() => handleDownload(file)}
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn("h-8 w-8 p-0", accent.hoverText)}
-                        onClick={() => handleView(file)}
+                  ))}
+                </div>
+
+                {/* Pagination Controls */}
+                <div className="flex items-center justify-between pt-4 border-t border-muted-foreground/10">
+                   <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Show</span>
+                      <Select
+                        value={filesSize.toString()}
+                        onValueChange={(v) => {
+                          setFilesSize(parseInt(v))
+                          setFilesPage(1)
+                        }}
                       >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn("h-8 w-8 p-0", accent.hoverText)}
-                        onClick={() => handleDownload(file)}
-                      >
-                        <Download className="w-4 h-4" />
-                      </Button>
+                        <SelectTrigger className="h-8 w-[70px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[10, 20, 50, 100].map((size) => (
+                            <SelectItem key={size} value={size.toString()} className="text-xs">
+                              {size}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-xs text-muted-foreground">files</span>
                     </div>
+                    <span className="text-xs text-muted-foreground">
+                      Total {totalFiles} files
+                    </span>
                   </div>
-                ))}
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={filesPage <= 1 || isFilesLoading}
+                      onClick={() => setFilesPage(prev => prev - 1)}
+                    >
+                      <ChevronRight className="w-4 h-4 rotate-180" />
+                    </Button>
+                    <span className="text-xs font-medium px-2">
+                      Page {filesPage} of {Math.max(1, Math.ceil(totalFiles / filesSize))}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={filesPage >= Math.ceil(totalFiles / filesSize) || isFilesLoading}
+                      onClick={() => setFilesPage(prev => prev + 1)}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>

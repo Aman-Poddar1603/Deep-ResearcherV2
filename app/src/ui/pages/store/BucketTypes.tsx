@@ -107,7 +107,7 @@ const BucketTypes = () => {
                 const itemPage = await listBucketItems({
                     bucketId,
                     page: 1,
-                    size: Math.min(Math.max(bucketRecord.total_files, 1), 5000),
+                    size: Math.min(Math.max(bucketRecord.total_files, 1), 200),
                     sortBy: 'created_at',
                     sortOrder: 'desc',
                 })

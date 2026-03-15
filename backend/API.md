@@ -66,29 +66,48 @@ List all workspaces.
 | `sortBy`            | `"updated_at"` \| `"created_at"` \| `"name"` | `"updated_at"` |                                               |
 | `sortOrder`         | `"asc"` \| `"desc"`                          | `"desc"`       |                                               |
 
-**Response `200`** — `WorkspaceOut[]`
+**Response `200`** — `WorkspaceListResponse`
 
 ```json
-[
-  {
-    "id": "uuid-string",
-    "name": "My Workspace",
-    "desc": "A research workspace",
-    "icon": null,
-    "accent_clr": "#6366f1",
-    "banner_img": null,
-    "connected_bucket_id": null,
-    "ai_config": "auto",
-    "workspace_resources_id": null,
-    "workspace_research_agents": true,
-    "workspace_chat_agents": true,
-    "created_at": "2026-03-14 10:30:00 AM",
-    "updated_at": "2026-03-14 10:30:00 AM"
-  }
-]
+{
+  "items": [
+    {
+      "id": "uuid-string",
+      "name": "My Workspace",
+      "desc": "A research workspace",
+      "icon": null,
+      "accent_clr": "#6366f1",
+      "banner_img": null,
+      "connected_bucket_id": null,
+      "ai_config": "auto",
+      "workspace_resources_id": null,
+      "workspace_research_agents": true,
+      "workspace_chat_agents": true,
+      "created_at": "2026-03-14 10:30:00 AM",
+      "updated_at": "2026-03-14 10:30:00 AM",
+      "resource_count": 0
+    }
+  ],
+  "page": 1,
+  "size": 200,
+  "total_items": 1,
+  "total_pages": 1,
+  "offset": 0
+}
 ```
 
+| Response Field | Type | Notes |
+| -------------- | ---- | ----- |
+| `items` | `WorkspaceListItem[]` | paginated workspace rows |
+| `items[].resource_count` | int | exact non-deleted files linked to that workspace |
+| `page` | int | current page |
+| `size` | int | requested page size |
+| `total_items` | int | total matching workspaces before pagination |
+| `total_pages` | int | total available pages |
+| `offset` | int | zero-based starting index for this page |
+
 > Note: `created_at` and `updated_at` are returned in IST 12-hour format (`YYYY-MM-DD HH:MM:SS AM/PM`).
+> Note: `resource_count` is workspace-specific even if multiple workspaces share the same bucket.
 
 ---
 
@@ -102,6 +121,46 @@ Get a single workspace by ID.
 
 **Response `200`** — `WorkspaceOut`  
 **Response `404`** — Workspace not found
+
+---
+
+### `GET /workspace/{workspace_id}/resources/stats`
+
+Get the exact resource count for a workspace even when its connected bucket is shared with other workspaces.
+
+This endpoint counts only bucket items whose `connected_workspace_ids` contains the requested `workspace_id`.
+
+**Path params:**
+
+- `workspace_id` — UUID string
+
+**Response `200`** — `WorkspaceResourceStats`
+
+```json
+{
+  "workspace_id": "workspace-uuid",
+  "connected_bucket_id": "bucket-uuid",
+  "resource_count": 3,
+  "total_size": 928374,
+  "bucket_total_files": 11,
+  "bucket_total_size": 5829104
+}
+```
+
+| Field                 | Type         | Notes                                                      |
+| --------------------- | ------------ | ---------------------------------------------------------- |
+| `workspace_id`        | string       | requested workspace id                                     |
+| `connected_bucket_id` | string\|null | workspace's connected bucket                               |
+| `resource_count`      | int          | exact number of non-deleted files linked to this workspace |
+| `total_size`          | int          | total bytes for this workspace's linked files              |
+| `bucket_total_files`  | int          | total files in the connected bucket                        |
+| `bucket_total_size`   | int          | total bytes in the connected bucket                        |
+
+**Behavior notes:**
+
+1. If the workspace has no connected bucket, the response returns zero counts.
+2. If the bucket is shared, `resource_count` is still workspace-specific.
+3. Only files linked through `connected_workspace_ids` are counted.
 
 ---
 
@@ -1256,6 +1315,7 @@ List bucket items.
 | `page`             | int                                                                | `1`            |                                  |
 | `size`             | int                                                                | `20`           | 1–200                            |
 | `bucketId`         | string                                                             | —              | filter by bucket                 |
+| `workspaceId`      | string                                                             | —              | filter by linked workspace id    |
 | `fileFormat`       | string                                                             | —              | exact extension match            |
 | `source`           | string                                                             | —              | exact match                      |
 | `createdBy`        | string                                                             | —              | exact match                      |

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { cn, resolveApiAssetUrl } from '@/lib/utils'
+import { cn, resolveApiAssetUrl, formatRelativeTime } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -25,10 +25,10 @@ import {
   FileText,
   Music,
   Files,
-  Calendar,
   HardDrive,
   ArrowUpDown,
   Loader2,
+  Clock
 } from 'lucide-react'
 import {
   getBucket,
@@ -65,11 +65,6 @@ const formatBytes = (bytes: number): string => {
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-const formatDate = (value: string): string => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 const openAsset = (item: BucketItemRecord) => {
   const url = resolveApiAssetUrl(item.file_path)
@@ -114,7 +109,7 @@ const BucketItems = () => {
         const itemPage = await listBucketItems({
           bucketId,
           page: 1,
-          size: Math.min(Math.max(bucketRecord.total_files, 1), 5000),
+          size: Math.min(Math.max(bucketRecord.total_files, 1), 200),
           sortBy: 'created_at',
           sortOrder: 'desc',
         })
@@ -385,7 +380,7 @@ const BucketItems = () => {
                     </p>
                     <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
                       <span>{formatBytes(asset.file_size)}</span>
-                      <span>{formatDate(asset.created_at)}</span>
+                      <span>{formatRelativeTime(asset.created_at)}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -423,9 +418,9 @@ const BucketItems = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Calendar className="size-3.5" />
-                    {formatDate(asset.created_at)}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+                    <Clock className="size-3.5" />
+                    {formatRelativeTime(asset.created_at)}
                   </div>
 
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

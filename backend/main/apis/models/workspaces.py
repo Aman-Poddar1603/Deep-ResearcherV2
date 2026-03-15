@@ -49,6 +49,28 @@ class WorkspaceOut(WorkspaceBase):
         return dt.astimezone(IST_TZ).strftime("%Y-%m-%d %I:%M:%S %p")
 
 
+class WorkspaceListItem(WorkspaceOut):
+    resource_count: int = 0
+
+
+class WorkspaceListResponse(BaseModel):
+    items: list[WorkspaceListItem] = Field(default_factory=list)
+    page: int
+    size: int
+    total_items: int
+    total_pages: int
+    offset: int
+
+
+class WorkspaceResourceStats(BaseModel):
+    workspace_id: str
+    connected_bucket_id: str | None = None
+    resource_count: int = 0
+    total_size: int = 0
+    bucket_total_files: int = 0
+    bucket_total_size: int = 0
+
+
 class WorkspaceConnectedResearch(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     workspace_id: str

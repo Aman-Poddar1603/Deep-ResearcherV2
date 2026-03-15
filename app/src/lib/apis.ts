@@ -128,6 +128,7 @@ export interface WorkspaceRecord {
   workspace_chat_agents: boolean;
   created_at: string;
   updated_at: string;
+  resource_count: number;
 }
 
 export interface WorkspaceCreateRequest {
@@ -174,11 +175,13 @@ export interface WorkspaceListQuery {
   sortOrder?: SortOrder;
 }
 
+export type WorkspaceListResponse = PaginationResponse<WorkspaceRecord>;
+
 export const listWorkspaceRecords = async (
   query?: WorkspaceListQuery,
-): Promise<WorkspaceRecord[]> => {
+): Promise<WorkspaceListResponse> => {
   return requestData(
-    api.get<WorkspaceRecord[]>(
+    api.get<WorkspaceListResponse>(
       withQuery("/workspace/", {
         page: query?.page,
         size: query?.size,
@@ -424,7 +427,7 @@ export interface ResearchListQuery {
   sortOrder?: SortOrder;
 }
 
-export interface ResearchListResponse extends PaginationResponse<ResearchRecord> { }
+export type ResearchListResponse = PaginationResponse<ResearchRecord>;
 
 export const listResearchRecords = async (
   query?: ResearchListQuery,
@@ -515,8 +518,7 @@ export interface ResearchSourceListQuery {
   sortOrder?: SortOrder;
 }
 
-export interface ResearchSourceListResponse
-  extends PaginationResponse<ResearchSourceRecord> { }
+export type ResearchSourceListResponse = PaginationResponse<ResearchSourceRecord>;
 
 export const listResearchSourceRecords = async (
   query?: ResearchSourceListQuery,
@@ -745,8 +747,7 @@ export interface ChatThreadListQuery {
   sortOrder?: SortOrder;
 }
 
-export interface ChatThreadListResponse
-  extends PaginationResponse<ChatThreadRecord> { }
+export type ChatThreadListResponse = PaginationResponse<ChatThreadRecord>;
 
 export const listChatThreads = async (
   query?: ChatThreadListQuery,
@@ -843,8 +844,7 @@ export interface ChatMessageListQuery {
   sortOrder?: SortOrder;
 }
 
-export interface ChatMessageListResponse
-  extends PaginationResponse<ChatMessageRecord> { }
+export type ChatMessageListResponse = PaginationResponse<ChatMessageRecord>;
 
 export const listChatMessages = async (
   query?: ChatMessageListQuery,
@@ -926,8 +926,7 @@ export interface ChatAttachmentListQuery {
   sortOrder?: SortOrder;
 }
 
-export interface ChatAttachmentListResponse
-  extends PaginationResponse<ChatAttachmentRecord> { }
+export type ChatAttachmentListResponse = PaginationResponse<ChatAttachmentRecord>;
 
 export const listChatAttachments = async (
   query?: ChatAttachmentListQuery,
@@ -1031,7 +1030,7 @@ export interface BucketListQuery {
   sortOrder?: SortOrder;
 }
 
-export interface BucketListResponse extends PaginationResponse<BucketRecord> { }
+export type BucketListResponse = PaginationResponse<BucketRecord>;
 
 export const listBuckets = async (
   query?: BucketListQuery,
@@ -1198,12 +1197,12 @@ export interface BucketItemListQuery {
   maxFileSize?: number;
   fileNameContains?: string;
   filePathContains?: string;
+  workspaceId?: string;
   sortBy?: BucketItemSortBy;
   sortOrder?: SortOrder;
 }
 
-export interface BucketItemListResponse
-  extends PaginationResponse<BucketItemRecord> { }
+export type BucketItemListResponse = PaginationResponse<BucketItemRecord>;
 
 export const listBucketItems = async (
   query?: BucketItemListQuery,
@@ -1222,6 +1221,7 @@ export const listBucketItems = async (
         maxFileSize: query?.maxFileSize,
         fileNameContains: query?.fileNameContains,
         filePathContains: query?.filePathContains,
+        workspaceId: query?.workspaceId,
         sortBy: query?.sortBy,
         sortOrder: query?.sortOrder,
       }),
@@ -1367,6 +1367,7 @@ export interface WorkspaceOut {
   connectedBucketId?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  resourceCount: number;
 }
 
 export interface CreateWorkspacePayload extends WorkspaceCreate {
@@ -1405,17 +1406,27 @@ const mapWorkspaceRecordToOut = (record: WorkspaceRecord): WorkspaceOut => {
     connectedBucketId: record.connected_bucket_id,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
+    resourceCount: record.resource_count ?? 0,
   };
 };
 
-export const getAllWorkspaces = async (): Promise<WorkspaceOut[]> => {
-  const records = await listWorkspaceRecords({
-    page: 1,
-    size: 500,
-    sortBy: "updated_at",
-    sortOrder: "desc",
+export const getAllWorkspaces = async (query?: WorkspaceListQuery): Promise<{ workspaces: WorkspaceOut[]; totalItems: number; totalPages: number; page: number }> => {
+  const response = await listWorkspaceRecords({
+    page: query?.page ?? 1,
+    size: query?.size ?? 200,
+    sortBy: query?.sortBy ?? "updated_at",
+    sortOrder: query?.sortOrder ?? "desc",
+    nameContains: query?.nameContains,
+    descContains: query?.descContains,
+    aiConfig: query?.aiConfig,
+    connectedBucketId: query?.connectedBucketId,
   });
-  return records.map(mapWorkspaceRecordToOut);
+  return {
+    workspaces: response.items.map(mapWorkspaceRecordToOut),
+    totalItems: response.total_items,
+    totalPages: response.total_pages,
+    page: response.page,
+  };
 };
 
 export const getWorkspaceById = async (id: string): Promise<WorkspaceOut> => {

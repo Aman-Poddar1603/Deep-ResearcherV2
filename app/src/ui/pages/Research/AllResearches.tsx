@@ -28,7 +28,7 @@ import {
     MessageContent,
     MessageResponse,
 } from '@/components/ai-elements/message'
-import { cn } from '@/lib/utils'
+import { cn, formatDate, formatRelativeTime } from '@/lib/utils'
 import {
     Search,
     FlaskConical,
@@ -115,12 +115,6 @@ const parseSourceCount = (sources: string | null): number => {
     return sources.split(',').filter((s) => s.trim()).length
 }
 
-const formatDate = (value?: string | null): string => {
-    if (!value) return '—'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 const mapResearch = (record: ResearchRecord): Research => ({
     id: record.id,
@@ -129,7 +123,7 @@ const mapResearch = (record: ResearchRecord): Research => ({
     status: deriveStatus(record),
     workspaceId: record.workspace_id ?? null,
     createdAt: formatDate(record.created_at),
-    updatedAt: formatDate(record.updated_at),
+    updatedAt: formatRelativeTime(record.updated_at),
     sourceCount: parseSourceCount(record.sources),
     artifacts: record.artifacts ?? null,
     chatAccess: record.chat_access,
@@ -192,7 +186,7 @@ const AllResearches = () => {
                 page += 1
             } while (page <= totalPages)
 
-            const workspaceList = await getAllWorkspaces()
+            const { workspaces: workspaceList } = await getAllWorkspaces()
             const mappedResearches = allResearchRecords.map(mapResearch)
 
             const countByWs: Record<string, number> = {}
@@ -200,7 +194,7 @@ const AllResearches = () => {
                 if (r.workspaceId) countByWs[r.workspaceId] = (countByWs[r.workspaceId] ?? 0) + 1
             })
 
-            const mappedWorkspaces = (workspaceList as WorkspaceOut[]).map((ws, i) =>
+            const mappedWorkspaces = workspaceList.map((ws, i) =>
                 mapWorkspace(ws, i, countByWs[ws.id] ?? 0)
             )
 
