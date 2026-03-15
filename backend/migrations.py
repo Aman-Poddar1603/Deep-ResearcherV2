@@ -1,4 +1,10 @@
+"""Database migration module for the Deep Researcher backend.
+
+Defines table creation functions and foreign key relationship setup
+for all SQLite databases used by the application.
+"""
 import logging
+import sqlite3
 from typing import Literal
 
 from main.src.store.DBManager import (
@@ -89,7 +95,8 @@ def create_workspace_tables() -> None:
     - `workspaces`: Stores core workspace information.
     - `workspace_connected_research`: Stores information about the connected researches.
     - `workspace_connected_chats`: Stores information about the connected chats.
-    - `workspace_connected_resources`: Stores information about the connected resources including files and links.
+    - `workspace_connected_resources`: Stores information about
+      the connected resources including files and links.
 
     Returns: None
     """
@@ -160,13 +167,15 @@ def create_workspace_tables() -> None:
         logger.info("Created workspace connected resources table...")
         logger.info("Workspace tables created successfully!")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             message=f"Failed to create workspace tables: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.error(f"Failed to create workspace tables: {str(e)}", stack_info=True)
+        logger.error(
+            "Failed to create workspace tables: %s", e, stack_info=True
+        )
 
 
 # HISTORY MANAGEMENT
@@ -306,13 +315,15 @@ def create_history_tables() -> None:
             indexes=[["id", "workspace_id", "bucket_id"], ["activity", "bucket_id"]],
         )
         logger.info("Created bucket_history table")
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             message=f"Failed to create history tables: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.error(f"Failed to create history tables: {str(e)}", stack_info=True)
+        logger.error(
+            "Failed to create history tables: %s", e, stack_info=True
+        )
 
 
 # CHAT MANAGEMENT
@@ -389,13 +400,15 @@ def create_chat_tables() -> None:
             indexes=[["message_id"]],
         )
         logger.info("Created chat_attachments table!")
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             message=f"Failed to create chat tables: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info("Failed to create chat_attachments table!")
+        logger.error(
+            "Failed to create chat tables: %s", e, stack_info=True
+        )
 
 
 # RESEARCH MANAGEMENT
@@ -530,13 +543,15 @@ def create_research_tables() -> None:
         )
         logger.info("Created research_sources table...")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             f"Failed to create research tables: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create research tables: {str(e)}")
+        logger.error(
+            "Failed to create research tables: %s", e, stack_info=True
+        )
 
 
 # FILE MANAGEMENT
@@ -600,13 +615,15 @@ def create_bucket_tables() -> None:
         )
         logger.info("Created bucket items table")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             f"Failed to create bucket tables: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create bucket tables: {str(e)}")
+        logger.error(
+            "Failed to create bucket tables: %s", e, stack_info=True
+        )
 
 
 # SETTINGS
@@ -663,13 +680,15 @@ def create_settings_table() -> None:
             },
         )
         logger.info("Settings table created successfully.")
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             f"Failed to create settings table: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create settings table: {str(e)}")
+        logger.error(
+            "Failed to create settings table: %s", e, stack_info=True
+        )
 
 
 # DBMS
@@ -730,13 +749,15 @@ def create_scrapes_database() -> None:
         )
         logger.info("Scrapes_metadata table created successfully")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
-            f"Failed to create settings table: {str(e)}",
+            f"Failed to create scrapes tables: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create settings table: {str(e)}")
+        logger.error(
+            "Failed to create scrapes tables: %s", e, stack_info=True
+        )
 
 
 def create_database_stats_tables() -> None:
@@ -772,13 +793,15 @@ def create_database_stats_tables() -> None:
         )
         logger.info("db_stats table created successfully")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             f"Failed to create db_stats table: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create db_stats table: {str(e)}")
+        logger.error(
+            "Failed to create db_stats table: %s", e, stack_info=True
+        )
 
 
 # SEARCH MANAGEMENT
@@ -816,13 +839,15 @@ def create_search_tables() -> None:
         )
         logger.info("searches table created successfully")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             f"Failed to create searches table: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create searches table: {str(e)}")
+        logger.error(
+            "Failed to create searches table: %s", e, stack_info=True
+        )
 
 
 # Utilities
@@ -855,18 +880,375 @@ def create_backgraound_running_task_table() -> None:
         )
         logger.info("bg_process table created successfully")
 
-    except Exception as e:
+    except (ValueError, sqlite3.Error, OSError) as e:
         _log_system_migrations_event(
             f"Failed to create bg_process table: {str(e)}",
             level="error",
             urgency="critical",
         )
-        logger.info(f"Failed to create bg_process table: {str(e)}")
+        logger.error(
+            "Failed to create bg_process table: %s", e, stack_info=True
+        )
+
+
+# ═══════════════════════════════════════════════════════════
+# FOREIGN KEY RELATIONSHIPS
+# ═══════════════════════════════════════════════════════════
+# IMPORTANT: This function MUST be called AFTER all tables
+# are created. SQLite requires referenced tables to exist
+# before FK constraints can be applied.
+# ═══════════════════════════════════════════════════════════
+
+
+def create_foreign_key_relationships() -> None:
+    """
+    ## Description
+
+    Establishes all foreign key relationships across the entire database
+    schema. This function is called **after** all tables have been created
+    to avoid referencing tables that do not yet exist.
+
+    Uses `add_foreign_keys()` which rebuilds each table with the FK
+    constraints applied. Existing data and indexes are preserved.
+
+    ## Parameters
+
+    - `None`
+
+    ## Returns
+
+    `None`
+
+    ## Raises
+
+    - Logs errors internally; does not raise to caller.
+
+    ## Side Effects
+
+    - Rebuilds tables that require foreign key constraints.
+    - Temporarily locks affected databases during rebuild.
+    - Applies referential integrity rules (CASCADE, SET NULL, etc.).
+
+    ## Debug Notes
+
+    - If a table rebuild fails, it is rolled back and subsequent
+      FK operations continue independently.
+    - Run `verify_foreign_keys()` on each db_manager after this
+      to confirm data integrity.
+    - Some tables use `SET NULL` on delete to preserve history rows
+      even when the parent record is removed.
+
+    ## Customization
+
+    - Add new FK definitions by appending to the relevant db_manager
+      section below.
+    - Adjust `on_delete` / `on_update` actions per relationship.
+    """
+    try:
+        _log_system_migrations_event(
+            "Creating foreign key relationships across all databases...",
+            level="info",
+            urgency="moderate",
+        )
+        logger.info("Creating foreign key relationships...")
+
+        # ──────────────────────────────────────────────────────
+        # MAIN DATABASE (main_db_manager)
+        # ──────────────────────────────────────────────────────
+
+        # workspace_connected_research.workspace_id → workspaces.id
+        logger.info("Adding FK: workspace_connected_research → workspaces")
+        result = main_db_manager.add_foreign_keys(
+            "workspace_connected_research",
+            [
+                {
+                    "column": "workspace_id",
+                    "references_table": "workspaces",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK workspace_connected_research->workspaces: %s",
+                result["message"],
+            )
+
+        # workspace_connected_chats.workspace_id → workspaces.id
+        logger.info("Adding FK: workspace_connected_chats → workspaces")
+        result = main_db_manager.add_foreign_keys(
+            "workspace_connected_chats",
+            [
+                {
+                    "column": "workspace_id",
+                    "references_table": "workspaces",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK workspace_connected_chats->workspaces: %s",
+                result["message"],
+            )
+
+        # workspace_connected_resources.connected_bucket_id → workspaces.id
+        logger.info("Adding FK: workspace_connected_resources → workspaces")
+        result = main_db_manager.add_foreign_keys(
+            "workspace_connected_resources",
+            [
+                {
+                    "column": "connected_bucket_id",
+                    "references_table": "workspaces",
+                    "references_column": "connected_bucket_id",
+                    "on_delete": "SET NULL",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK workspace_connected_resources->workspaces: %s",
+                result["message"],
+            )
+
+        # bg_process.workspace_id → workspaces.id
+        logger.info("Adding FK: bg_process → workspaces")
+        result = main_db_manager.add_foreign_keys(
+            "bg_process",
+            [
+                {
+                    "column": "workspace_id",
+                    "references_table": "workspaces",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK bg_process->workspaces: %s", result["message"]
+            )
+
+        # ──────────────────────────────────────────────────────
+        # HISTORY DATABASE (history_db_manager)
+        # ──────────────────────────────────────────────────────
+
+        # chat_history.chat_thread_id ← standalone reference (cross-db, no FK)
+        # research_history.research_id ← standalone reference (cross-db, no FK)
+        # NOTE: Cross-database FKs are NOT supported in SQLite.
+        # These relationships are documented but enforced at the
+        # application layer, not at the database level.
+
+        # research_workflow.research_id → standalone (cross-db with researches DB)
+        # token_count references are also cross-db, documented only.
+
+        # bucket_history references are cross-db with buckets DB, documented only.
+
+        logger.info(
+            "Skipping cross-database FK constraints for history DB "
+            "(SQLite does not support cross-database foreign keys)"
+        )
+
+        # ──────────────────────────────────────────────────────
+        # CHATS DATABASE (chats_db_manager)
+        # ──────────────────────────────────────────────────────
+
+        # chat_messages.thread_id → chat_threads.thread_id
+        logger.info("Adding FK: chat_messages → chat_threads")
+        result = chats_db_manager.add_foreign_keys(
+            "chat_messages",
+            [
+                {
+                    "column": "thread_id",
+                    "references_table": "chat_threads",
+                    "references_column": "thread_id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK chat_messages->chat_threads: %s", result["message"]
+            )
+
+        # chat_attachments.message_id → chat_messages.message_id
+        logger.info("Adding FK: chat_attachments → chat_messages")
+        result = chats_db_manager.add_foreign_keys(
+            "chat_attachments",
+            [
+                {
+                    "column": "message_id",
+                    "references_table": "chat_messages",
+                    "references_column": "message_id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK chat_attachments->chat_messages: %s", result["message"]
+            )
+
+        # ──────────────────────────────────────────────────────
+        # RESEARCHES DATABASE (researches_db_manager)
+        # ──────────────────────────────────────────────────────
+
+        # researches.research_template_id → research_templates.id
+        logger.info("Adding FK: researches → research_templates")
+        result = researches_db_manager.add_foreign_keys(
+            "researches",
+            [
+                {
+                    "column": "research_template_id",
+                    "references_table": "research_templates",
+                    "references_column": "id",
+                    "on_delete": "SET NULL",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK researches->research_templates: %s",
+                result["message"],
+            )
+
+        # research_plans.research_template_id → research_templates.id
+        logger.info("Adding FK: research_plans → research_templates")
+        result = researches_db_manager.add_foreign_keys(
+            "research_plans",
+            [
+                {
+                    "column": "research_template_id",
+                    "references_table": "research_templates",
+                    "references_column": "id",
+                    "on_delete": "SET NULL",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK research_plans->research_templates: %s",
+                result["message"],
+            )
+
+        # research_metadata.research_id → researches.id
+        logger.info("Adding FK: research_metadata → researches")
+        result = researches_db_manager.add_foreign_keys(
+            "research_metadata",
+            [
+                {
+                    "column": "research_id",
+                    "references_table": "researches",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK research_metadata->researches: %s", result["message"]
+            )
+
+        # research_sources.research_id → researches.id
+        logger.info("Adding FK: research_sources → researches")
+        result = researches_db_manager.add_foreign_keys(
+            "research_sources",
+            [
+                {
+                    "column": "research_id",
+                    "references_table": "researches",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK research_sources->researches: %s", result["message"]
+            )
+
+        # ──────────────────────────────────────────────────────
+        # BUCKETS DATABASE (buckets_db_manager)
+        # ──────────────────────────────────────────────────────
+
+        # bucket_items.bucket_id → buckets.id
+        logger.info("Adding FK: bucket_items → buckets")
+        result = buckets_db_manager.add_foreign_keys(
+            "bucket_items",
+            [
+                {
+                    "column": "bucket_id",
+                    "references_table": "buckets",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK bucket_items->buckets: %s", result["message"]
+            )
+
+        # ──────────────────────────────────────────────────────
+        # SCRAPES DATABASE (scrapes_db_manager)
+        # ──────────────────────────────────────────────────────
+
+        # scrapes_metadata.scrape_id → scrapes.id
+        logger.info("Adding FK: scrapes_metadata → scrapes")
+        result = scrapes_db_manager.add_foreign_keys(
+            "scrapes_metadata",
+            [
+                {
+                    "column": "scrape_id",
+                    "references_table": "scrapes",
+                    "references_column": "id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                },
+            ],
+        )
+        if not result["success"]:
+            logger.warning(
+                "FK scrapes_metadata->scrapes: %s", result["message"]
+            )
+
+        logger.info("Foreign key relationships created successfully!")
+        _log_system_migrations_event(
+            "All foreign key relationships created successfully.",
+            level="success",
+            urgency="none",
+        )
+
+    except (ValueError, sqlite3.Error, OSError) as e:
+        _log_system_migrations_event(
+            f"Failed to create foreign key relationships: {str(e)}",
+            level="error",
+            urgency="critical",
+        )
+        logger.error(
+            "Failed to create foreign key relationships: %s",
+            e,
+            stack_info=True,
+        )
 
 
 if __name__ == "__main__":
     logger.info("Starting database migrations...")
 
+    # ── Phase 1: Create all tables first ──────────────────
     create_workspace_tables()
     create_history_tables()
     create_chat_tables()
@@ -877,5 +1259,10 @@ if __name__ == "__main__":
     create_database_stats_tables()
     create_search_tables()
     create_backgraound_running_task_table()
+
+    # ── Phase 2: Apply foreign key relationships ──────────
+    # MUST run after ALL tables exist to avoid referencing
+    # tables that haven't been created yet.
+    create_foreign_key_relationships()
 
     logger.info("Database migrations completed.")

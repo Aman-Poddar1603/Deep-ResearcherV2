@@ -1,3 +1,8 @@
+"""SQLite database manager module providing a reusable ORM-like interface.
+
+Exposes the `SQLiteManager` class with CRUD helpers, foreign key management,
+and automatic connection / PRAGMA handling for the Deep Researcher backend.
+"""
 import logging
 import re
 import sqlite3
@@ -19,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 LOG_SOURCE = "system"
 
+# Module-level recursion guard for _log_db_event.
+# Prevents: _log_db_event → dr_logger.log → insert → _log_db_event → ∞
+_log_db_event_active = False
+
 
 def _log_db_event(
     message: str,
@@ -28,21 +37,25 @@ def _log_db_event(
     """
     ## Description
 
-    Internal utility function for logging secret management events with structured
-    metadata. Ensures all secret-related operations are tracked with appropriate
+    Internal utility function for logging database events with structured
+    metadata. Ensures all DB operations are tracked with appropriate
     urgency levels and log sources.
 
+    Contains a module-level recursion guard to prevent infinite loops:
+    `_log_db_event → dr_logger.log → insert → _log_db_event → ∞`.
+    When re-entered, falls back to Python's standard logger.
+
     ## Parameters
+
+    - `message` (`str`)
+      - Description: Human-readable description of the DB event.
+      - Constraints: Must be non-empty. Should not contain sensitive data.
+      - Example: "Error inserting into users table"
 
     - `level` (`Literal["success", "error", "warning", "info"]`)
       - Description: Log severity level indicating the nature of the event.
       - Constraints: Must be one of: "success", "error", "warning", "info".
       - Example: "error"
-
-    - `message` (`str`)
-      - Description: Human-readable description of the secret event.
-      - Constraints: Must be non-empty. Should not contain sensitive data (API keys, tokens).
-      - Example: ".env file not found at /path/to/.env"
 
     - `urgency` (`Literal["none", "moderate", "critical"]`, optional)
       - Description: Priority indicator for the logged event.
@@ -56,14 +69,14 @@ def _log_db_event(
 
     ## Side Effects
 
-    - Writes log entry to the DRLogger system.
-    - Includes application version in all log entries.
-    - Tags all events with "SECRETS_MANAGEMENT" for filtering.
+    - Writes log entry to the DRLogger system (DB-backed).
+    - Falls back to Python's standard logger if already inside a
+      logging cycle to avoid infinite recursion.
 
     ## Debug Notes
 
-    - Ensure messages do NOT contain sensitive information (API keys, tokens).
-    - Use appropriate urgency levels: "critical" for missing keys, "moderate" for fallbacks.
+    - If you see "DB event (fallback)" messages in console, it means
+      the recursion guard activated — the DB logger itself had an error.
     - Check logger output in application logs directory.
 
     ## Customization
@@ -71,14 +84,30 @@ def _log_db_event(
     To change log source or tags globally, modify the module-level constants:
     - `LOG_SOURCE`: Change from "system" to custom value
     """
-    dr_logger.log(
-        log_type=level,
-        message=message,
-        origin=LOG_SOURCE,
-        urgency=urgency,
-        module="DB",
-        app_version=get_raw_version(),
-    )
+    global _log_db_event_active  # pylint: disable=global-statement
+
+    if _log_db_event_active:
+        # Already inside a _log_db_event call chain — fall back to
+        # Python's standard logger to break the recursion cycle.
+        log_fn = getattr(logger, level if level != "success" else "info")
+        log_fn("DB event (fallback): %s [urgency=%s]", message, urgency)
+        return
+
+    _log_db_event_active = True
+    try:
+        dr_logger.log(
+            log_type=level,
+            message=message,
+            origin=LOG_SOURCE,
+            urgency=urgency,
+            module="DB",
+            app_version=get_raw_version(),
+        )
+    except Exception:  # pylint: disable=broad-except
+        # If the DB logger itself fails, don't crash — just log to console
+        logger.error("DB event (logger failed): %s", message)
+    finally:
+        _log_db_event_active = False
 
 
 class SQLiteManager:
@@ -126,6 +155,10 @@ class SQLiteManager:
     def __init__(self, db_path: Union[str, Path], timeout: int = 30):
         self.db_path = str(db_path)
         self.timeout = timeout
+        # Recursion guard: prevents infinite loop when
+        # _get_connection error handler calls _log_db_event
+        # → dr_logger.log → insert → _get_connection → error → ∞
+        self._logging_error = False
 
     @staticmethod
     def _validate_identifier(identifier: str) -> str:
@@ -241,11 +274,28 @@ class SQLiteManager:
 
             yield conn
         except sqlite3.Error as e:
-            _log_db_event(
-                f"Error connecting to database at {self.db_path}: {e}",
-                "error",
-                "critical",
-            )
+            # Recursion guard: _log_db_event → dr_logger.log →
+            # insert → _get_connection → error → _log_db_event → ∞
+            # If already inside an error-log cycle, fall back to
+            # Python's standard logger to break the loop.
+            if not self._logging_error:
+                self._logging_error = True
+                try:
+                    _log_db_event(
+                        f"Error connecting to database "
+                        f"at {self.db_path}: {e}",
+                        "error",
+                        "critical",
+                    )
+                finally:
+                    self._logging_error = False
+            else:
+                logger.error(
+                    "DB connection error (skipping DB log "
+                    "to avoid recursion): %s — %s",
+                    self.db_path,
+                    e,
+                )
             raise
         finally:
             if conn:
@@ -308,6 +358,7 @@ class SQLiteManager:
         table_name: str,
         schema: Dict[str, str],
         indexes: Optional[List[Union[str, List[str]]]] = None,
+        foreign_keys: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Create a SQLite table dynamically and optionally create indexes.
@@ -426,7 +477,45 @@ class SQLiteManager:
                     for col, dtype in schema.items()
                 ]
             )
-            query = f"CREATE TABLE IF NOT EXISTS {valid_table} ({columns_def})"
+            # Build foreign key constraint clauses if provided
+            fk_clauses = []  # pylint: disable=possibly-unused-variable
+            if foreign_keys:  # pylint: disable=possibly-used-before-assignment
+                for fk in foreign_keys:
+                    fk_col = self._validate_identifier(fk["column"])
+                    fk_ref_table = self._validate_identifier(fk["references_table"])
+                    fk_ref_col = self._validate_identifier(fk["references_column"])
+                    on_delete = fk.get("on_delete", "NO ACTION").upper()
+                    on_update = fk.get("on_update", "NO ACTION").upper()
+
+                    valid_actions = {
+                        "NO ACTION",
+                        "RESTRICT",
+                        "CASCADE",
+                        "SET NULL",
+                        "SET DEFAULT",
+                    }
+                    if on_delete not in valid_actions:
+                        raise ValueError(
+                            f"Invalid ON DELETE action: '{on_delete}'. "
+                            f"Must be one of: {valid_actions}"
+                        )
+                    if on_update not in valid_actions:
+                        raise ValueError(
+                            f"Invalid ON UPDATE action: '{on_update}'. "
+                            f"Must be one of: {valid_actions}"
+                        )
+
+                    fk_clause = (
+                        f"FOREIGN KEY ({fk_col}) REFERENCES {fk_ref_table}({fk_ref_col}) "
+                        f"ON DELETE {on_delete} ON UPDATE {on_update}"
+                    )
+                    fk_clauses.append(fk_clause)
+
+            all_definitions = columns_def
+            if fk_clauses:
+                all_definitions += ", " + ", ".join(fk_clauses)
+
+            query = f"CREATE TABLE IF NOT EXISTS {valid_table} ({all_definitions})"
 
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -459,10 +548,15 @@ class SQLiteManager:
                         try:
                             index_name = self._validate_identifier(index_name)
                         except ValueError:
-                            # fallback: a safe sanitized index name (replace non-alnum with underscore)
-                            index_name = re.sub(r"[^a-zA-Z0-9_]+", "_", index_name)
+                            # fallback: sanitized index name
+                            index_name = re.sub(
+                                r"[^a-zA-Z0-9_]+", "_", index_name
+                            )
 
-                        index_sql = f"CREATE INDEX IF NOT EXISTS {index_name} ON {valid_table} ({', '.join(valid_cols)})"
+                        index_sql = (
+                            f"CREATE INDEX IF NOT EXISTS {index_name} "
+                            f"ON {valid_table} ({', '.join(valid_cols)})"
+                        )
                         try:
                             cursor.execute(index_sql)
                         except sqlite3.Error as e:
@@ -534,7 +628,8 @@ class SQLiteManager:
 
         ## Debug Notes
 
-        - Triggers uniqueness violations silently, returning false. Read DRLogger if records don't save.
+        - Triggers uniqueness violations silently, returning false.
+          Read DRLogger if records don't save.
 
         ## Customization
 
@@ -613,7 +708,8 @@ class SQLiteManager:
 
         ## Debug Notes
 
-        - Large loads read into standard RAM directly as List, could create OutOfMemory for gigabyte tables.
+        - Large loads read into standard RAM directly as List,
+          could create OutOfMemory for gigabyte tables.
 
         ## Customization
 
@@ -724,7 +820,8 @@ class SQLiteManager:
         """
         ## Description
 
-        Replaces content within constrained rows dynamically matched by explicit `where` dictionary maps.
+        Replaces content within constrained rows dynamically
+        matched by explicit `where` dictionary maps.
 
         ## Parameters
 
@@ -773,7 +870,8 @@ class SQLiteManager:
 
         ## Customization
 
-        - Adjust the requirement for where clause directly if bulk `UPDATE ALL` behavior is strictly required later.
+        - Adjust the requirement for where clause directly if bulk
+          `UPDATE ALL` behavior is strictly required later.
         """
         if (
             not where
@@ -858,7 +956,8 @@ class SQLiteManager:
 
         ## Customization
 
-        - Soft-Deletes can be implemented utilizing `update()` call adjusting "deleted_at" timestamp fields.
+        - Soft-Deletes can be implemented utilizing `update()` call
+          adjusting "deleted_at" timestamp fields.
         """
         if not where:
             return {
@@ -915,6 +1014,489 @@ class SQLiteManager:
             )
             return {"success": False, "message": str(e), "data": None}
 
+    def add_foreign_keys(
+        self,
+        table_name: str,
+        foreign_keys: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Adds foreign key constraints to an existing table by rebuilding it.
+        SQLite does not support `ALTER TABLE ADD CONSTRAINT`, so this method
+        uses the official SQLite 12-step table rebuild process:
+
+        1. Read existing table schema via `PRAGMA table_info`.
+        2. Read existing indexes via `PRAGMA index_list` and `PRAGMA index_info`.
+        3. Create a new temporary table with the original schema plus FK constraints.
+        4. Copy all data from the original table to the temporary table.
+        5. Drop the original table.
+        6. Rename the temporary table to the original table name.
+        7. Re-create all original indexes on the renamed table.
+
+        The entire operation runs inside a single transaction for atomicity.
+
+        ## Parameters
+
+        - `table_name` (`str`)
+          - Description: Name of the existing table to add foreign keys to.
+          - Constraints: Must pass `_validate_identifier`. Table must already exist.
+          - Example: `"chat_messages"`
+
+        - `foreign_keys` (`List[Dict[str, str]]`)
+          - Description: List of foreign key constraint definitions.
+          - Constraints: Each dict must contain `column`, `references_table`,
+            and `references_column`. Optional keys: `on_delete`, `on_update`.
+          - Example:
+            ```python
+            [
+                {
+                    "column": "thread_id",
+                    "references_table": "chat_threads",
+                    "references_column": "thread_id",
+                    "on_delete": "CASCADE",
+                    "on_update": "NO ACTION",
+                }
+            ]
+            ```
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "Foreign keys added to 'chat_messages' successfully",
+            "data": {
+                "foreign_keys_added": 1
+            }
+        }
+        ```
+
+        ## Raises
+
+        - `ValueError`
+          - When identifiers fail validation or referential actions are invalid.
+        - `sqlite3.Error`
+          - When the rebuild transaction fails (automatically rolled back).
+
+        ## Side Effects
+
+        - Completely rebuilds the target table in-place.
+        - Preserves all existing data and indexes.
+        - Temporarily locks the database during the rebuild.
+        - Existing foreign keys on the table will be replaced by the new set.
+
+        ## Debug Notes
+
+        - Ensure all referenced tables exist before calling this method.
+        - The `PRAGMA foreign_keys = ON` is enforced on every connection.
+        - Use `verify_foreign_keys()` after calling this to confirm integrity.
+        - If the process fails mid-way, the transaction is rolled back safely.
+
+        ## Customization
+
+        - Modify `valid_actions` set to support custom referential actions
+          if SQLite adds new ones in the future.
+        """
+        if not foreign_keys:
+            return {
+                "success": False,
+                "message": "No foreign keys provided",
+                "data": None,
+            }
+
+        try:
+            valid_table = self._validate_identifier(table_name)
+
+            # Validate all FK definitions upfront before touching the database
+            validated_fks: List[Dict[str, str]] = []
+            valid_actions = {
+                "NO ACTION",
+                "RESTRICT",
+                "CASCADE",
+                "SET NULL",
+                "SET DEFAULT",
+            }
+
+            for fk in foreign_keys:
+                required_keys = {"column", "references_table", "references_column"}
+                missing = required_keys - set(fk.keys())
+                if missing:
+                    raise ValueError(
+                        f"Foreign key definition missing required keys: {missing}. "
+                        f"Required: {required_keys}"
+                    )
+
+                fk_col = self._validate_identifier(fk["column"])
+                fk_ref_table = self._validate_identifier(fk["references_table"])
+                fk_ref_col = self._validate_identifier(fk["references_column"])
+                on_delete = fk.get("on_delete", "NO ACTION").upper()
+                on_update = fk.get("on_update", "NO ACTION").upper()
+
+                if on_delete not in valid_actions:
+                    raise ValueError(
+                        f"Invalid ON DELETE action: '{on_delete}'. "
+                        f"Must be one of: {valid_actions}"
+                    )
+                if on_update not in valid_actions:
+                    raise ValueError(
+                        f"Invalid ON UPDATE action: '{on_update}'. "
+                        f"Must be one of: {valid_actions}"
+                    )
+
+                validated_fks.append(
+                    {
+                        "column": fk_col,
+                        "references_table": fk_ref_table,
+                        "references_column": fk_ref_col,
+                        "on_delete": on_delete,
+                        "on_update": on_update,
+                    }
+                )
+
+            # ────────────────────────────────────────────────────────
+            # Use a DIRECT connection instead of _get_connection() to:
+            #   1. Disable PRAGMA foreign_keys during rebuild
+            #      (required by SQLite's official rebuild process)
+            #   2. Avoid recursive _log_db_event → dr_logger.log →
+            #      insert → _get_connection → error → _log_db_event ∞
+            # ────────────────────────────────────────────────────────
+            conn = None
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=self.timeout)
+                conn.row_factory = sqlite3.Row
+
+                # Step 0: Disable FK checks (SQLite rebuild requirement)
+                conn.execute("PRAGMA foreign_keys = OFF;")
+                conn.execute("PRAGMA journal_mode = WAL;")
+                conn.execute("PRAGMA synchronous = NORMAL;")
+
+                cursor = conn.cursor()
+
+                # ── Step 1: Read existing schema ───────────────────────
+                cursor.execute(f"PRAGMA table_info({valid_table})")
+                columns_info = cursor.fetchall()
+                if not columns_info:
+                    return {
+                        "success": False,
+                        "message": (
+                            f"Table '{valid_table}' does not exist "
+                            f"or has no columns"
+                        ),
+                        "data": None,
+                    }
+
+                # Build column definitions from PRAGMA output
+                # PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
+                column_defs = []
+                column_names = []
+                for col in columns_info:
+                    col_name = col["name"]
+                    col_type = col["type"] if col["type"] else "TEXT"
+                    constraints = []
+
+                    if col["pk"]:
+                        constraints.append("PRIMARY KEY")
+                    if col["notnull"] and not col["pk"]:
+                        constraints.append("NOT NULL")
+                    if col["dflt_value"] is not None:
+                        constraints.append(f"DEFAULT {col['dflt_value']}")
+
+                    col_def = f"{col_name} {col_type}"
+                    if constraints:
+                        col_def += " " + " ".join(constraints)
+
+                    column_defs.append(col_def)
+                    column_names.append(col_name)
+
+                # ── Step 2: Read existing indexes ──────────────────────
+                cursor.execute(f"PRAGMA index_list({valid_table})")
+                index_list = cursor.fetchall()
+                existing_indexes = []
+                for idx in index_list:
+                    idx_name = idx["name"]
+                    is_unique = idx["unique"]
+
+                    # Skip auto-created indexes (sqlite_autoindex_*)
+                    if idx_name.startswith("sqlite_autoindex_"):
+                        continue
+
+                    cursor.execute(f"PRAGMA index_info({idx_name})")
+                    idx_columns = [
+                        row["name"] for row in cursor.fetchall()
+                    ]
+
+                    existing_indexes.append(
+                        {
+                            "name": idx_name,
+                            "unique": is_unique,
+                            "columns": idx_columns,
+                        }
+                    )
+
+                # ── Step 3: Build FK clauses ───────────────────────────
+                fk_clauses = []
+                for fk in validated_fks:
+                    fk_clause = (
+                        f"FOREIGN KEY ({fk['column']}) "
+                        f"REFERENCES {fk['references_table']}"
+                        f"({fk['references_column']}) "
+                        f"ON DELETE {fk['on_delete']} "
+                        f"ON UPDATE {fk['on_update']}"
+                    )
+                    fk_clauses.append(fk_clause)
+
+                # ── Step 4: Rebuild the table ──────────────────────────
+                temp_table = f"_rebuild_{valid_table}"
+
+                all_defs = (
+                    ", ".join(column_defs)
+                    + ", "
+                    + ", ".join(fk_clauses)
+                )
+                cols_csv = ", ".join(column_names)
+
+                # Clean up leftover temp table from previous failed runs
+                cursor.execute(
+                    f"DROP TABLE IF EXISTS {temp_table}"
+                )
+                cursor.execute(
+                    f"CREATE TABLE {temp_table} ({all_defs})"
+                )
+                cursor.execute(
+                    f"INSERT INTO {temp_table} ({cols_csv}) "
+                    f"SELECT {cols_csv} FROM {valid_table}"
+                )
+                cursor.execute(f"DROP TABLE {valid_table}")
+                cursor.execute(
+                    f"ALTER TABLE {temp_table} "
+                    f"RENAME TO {valid_table}"
+                )
+
+                # ── Step 5: Recreate indexes ───────────────────────────
+                for idx in existing_indexes:
+                    unique_kw = "UNIQUE" if idx["unique"] else ""
+                    idx_cols = ", ".join(idx["columns"])
+                    idx_sql = (
+                        f"CREATE {unique_kw} INDEX IF NOT EXISTS "
+                        f"{idx['name']} ON {valid_table} ({idx_cols})"
+                    )
+                    cursor.execute(idx_sql)
+
+                conn.commit()
+
+                # ── Step 6: Re-enable FKs and verify integrity ─────────
+                conn.execute("PRAGMA foreign_keys = ON;")
+                cursor.execute(
+                    f"PRAGMA foreign_key_check({valid_table})"
+                )
+                violations = cursor.fetchall()
+                if violations:
+                    logger.warning(
+                        "FK check found %d violation(s) on '%s' "
+                        "— data may have orphan references",
+                        len(violations),
+                        valid_table,
+                    )
+
+            finally:
+                if conn:
+                    conn.close()
+
+            logger.info(
+                "Foreign keys added to '%s' successfully "
+                "(%d constraint(s)).",
+                valid_table,
+                len(validated_fks),
+            )
+            return {
+                "success": True,
+                "message": (
+                    f"Foreign keys added to '{valid_table}' successfully"
+                ),
+                "data": {"foreign_keys_added": len(validated_fks)},
+            }
+
+        except (ValueError, sqlite3.Error) as e:
+            # Use logger directly — NOT _log_db_event — to avoid
+            # the recursive loop: _log_db_event → dr_logger.log →
+            # insert → _get_connection → error → _log_db_event → ∞
+            logger.error(
+                "Error adding foreign keys to %s: %s", table_name, e
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def verify_foreign_keys(self, table_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Runs `PRAGMA foreign_key_check` to verify referential integrity of
+        foreign keys in the database. Can check a specific table or the entire
+        database.
+
+        ## Parameters
+
+        - `table_name` (`Optional[str]`)
+          - Description: Table to check. If `None`, checks all tables.
+          - Constraints: Must pass `_validate_identifier` if provided.
+          - Example: `"chat_messages"`
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "Foreign key integrity check passed",
+            "data": {
+                "violations": [],
+                "is_valid": true
+            }
+        }
+        ```
+
+        ## Raises
+
+        - `ValueError`
+          - When `table_name` fails identifier validation.
+
+        ## Side Effects
+
+        - Performs a read-only integrity check on the database.
+
+        ## Debug Notes
+
+        - Violations indicate orphaned rows referencing non-existent parent records.
+        - Run this after `add_foreign_keys()` to confirm data integrity.
+
+        ## Customization
+
+        - Extend violation reporting to include row details if needed.
+        """
+        try:
+            if table_name:
+                valid_table = self._validate_identifier(table_name)
+                pragma_sql = f"PRAGMA foreign_key_check({valid_table})"
+            else:
+                pragma_sql = "PRAGMA foreign_key_check"
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(pragma_sql)
+                violations = cursor.fetchall()
+                violation_list = [dict(row) for row in violations]
+
+                is_valid = len(violation_list) == 0
+                message = (
+                    "Foreign key integrity check passed"
+                    if is_valid
+                    else f"Foreign key integrity check found {len(violation_list)} violation(s)"
+                )
+
+                return {
+                    "success": True,
+                    "message": message,
+                    "data": {
+                        "violations": violation_list,
+                        "is_valid": is_valid,
+                    },
+                }
+
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error verifying foreign keys: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def get_foreign_keys(self, table_name: str) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Retrieves the foreign key constraints defined on a specific table
+        using `PRAGMA foreign_key_list`.
+
+        ## Parameters
+
+        - `table_name` (`str`)
+          - Description: Table name to inspect for FK constraints.
+          - Constraints: Must pass `_validate_identifier`.
+          - Example: `"chat_messages"`
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "Foreign keys retrieved for 'chat_messages'",
+            "data": [
+                {
+                    "id": 0,
+                    "seq": 0,
+                    "table": "chat_threads",
+                    "from": "thread_id",
+                    "to": "thread_id",
+                    "on_update": "NO ACTION",
+                    "on_delete": "CASCADE",
+                    "match": "NONE"
+                }
+            ]
+        }
+        ```
+
+        ## Raises
+
+        - `ValueError`
+          - When `table_name` fails identifier validation.
+
+        ## Side Effects
+
+        - Performs a read-only query against SQLite metadata.
+
+        ## Debug Notes
+
+        - Returns empty list if no FKs are defined on the table.
+        - Use this to confirm FKs were applied correctly after `add_foreign_keys()`.
+
+        ## Customization
+
+        - Can be extended to return a structured summary grouped by constraint ID.
+        """
+        try:
+            valid_table = self._validate_identifier(table_name)
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"PRAGMA foreign_key_list({valid_table})")
+                fk_rows = cursor.fetchall()
+                fk_list = [dict(row) for row in fk_rows]
+
+                return {
+                    "success": True,
+                    "message": f"Foreign keys retrieved for '{valid_table}'",
+                    "data": fk_list,
+                }
+
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error retrieving foreign keys for {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
 
 def _initialize_store():
     """
@@ -955,7 +1537,9 @@ def _initialize_store():
     database_dir.mkdir(parents=True, exist_ok=True)
     bucket_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Ensured directories exist: {database_dir} and {bucket_dir}")
+    logger.info(
+        "Ensured directories exist: %s and %s", database_dir, bucket_dir
+    )
 
     required_dbs = [
         "main.db.sqlite3",
@@ -974,7 +1558,7 @@ def _initialize_store():
             # Connect to create db or ensure accessibility
             with sqlite3.connect(str(db_path), timeout=5):
                 pass
-            logger.info(f"Database initialized: {db_name}")
+            logger.info("Database initialized: %s", db_name)
 
             # Avoid recursive loop specifically on the logs DB
             if "logs.db" not in db_name:
@@ -988,7 +1572,7 @@ def _initialize_store():
                 )
 
         except sqlite3.Error as e:
-            logger.error(f"Failed to initialize database {db_name}: {e}")
+            logger.error("Failed to initialize database %s: %s", db_name, e)
             if "logs.db" not in db_name:
                 dr_logger.log(
                     "error",
