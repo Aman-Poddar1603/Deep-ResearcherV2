@@ -189,26 +189,35 @@ Uploaded filenames are replaced with a unique MD5 hash. Saved values in workspac
 
 ### `POST /workspace/create-with-assets`
 
-Create workspace and upload banner/icon in the same request (best for first-time create flow when `workspace_id` is not available yet).
+Create workspace and upload banner, icon, **and resource files** in the same multipart request (best for first-time create flow when `workspace_id` is not available yet).
 
 **Content-Type:** `multipart/form-data`
 
 **Form fields:**
 
-| Field                       | Type                                | Required | Notes                     |
-| --------------------------- | ----------------------------------- | -------- | ------------------------- |
-| `name`                      | string                              | ✅       | workspace name            |
-| `desc`                      | string                              | ✅       | workspace description     |
-| `icon`                      | string\|null                        | ❌       | optional text icon value  |
-| `accent_clr`                | string\|null                        | ❌       | color                     |
-| `banner_img`                | string\|null                        | ❌       | optional pre-set URL/text |
-| `connected_bucket_id`       | string\|null                        | ❌       |                           |
-| `ai_config`                 | `"auto"` \| `"local"` \| `"online"` | ❌       | default `auto`            |
-| `workspace_resources_id`    | string\|null                        | ❌       |                           |
-| `workspace_research_agents` | boolean                             | ❌       | default `true`            |
-| `workspace_chat_agents`     | boolean                             | ❌       | default `true`            |
-| `banner_file`               | file                                | ❌       | uploaded banner image     |
-| `icon_file`                 | file                                | ❌       | uploaded icon image       |
+| Field                       | Type                                | Required | Notes                                                           |
+| --------------------------- | ----------------------------------- | -------- | --------------------------------------------------------------- |
+| `name`                      | string                              | ✅       | workspace name                                                  |
+| `desc`                      | string                              | ✅       | workspace description                                           |
+| `icon`                      | string\|null                        | ❌       | optional text icon value                                        |
+| `accent_clr`                | string\|null                        | ❌       | color                                                           |
+| `banner_img`                | string\|null                        | ❌       | optional pre-set URL/text                                       |
+| `connected_bucket_id`       | string\|null                        | ❌       | required if uploading resource files                            |
+| `ai_config`                 | `"auto"` \| `"local"` \| `"online"` | ❌       | default `auto`                                                  |
+| `workspace_resources_id`    | string\|null                        | ❌       |                                                                 |
+| `workspace_research_agents` | boolean                             | ❌       | default `true`                                                  |
+| `workspace_chat_agents`     | boolean                             | ❌       | default `true`                                                  |
+| `banner_file`               | file                                | ❌       | uploaded banner image                                           |
+| `icon_file`                 | file                                | ❌       | uploaded icon image                                             |
+| `resource_files`            | file[] (multi)                      | ❌       | resource files to store in connected bucket; type-checked       |
+| `resource_created_by`       | string                              | ❌       | creator identifier for resource items (default `"system"`)      |
+| `resource_source`           | string\|null                        | ❌       | optional source label for resource items                        |
+| `resource_summary`          | string\|null                        | ❌       | optional summary applied to all resource items                  |
+
+> **Type validation:** Each file in `resource_files` must belong to a type category
+> permitted by the connected bucket's `allowed_file_types`. All files are validated
+> before any are written to disk (all-or-nothing). If `connected_bucket_id` is absent,
+> `resource_files` is silently ignored.
 
 **Response `201`** — `WorkspaceOut`
 
@@ -216,7 +225,57 @@ Create workspace and upload banner/icon in the same request (best for first-time
 
 1. Use this endpoint for first-time workspace creation when ID does not exist yet.
 2. If `banner_file` and/or `icon_file` are included, the response already contains updated `banner_img`/`icon` asset URLs.
-3. Use edit-mode upload APIs only after workspace is created.
+3. Pass `resource_files` (multiple) along with `connected_bucket_id` to pre-populate the bucket in a single call.
+4. Use the dedicated resource upload APIs only after workspace is created (edit mode).
+
+---
+
+### `POST /workspace/{workspace_id}/resources/upload`
+
+Upload a **single resource file** to the workspace's connected bucket and register it as a `BucketItem` linked to this workspace.
+
+The file type is validated against the bucket's `allowed_file_types` before saving.
+Returns `400` if the workspace has no connected bucket or if the file type is rejected.
+
+**Content-Type:** `multipart/form-data`
+
+| Field  | Type | Required |
+| ------ | ---- | -------- |
+| `file` | file | ✅       |
+
+**Query params:**
+
+| Param        | Type   | Required | Notes                               |
+| ------------ | ------ | -------- | ----------------------------------- |
+| `createdBy`  | string | ✅       | creator identifier                  |
+| `source`     | string | ❌       | origin label (URL, app name, etc.)  |
+| `summary`    | string | ❌       | short description of the resource   |
+
+**Response `201`** — `BucketItemRecord`
+
+---
+
+### `POST /workspace/{workspace_id}/resources/upload/bulk`
+
+Upload **multiple resource files** to the workspace's connected bucket in one request.
+All file types are validated against the bucket's `allowed_file_types` **before any file is saved** (all-or-nothing).
+Returns `400` if the workspace has no connected bucket or if any file type is rejected.
+
+**Content-Type:** `multipart/form-data`
+
+| Field   | Type    | Required |
+| ------- | ------- | -------- |
+| `files` | file[]  | ✅       |
+
+**Query params:**
+
+| Param        | Type   | Required | Notes                               |
+| ------------ | ------ | -------- | ----------------------------------- |
+| `createdBy`  | string | ✅       | creator identifier                  |
+| `source`     | string | ❌       | origin label                        |
+| `summary`    | string | ❌       | short description (shared)          |
+
+**Response `201`** — `BucketItemRecord[]`
 
 ---
 
@@ -245,8 +304,6 @@ Upload workspace icon and update `icon` with accessible URL.
 | `file` | file | ✅       |
 
 **Response `200`** — `WorkspaceOut`
-
----
 
 ---
 

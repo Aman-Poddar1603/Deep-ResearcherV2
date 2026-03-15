@@ -362,6 +362,112 @@ class BucketOrchestrator:
         self._sync_bucket_stats(bucket_id)
         return created
 
+    # ------------------------------------------------- workspace-linked uploads
+
+    # The 5 canonical bucket type names that may appear in allowed_file_types.
+    _CANONICAL_TYPES = frozenset(["image", "audio", "video", "files", "other"])
+
+    def _check_file_type_allowed(self, bucket: BucketRecord, file_format: str) -> None:
+        """
+        Raise ValueError if the file's type category is not permitted by the bucket.
+
+        `allowed_file_types` is a comma-separated string of canonical type names
+        (image, audio, video, files, other).  Using '*' or 'all' skips validation.
+        """
+        raw = bucket.allowed_file_types.strip().lower()
+        if raw in ("*", "all"):
+            return
+        allowed = {t.strip() for t in raw.split(",") if t.strip()}
+        # Only apply constraints that are recognisable canonical types.
+        valid_constraints = allowed & self._CANONICAL_TYPES
+        if not valid_constraints:
+            return  # No known constraints — allow through.
+        category = bucket_store._subfolder_for_format(file_format)
+        if category not in valid_constraints:
+            raise ValueError(
+                f"File type '{file_format}' (category '{category}') is not allowed "
+                f"in bucket '{bucket.name}'. Allowed types: "
+                f"{', '.join(sorted(valid_constraints))}."
+            )
+
+    def uploadFileToWorkspaceBucket(
+        self,
+        workspace_id: str,
+        bucket_id: str,
+        file_name: str,
+        file_format: str,
+        content: bytes,
+        created_by: str,
+        source: str | None = None,
+        summary: str | None = None,
+    ) -> BucketItemRecord:
+        """
+        Upload a file to a bucket, validate its type against allowed_file_types,
+        and record it as linked to the given workspace.
+        """
+        bucket = self.getBucket(bucket_id)
+        self._check_file_type_allowed(bucket, file_format)
+        rel_path = bucket_store.save_file(bucket_id, file_format, file_name, content)
+        payload = BucketItemCreate(
+            bucket_id=bucket_id,
+            file_name=file_name,
+            file_path=rel_path,
+            file_format=file_format,
+            file_size=len(content),
+            created_by=created_by,
+            source=source,
+            summary=summary,
+            connected_workspace_ids=workspace_id,
+        )
+        return self.createBucketItem(payload)
+
+    def uploadFilesToWorkspaceBucket(
+        self,
+        workspace_id: str,
+        bucket_id: str,
+        files: list[tuple[str, str, bytes]],
+        created_by: str,
+        source: str | None = None,
+        summary: str | None = None,
+    ) -> list[BucketItemRecord]:
+        """
+        Upload multiple files to a bucket, validating every file type against
+        allowed_file_types before any are written to disk, then link all items
+        to the given workspace.
+
+        `files` is a list of (file_name, file_format, content) tuples.
+        """
+        bucket = self.getBucket(bucket_id)
+        # Validate ALL files first (fail-fast, nothing saved if any type is invalid).
+        for file_name, file_format, _ in files:
+            self._check_file_type_allowed(bucket, file_format)
+
+        created: list[BucketItemRecord] = []
+        for file_name, file_format, content in files:
+            rel_path = bucket_store.save_file(bucket_id, file_format, file_name, content)
+            payload = BucketItemCreate(
+                bucket_id=bucket_id,
+                file_name=file_name,
+                file_path=rel_path,
+                file_format=file_format,
+                file_size=len(content),
+                created_by=created_by,
+                source=source,
+                summary=summary,
+                connected_workspace_ids=workspace_id,
+            )
+            record = BucketItemRecord(**payload.model_dump(mode="python"))
+            data = self._db_payload(record.model_dump(mode="python"))
+            result = buckets_db_manager.insert(self.item_table, data)
+            if not result.get("success"):
+                raise ValueError(
+                    result.get("message") or f"Failed to insert {file_name}"
+                )
+            created.append(self.getBucketItem(data["id"]))
+
+        self._sync_bucket_stats(bucket_id)
+        return created
+
     def updateBucketItem(
         self, item_id: str, payload: BucketItemCreate
     ) -> BucketItemRecord:

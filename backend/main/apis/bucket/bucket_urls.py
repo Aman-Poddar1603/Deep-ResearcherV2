@@ -89,45 +89,12 @@ def get_asset(asset_path: str) -> FileResponse:
         _raise_bucket_http_error(f"Fetch asset {asset_path}", exc)
 
 
-@router.get("/{bucket_id}", response_model=BucketRecord)
-def get_bucket(bucket_id: str) -> BucketRecord:
-    try:
-        return bucket_view.getBucket(bucket_id)
-    except Exception as exc:
-        _raise_bucket_http_error(f"Fetch bucket {bucket_id}", exc)
-
-
 @router.post("/", response_model=BucketRecord, status_code=status.HTTP_201_CREATED)
 def create_bucket(payload: BucketCreate) -> BucketRecord:
     try:
         return bucket_view.createBucket(payload)
     except Exception as exc:
         _raise_bucket_http_error("Create bucket", exc)
-
-
-@router.put("/{bucket_id}", response_model=BucketRecord)
-def replace_bucket(bucket_id: str, payload: BucketCreate) -> BucketRecord:
-    try:
-        return bucket_view.updateBucket(bucket_id, payload)
-    except Exception as exc:
-        _raise_bucket_http_error(f"Replace bucket {bucket_id}", exc)
-
-
-@router.patch("/{bucket_id}", response_model=BucketRecord)
-def patch_bucket(bucket_id: str, payload: BucketPatch) -> BucketRecord:
-    try:
-        return bucket_view.patchBucket(bucket_id, payload)
-    except Exception as exc:
-        _raise_bucket_http_error(f"Patch bucket {bucket_id}", exc)
-
-
-@router.delete("/{bucket_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_bucket(bucket_id: str) -> Response:
-    try:
-        bucket_view.deleteBucket(bucket_id)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except Exception as exc:
-        _raise_bucket_http_error(f"Delete bucket {bucket_id}", exc)
 
 
 @router.post(
@@ -291,3 +258,36 @@ def delete_bucket_item(item_id: str) -> Response:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_bucket_http_error(f"Delete bucket item {item_id}", exc)
+
+
+@router.get("/{bucket_id}", response_model=BucketRecord)
+def get_bucket(bucket_id: str) -> BucketRecord:
+    try:
+        return bucket_view.getBucket(bucket_id)
+    except Exception as exc:
+        _raise_bucket_http_error(f"Fetch bucket {bucket_id}", exc)
+
+
+@router.put("/{bucket_id}", response_model=BucketRecord)
+def replace_bucket(bucket_id: str, payload: BucketCreate) -> BucketRecord:
+    try:
+        return bucket_view.updateBucket(bucket_id, payload)
+    except Exception as exc:
+        _raise_bucket_http_error(f"Replace bucket {bucket_id}", exc)
+
+
+@router.patch("/{bucket_id}", response_model=BucketRecord)
+def patch_bucket(bucket_id: str, payload: BucketPatch) -> BucketRecord:
+    try:
+        return bucket_view.patchBucket(bucket_id, payload)
+    except Exception as exc:
+        _raise_bucket_http_error(f"Patch bucket {bucket_id}", exc)
+
+
+@router.delete("/{bucket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bucket(bucket_id: str) -> Response:
+    try:
+        bucket_view.deleteBucket(bucket_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as exc:
+        _raise_bucket_http_error(f"Delete bucket {bucket_id}", exc)

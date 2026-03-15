@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { useFilePicker } from 'use-file-picker'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -211,7 +212,7 @@ export default function NewResearch() {
       })
     } catch (error) {
       console.error('Failed to start research', error)
-      alert(error instanceof Error ? error.message : 'Failed to start research')
+      toast.error(error instanceof Error ? error.message : 'Failed to start research')
     } finally {
       setIsStartingResearch(false)
     }

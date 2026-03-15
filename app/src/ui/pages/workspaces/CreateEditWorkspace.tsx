@@ -70,6 +70,9 @@ import {
   formatBucketAllowedTypes,
   getBucketAllowedTypeLabel,
   serializeBucketAllowedTypes,
+  getAcceptExtensionsForBucketTypes,
+  getAcceptedExtensionLabels,
+  validateFilesAgainstBucket,
   type BucketAllowedType,
 } from "@/lib/bucket-types";
 
@@ -548,10 +551,32 @@ const CreateEditWorkspace = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
+
+      // Validate files against the selected bucket's allowed types
+      if (selectedBucket) {
+        const validation = validateFilesAgainstBucket(newFiles, selectedBucket.allowedFileTypes);
+        if (!validation.valid) {
+          toast.error(validation.rejectedReason);
+          // Only add the valid files (filter out rejected)
+          const validFiles = newFiles.filter((f) => !validation.rejectedFiles.includes(f.name));
+          if (validFiles.length > 0) {
+            setFormData({
+              ...formData,
+              resources: [...formData.resources, ...validFiles],
+            });
+          }
+          // Reset the input
+          e.target.value = "";
+          return;
+        }
+      }
+
       setFormData({
         ...formData,
         resources: [...formData.resources, ...newFiles],
       });
+      // Reset the input so the same file can be re-added if removed
+      e.target.value = "";
     }
   };
 
@@ -969,7 +994,11 @@ const CreateEditWorkspace = () => {
                     {filteredBuckets.map((bucketOption) => (
                       <button
                         key={bucketOption.id}
-                        onClick={() => setFormData({ ...formData, bucket: bucketOption.id })}
+                        onClick={() => {
+                          if (formData.bucket !== bucketOption.id) {
+                            setFormData({ ...formData, bucket: bucketOption.id, resources: [] });
+                          }
+                        }}
                         className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-2 ${formData.bucket === bucketOption.id
                           ? "bg-primary text-primary-foreground scale-110 shadow-lg z-10"
                           : "bg-muted hover:bg-muted-foreground/10 text-muted-foreground"
@@ -1160,39 +1189,62 @@ const CreateEditWorkspace = () => {
                   <div>
                     <CardTitle className="text-2xl">Add Resources</CardTitle>
                     <CardDescription>
-                      Upload PDF, Word docs, Excel files, or paste URLs
-                      (optional)
+                      {selectedBucket
+                        ? `Upload ${formatBucketAllowedTypes(selectedBucket.allowedFileTypes)} files to your workspace (optional)`
+                        : "Select a storage bucket in Step 3 to upload resources (optional)"}
                     </CardDescription>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <label
-                  htmlFor="resource-upload"
-                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-muted-foreground/30 rounded-lg cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-all"
-                >
-                  <Upload className="w-10 h-10 mb-2 text-muted-foreground" />
-                  <p className="text-sm font-medium">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    PDF, DOC, DOCX, XLS, XLSX
-                  </p>
-                  <input
-                    id="resource-upload"
-                    type="file"
-                    className="hidden"
-                    multiple
-                    accept=".pdf,.doc,.docx,.xls,.xlsx"
-                    onChange={handleFileUpload}
-                  />
-                </label>
+                {!selectedBucket ? (
+                  <div className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-muted-foreground/20 rounded-lg bg-muted/10">
+                    <Database className="w-10 h-10 mb-2 text-muted-foreground/40" />
+                    <p className="text-sm font-medium text-muted-foreground">
+                      No storage bucket selected
+                    </p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">
+                      Go back to Step 3 and select a bucket to enable resource uploads
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <label
+                      htmlFor="resource-upload"
+                      className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-muted-foreground/30 rounded-lg cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-all"
+                    >
+                      <Upload className="w-10 h-10 mb-2 text-muted-foreground" />
+                      <p className="text-sm font-medium">
+                        Click to upload or drag and drop
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {getAcceptedExtensionLabels(selectedBucket.allowedFileTypes)}
+                      </p>
+                      <input
+                        id="resource-upload"
+                        type="file"
+                        className="hidden"
+                        multiple
+                        accept={getAcceptExtensionsForBucketTypes(selectedBucket.allowedFileTypes)}
+                        onChange={handleFileUpload}
+                      />
+                    </label>
+
+                    {/* Bucket info badge */}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Database className="w-3 h-3" />
+                      <span>Uploading to: <span className="font-medium text-foreground">{selectedBucket.name}</span></span>
+                      <span className="text-muted-foreground/40">•</span>
+                      <span>Accepts: <span className="font-medium text-foreground">{formatBucketAllowedTypes(selectedBucket.allowedFileTypes)}</span></span>
+                    </div>
+                  </>
+                )}
 
                 {/* Uploaded Files List */}
                 {formData.resources.length > 0 && (
                   <div className="space-y-2">
                     <h4 className="text-sm font-medium text-muted-foreground">
-                      Uploaded Files
+                      Uploaded Files ({formData.resources.length})
                     </h4>
                     <div className="space-y-2">
                       {formData.resources.map((file, index) => (

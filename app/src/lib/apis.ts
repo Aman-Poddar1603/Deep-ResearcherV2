@@ -155,6 +155,10 @@ export interface WorkspaceCreateWithAssetsRequest {
   workspace_chat_agents?: boolean;
   banner_file?: File | null;
   icon_file?: File | null;
+  resource_files?: File[];
+  resource_created_by?: string;
+  resource_source?: string;
+  resource_summary?: string;
 }
 
 export type WorkspacePatchRequest = Partial<WorkspaceCreateRequest>;
@@ -253,6 +257,20 @@ export const createWorkspaceRecordWithAssets = async (
   if (payload.icon_file) {
     formData.append("icon_file", payload.icon_file, payload.icon_file.name);
   }
+  if (payload.resource_files && payload.resource_files.length > 0) {
+    for (const file of payload.resource_files) {
+      formData.append("resource_files", file, file.name);
+    }
+  }
+  if (payload.resource_created_by) {
+    formData.append("resource_created_by", payload.resource_created_by);
+  }
+  if (payload.resource_source) {
+    formData.append("resource_source", payload.resource_source);
+  }
+  if (payload.resource_summary) {
+    formData.append("resource_summary", payload.resource_summary);
+  }
 
   return requestData(api.post<WorkspaceRecord>("/workspace/create-with-assets", formData));
 };
@@ -306,6 +324,53 @@ export const uploadWorkspaceIconRecord = async (
   );
 };
 
+// Workspace Resource Upload APIs
+export interface WorkspaceResourceUploadQuery {
+  createdBy: string;
+  source?: string;
+  summary?: string;
+}
+
+export const uploadWorkspaceResource = async (
+  workspaceId: string,
+  file: File,
+  query: WorkspaceResourceUploadQuery,
+): Promise<BucketItemRecord> => {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return requestData(
+    api.post<BucketItemRecord>(
+      withQuery(`/workspace/${encodeURIComponent(workspaceId)}/resources/upload`, {
+        createdBy: query.createdBy,
+        source: query.source,
+        summary: query.summary,
+      }),
+      formData,
+    ),
+  );
+};
+
+export const uploadWorkspaceResourcesBulk = async (
+  workspaceId: string,
+  files: File[],
+  query: WorkspaceResourceUploadQuery,
+): Promise<BucketItemRecord[]> => {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file, file.name);
+  }
+  return requestData(
+    api.post<BucketItemRecord[]>(
+      withQuery(`/workspace/${encodeURIComponent(workspaceId)}/resources/upload/bulk`, {
+        createdBy: query.createdBy,
+        source: query.source,
+        summary: query.summary,
+      }),
+      formData,
+    ),
+  );
+};
+
 export const deleteWorkspaceRecord = async (workspaceId: string): Promise<void> => {
   await requestVoid(api.delete(`/workspace/${encodeURIComponent(workspaceId)}`));
 };
@@ -326,6 +391,8 @@ export interface ResearchRecord {
   research_template_id: string | null;
   custom_instructions: string | null;
   prompt_order: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface ResearchCreateRequest {
@@ -1359,26 +1426,31 @@ export const createWorkspace = async (
   payload: CreateWorkspacePayload,
 ): Promise<WorkspaceOut> => {
   const description = payload.description?.trim() || `${payload.name} workspace`;
-  const hasAssetFiles = Boolean(payload.bannerImage || payload.customIcon);
+  const hasAssetFiles = Boolean(payload.bannerImage || payload.customIcon || (payload.resources && payload.resources.length > 0));
+  const bucketId = payload.connectedBucketId ?? payload.bucket ?? null;
   const created = hasAssetFiles
     ? await createWorkspaceRecordWithAssets({
       name: payload.name,
       desc: description,
       icon: payload.icon ?? null,
       accent_clr: payload.accentColor ?? null,
-      connected_bucket_id: payload.connectedBucketId ?? payload.bucket ?? null,
+      connected_bucket_id: bucketId,
       ai_config: toWorkspaceAiConfig(payload.aiMode),
       workspace_research_agents: payload.enableResearch ?? true,
       workspace_chat_agents: payload.enableChat ?? true,
       banner_file: payload.bannerImage ?? null,
       icon_file: payload.customIcon ?? null,
+      resource_files: (payload.resources && payload.resources.length > 0 && bucketId)
+        ? payload.resources
+        : undefined,
+      resource_created_by: "local-user",
     })
     : await createWorkspaceRecord({
       name: payload.name,
       desc: description,
       icon: payload.icon ?? null,
       accent_clr: payload.accentColor ?? null,
-      connected_bucket_id: payload.connectedBucketId ?? payload.bucket ?? null,
+      connected_bucket_id: bucketId,
       ai_config: toWorkspaceAiConfig(payload.aiMode),
       workspace_research_agents: payload.enableResearch ?? true,
       workspace_chat_agents: payload.enableChat ?? true,

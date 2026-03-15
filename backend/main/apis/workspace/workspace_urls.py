@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Literal, NoReturn
 
 from fastapi import (
@@ -11,11 +12,13 @@ from fastapi import (
     status,
 )
 
+from main.apis.models.bucket import BucketItemRecord
 from main.apis.models.workspaces import (
     WorkspaceCreate,
     WorkspaceOut,
     WorkspacePatch,
 )
+from main.src.bucket import bucket_orchestrator as _bucket_orch
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.versionManagement import get_raw_version
 from main.src.workspace import workspace_orchestrator
@@ -24,6 +27,7 @@ from main.src.workspace import workspace_orchestrator
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 workspace_view = workspace_orchestrator.WorkspaceOrchestrator()
+bucket_view = _bucket_orch.BucketOrchestrator()
 
 # Logger
 LOG_SOURCE = "system"
@@ -115,6 +119,98 @@ def get_all_workspaces(
         )
     except Exception as exc:
         _raise_workspace_http_error("Fetch all workspaces", exc)
+
+
+@router.post(
+    "/{workspace_id}/resources/upload",
+    response_model=BucketItemRecord,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_workspace_resource(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    created_by: str = Query(..., alias="createdBy"),
+    source: str | None = Query(default=None),
+    summary: str | None = Query(default=None),
+) -> BucketItemRecord:
+    """
+    Upload a single resource file to the workspace's connected bucket.
+    The file type is validated against the bucket's allowed_file_types before saving.
+    """
+    try:
+        _log_system_workspace_event(
+            f"Uploading resource to workspace {workspace_id} bucket", level="info"
+        )
+        workspace = workspace_view.getWorkspace(workspace_id)
+        if not workspace.connected_bucket_id:
+            raise ValueError(
+                "Workspace has no connected bucket. "
+                "Assign a bucket before uploading resources."
+            )
+        content = await file.read()
+        file_name = file.filename or "resource.bin"
+        file_format = Path(file_name).suffix.lstrip(".").lower() or "bin"
+        return bucket_view.uploadFileToWorkspaceBucket(
+            workspace_id=workspace_id,
+            bucket_id=workspace.connected_bucket_id,
+            file_name=file_name,
+            file_format=file_format,
+            content=content,
+            created_by=created_by,
+            source=source,
+            summary=summary,
+        )
+    except Exception as exc:
+        _raise_workspace_http_error(
+            f"Upload resource to workspace {workspace_id}", exc
+        )
+
+
+@router.post(
+    "/{workspace_id}/resources/upload/bulk",
+    response_model=list[BucketItemRecord],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_workspace_resources_bulk(
+    workspace_id: str,
+    files: list[UploadFile] = File(...),
+    created_by: str = Query(..., alias="createdBy"),
+    source: str | None = Query(default=None),
+    summary: str | None = Query(default=None),
+) -> list[BucketItemRecord]:
+    """
+    Upload multiple resource files to the workspace's connected bucket.
+    ALL file types are validated against the bucket's allowed_file_types BEFORE
+    any file is written to disk (all-or-nothing).
+    """
+    try:
+        _log_system_workspace_event(
+            f"Bulk uploading resources to workspace {workspace_id} bucket", level="info"
+        )
+        workspace = workspace_view.getWorkspace(workspace_id)
+        if not workspace.connected_bucket_id:
+            raise ValueError(
+                "Workspace has no connected bucket. "
+                "Assign a bucket before uploading resources."
+            )
+        file_tuples: list[tuple[str, str, bytes]] = []
+        for upload in files:
+            content = await upload.read()
+            file_name = upload.filename or "resource.bin"
+            file_format = Path(file_name).suffix.lstrip(".").lower() or "bin"
+            file_tuples.append((file_name, file_format, content))
+        return bucket_view.uploadFilesToWorkspaceBucket(
+            workspace_id=workspace_id,
+            bucket_id=workspace.connected_bucket_id,
+            files=file_tuples,
+            created_by=created_by,
+            source=source,
+            summary=summary,
+        )
+    except Exception as exc:
+        _raise_workspace_http_error(
+            f"Bulk upload resources to workspace {workspace_id}", exc
+        )
 
 
 @router.post(
@@ -217,11 +313,19 @@ async def create_workspace_with_assets(
     workspace_chat_agents: bool = Form(default=True),
     banner_file: UploadFile | None = File(default=None),
     icon_file: UploadFile | None = File(default=None),
+    resource_files: list[UploadFile] | None = File(default=None),
+    resource_created_by: str = Form(default="system"),
+    resource_source: str | None = Form(default=None),
+    resource_summary: str | None = Form(default=None),
 ) -> WorkspaceOut:
     """
-    Create workspace and optionally upload banner/icon in the same request.
+    Create a workspace and optionally upload banner, icon, and resource files
+    in the same multipart request.
 
-    This is intended for first-time create flow where workspace_id is not known yet.
+    Resource files are stored in the workspace's connected_bucket_id bucket.
+    Each file type is validated against the bucket's allowed_file_types before
+    any file is written to disk.  If connected_bucket_id is not provided the
+    resource_files field is silently ignored.
     """
     try:
         payload = WorkspaceCreate(
@@ -254,6 +358,23 @@ async def create_workspace_with_assets(
                     workspace_id=workspace.id,
                     file_name=icon_file.filename or "icon.bin",
                     content=icon_content,
+                )
+
+        if resource_files and workspace.connected_bucket_id:
+            file_tuples: list[tuple[str, str, bytes]] = []
+            for upload in resource_files:
+                content = await upload.read()
+                file_name = upload.filename or "resource.bin"
+                file_format = Path(file_name).suffix.lstrip(".").lower() or "bin"
+                file_tuples.append((file_name, file_format, content))
+            if file_tuples:
+                bucket_view.uploadFilesToWorkspaceBucket(
+                    workspace_id=workspace.id,
+                    bucket_id=workspace.connected_bucket_id,
+                    files=file_tuples,
+                    created_by=resource_created_by,
+                    source=resource_source,
+                    summary=resource_summary,
                 )
 
         return workspace
