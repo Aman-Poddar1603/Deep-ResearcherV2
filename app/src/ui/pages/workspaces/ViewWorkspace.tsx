@@ -68,12 +68,14 @@ import { toast } from '@/components/ui/sonner'
 import { cn, resolveApiAssetUrl, formatDate, formatRelativeTime, truncateFileName, formatBytes } from '@/lib/utils'
 import {
   getWorkspaceRecord,
+  getBucket,
   listResearchRecords,
   listChatThreads,
   listBucketItems,
   uploadBucketFiles,
   deleteWorkspaceRecord,
   type WorkspaceRecord,
+  type BucketRecord,
   type ResearchRecord,
   type ChatThreadRecord,
   type BucketItemRecord,
@@ -306,6 +308,7 @@ const ViewWorkspace = () => {
   const [researches, setResearches] = useState<ResearchRecord[]>([])
   const [chatThreads, setChatThreads] = useState<ChatThreadRecord[]>([])
   const [files, setFiles] = useState<BucketItemRecord[]>([])
+  const [bucket, setBucket] = useState<BucketRecord | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false)
@@ -313,7 +316,7 @@ const ViewWorkspace = () => {
   const [confirmCode, setConfirmCode] = useState('')
   const [userCodeInput, setUserCodeInput] = useState('')
   const [accentColor, setAccentColor] = useState('#C084FC')
-  
+
   // Pagination for files
   const [filesPage, setFilesPage] = useState(1)
   const [filesSize, setFilesSize] = useState(20)
@@ -339,7 +342,8 @@ const ViewWorkspace = () => {
         setChatThreads(chatPage.items)
 
         if (ws.connected_bucket_id) {
-          // Initial load will be handled by the separate useEffect
+          const bucketData = await getBucket(ws.connected_bucket_id)
+          setBucket(bucketData)
         }
       } catch (err) {
         console.error('Failed to load workspace:', err)
@@ -354,7 +358,7 @@ const ViewWorkspace = () => {
   // Separate effect for loading files when pagination changes
   useEffect(() => {
     if (!id || !workspace?.connected_bucket_id) return
-    
+
     const loadFiles = async () => {
       setIsFilesLoading(true)
       try {
@@ -374,7 +378,7 @@ const ViewWorkspace = () => {
         setIsFilesLoading(false)
       }
     }
-    
+
     loadFiles()
   }, [id, workspace?.connected_bucket_id, filesPage, filesSize])
 
@@ -415,7 +419,7 @@ const ViewWorkspace = () => {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
-  
+
   const handleDownload = (file: BucketItemRecord) => {
     // Correct pattern is /bucket/assets/{file_path}
     const assetUrl = resolveApiAssetUrl(`/bucket/assets/${file.file_path}`)
@@ -730,8 +734,21 @@ const ViewWorkspace = () => {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className={accent.text}>Resources</CardTitle>
-                <CardDescription>Files in this workspace's storage bucket</CardDescription>
+                <CardTitle className={cn("flex items-center gap-2", accent.text)}>
+                  Resources
+                  {bucket && (
+                    <span className="text-xs font-normal px-2 py-0.5 rounded bg-primary/10 border border-primary/20 text-muted-foreground">
+                      Bucket: {bucket.name}
+                    </span>
+                  )}
+                </CardTitle>
+                <CardDescription className="flex flex-col gap-1 mt-1">
+                  {bucket && (
+                    <span className="text-[10px] uppercase tracking-wider opacity-70">
+                      Allowed: {bucket.allowed_file_types.split(',').join(' • ')}
+                    </span>
+                  )}
+                </CardDescription>
               </div>
               <div className="flex gap-2">
                 {workspace.connected_bucket_id && (
@@ -747,7 +764,7 @@ const ViewWorkspace = () => {
                     ) : (
                       <Upload className="w-4 h-4" />
                     )}
-                    {isUploading ? 'Uploadingâ€¦' : 'Upload Files'}
+                    {isUploading ? 'Uploading' : 'Upload Files'}
                   </Button>
                 )}
               </div>
@@ -765,7 +782,7 @@ const ViewWorkspace = () => {
                 <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-3 relative", isFilesLoading && "opacity-50 pointer-events-none")}>
                   {isFilesLoading && (
                     <div className="absolute inset-x-0 -top-1 flex justify-center z-10">
-                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
                     </div>
                   )}
                   {files.map((file) => (
@@ -825,7 +842,7 @@ const ViewWorkspace = () => {
 
                 {/* Pagination Controls */}
                 <div className="flex items-center justify-between pt-4 border-t border-muted-foreground/10">
-                   <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">Show</span>
                       <Select

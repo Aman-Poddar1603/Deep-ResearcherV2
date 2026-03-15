@@ -344,7 +344,7 @@ export const uploadWorkspaceResource = async (
   return requestData(
     api.post<BucketItemRecord>(
       withQuery(`/workspace/${encodeURIComponent(workspaceId)}/resources/upload`, {
-        createdBy: query.createdBy,
+        created_by: query.createdBy,
         source: query.source,
         summary: query.summary,
       }),
@@ -365,7 +365,7 @@ export const uploadWorkspaceResourcesBulk = async (
   return requestData(
     api.post<BucketItemRecord[]>(
       withQuery(`/workspace/${encodeURIComponent(workspaceId)}/resources/upload/bulk`, {
-        createdBy: query.createdBy,
+        created_by: query.createdBy,
         source: query.source,
         summary: query.summary,
       }),
@@ -1124,7 +1124,7 @@ export const uploadBucketFile = async (
   return requestData(
     api.post<BucketItemRecord>(
       withQuery(`/bucket/${encodeURIComponent(bucketId)}/upload`, {
-        createdBy: query.createdBy || query.created_by,
+        created_by: query.createdBy || query.created_by,
         source: query.source,
         summary: query.summary,
         connectedWorkspaceIds: query.connectedWorkspaceIds,
@@ -1150,7 +1150,7 @@ export const uploadBucketFiles = async (
   return requestData(
     api.post<BucketItemRecord[]>(
       withQuery(`/bucket/${encodeURIComponent(bucketId)}/upload/bulk`, {
-        createdBy: query.createdBy || query.created_by,
+        created_by: query.createdBy || query.created_by,
         source: query.source,
         summary: query.summary,
         connectedWorkspaceIds: query.connectedWorkspaceIds,
