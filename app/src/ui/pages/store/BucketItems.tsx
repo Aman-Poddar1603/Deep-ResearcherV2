@@ -67,14 +67,14 @@ const formatBytes = (bytes: number): string => {
 
 
 const openAsset = (item: BucketItemRecord) => {
-  const url = resolveApiAssetUrl(item.file_path)
+  const url = resolveApiAssetUrl(`/bucket/items/${item.id}/asset`)
   if (url) {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
 const downloadAsset = (item: BucketItemRecord) => {
-  const url = resolveApiAssetUrl(item.file_path)
+  const url = resolveApiAssetUrl(`/bucket/items/${item.id}/asset`)
   if (!url) return
   const link = document.createElement('a')
   link.href = url
@@ -334,11 +334,11 @@ const BucketItems = () => {
                   )}
                 >
                   <div className="relative aspect-4/3 bg-muted/30">
-                    {currentType === 'image' && resolveApiAssetUrl(asset.file_path) ? (
+                    {currentType === 'image' ? (
                       <img
-                        src={resolveApiAssetUrl(asset.file_path) || undefined}
-                        alt={asset.file_name}
-                        className="w-full h-full object-cover"
+                        src={resolveApiAssetUrl(`/bucket/items/${asset.id}/asset`) || undefined}
+                        alt=""
+                        className="w-full h-full object-cover rounded-t-lg"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
@@ -403,8 +403,8 @@ const BucketItems = () => {
                   />
 
                   <div className="size-12 rounded-lg bg-muted/50 flex items-center justify-center shrink-0 overflow-hidden">
-                    {currentType === 'image' && resolveApiAssetUrl(asset.file_path) ? (
-                      <img src={resolveApiAssetUrl(asset.file_path) || undefined} alt="" className="w-full h-full object-cover" />
+                    {currentType === 'image' ? (
+                      <img src={resolveApiAssetUrl(`/bucket/items/${asset.id}/asset`) || undefined} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <Icon className={cn("size-6", config.color)} />
                     )}

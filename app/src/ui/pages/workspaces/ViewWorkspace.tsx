@@ -169,6 +169,26 @@ const normalizeAccentColor = (color?: string | null) => {
   return '#C084FC'
 }
 
+const getAcceptAttribute = (allowedTypes?: string | null) => {
+  if (!allowedTypes) return undefined;
+  
+  const typeMap: Record<string, string> = {
+    image: "image/*",
+    audio: "audio/*",
+    video: "video/*",
+    files: ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.json,.zip",
+    other: "*/*",
+  };
+
+  const selected = allowedTypes
+    .split(',')
+    .map(t => typeMap[t.trim().toLowerCase()])
+    .filter(Boolean)
+    .join(',');
+    
+  return selected || undefined;
+}
+
 
 
 const getFileIconComponent = (format: string, accentClass: string) => {
@@ -421,8 +441,8 @@ const ViewWorkspace = () => {
   }
 
   const handleDownload = (file: BucketItemRecord) => {
-    // Correct pattern is /bucket/assets/{file_path}
-    const assetUrl = resolveApiAssetUrl(`/bucket/assets/${file.file_path}`)
+    // Direct endpoint: /bucket/items/{item_id}/asset
+    const assetUrl = resolveApiAssetUrl(`/bucket/items/${file.id}/asset`)
     if (assetUrl) {
       const link = document.createElement('a')
       link.href = assetUrl
@@ -434,7 +454,7 @@ const ViewWorkspace = () => {
   }
 
   const handleView = (file: BucketItemRecord) => {
-    const assetUrl = resolveApiAssetUrl(`/bucket/assets/${file.file_path}`)
+    const assetUrl = resolveApiAssetUrl(`/bucket/items/${file.id}/asset`)
     if (assetUrl) {
       window.open(assetUrl, '_blank')
     }
@@ -502,6 +522,7 @@ const ViewWorkspace = () => {
         type="file"
         multiple
         className="hidden"
+        accept={getAcceptAttribute(bucket?.allowed_file_types)}
         onChange={handleUploadFiles}
       />
 
