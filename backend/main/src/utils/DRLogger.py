@@ -24,6 +24,7 @@ VALID_MODULES: List[str] = [
     "TOOLS",
     "UTILS",
     "MIGRATIONS",
+    "BACKGROUND_TASKS",
 ]
 
 
@@ -140,6 +141,7 @@ class DRLogger:
                 "TOOLS",
                 "UTILS",
                 "MIGRATIONS",
+                "BACKGROUND_TASKS",
             ]
             ```
 
