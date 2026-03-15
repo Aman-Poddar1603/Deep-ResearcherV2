@@ -15,8 +15,10 @@ from fastapi import (
 from main.apis.models.bucket import BucketItemRecord
 from main.apis.models.workspaces import (
     WorkspaceCreate,
+    WorkspaceListResponse,
     WorkspaceOut,
     WorkspacePatch,
+    WorkspaceResourceStats,
 )
 from main.src.bucket import bucket_orchestrator as _bucket_orch
 from main.src.utils.DRLogger import dr_logger
@@ -90,7 +92,7 @@ def _raise_workspace_http_error(action: str, exc: Exception) -> NoReturn:
     ) from exc
 
 
-@router.get("/", response_model=list[WorkspaceOut], status_code=status.HTTP_200_OK)
+@router.get("/", response_model=WorkspaceListResponse, status_code=status.HTTP_200_OK)
 def get_all_workspaces(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=200, ge=1, le=500),
@@ -104,7 +106,7 @@ def get_all_workspaces(
         default="updated_at", alias="sortBy"
     ),
     sort_order: Literal["asc", "desc"] = Query(default="desc", alias="sortOrder"),
-) -> list[WorkspaceOut]:
+) -> WorkspaceListResponse:
     try:
         _log_system_workspace_event("Fetching all workspaces API invoked", level="info")
         return workspace_view.getAllWorkspaces(
@@ -119,6 +121,23 @@ def get_all_workspaces(
         )
     except Exception as exc:
         _raise_workspace_http_error("Fetch all workspaces", exc)
+
+
+@router.get(
+    "/{workspace_id}/resources/stats",
+    response_model=WorkspaceResourceStats,
+    status_code=status.HTTP_200_OK,
+)
+def get_workspace_resource_stats(workspace_id: str) -> WorkspaceResourceStats:
+    try:
+        _log_system_workspace_event(
+            f"Fetching resource stats for workspace {workspace_id}", level="info"
+        )
+        return workspace_view.getWorkspaceResourceStats(workspace_id)
+    except Exception as exc:
+        _raise_workspace_http_error(
+            f"Fetch resource stats for workspace {workspace_id}", exc
+        )
 
 
 @router.post(

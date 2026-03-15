@@ -1,3 +1,4 @@
+import json
 import math
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -49,6 +50,25 @@ class BucketOrchestrator:
             except ValueError:
                 pass
         return datetime.min
+
+    def _parse_connected_workspace_ids(self, value: object) -> set[str]:
+        if value is None or not isinstance(value, str):
+            return set()
+
+        normalized = value.strip()
+        if not normalized:
+            return set()
+
+        try:
+            parsed = json.loads(normalized)
+        except json.JSONDecodeError:
+            return {item.strip() for item in normalized.split(",") if item.strip()}
+
+        if isinstance(parsed, list):
+            return {str(item).strip() for item in parsed if str(item).strip()}
+        if isinstance(parsed, str):
+            return {item.strip() for item in parsed.split(",") if item.strip()}
+        return set()
 
     def _fetch_one(
         self, table_name: str, where: dict[str, Any], not_found: str
@@ -206,6 +226,7 @@ class BucketOrchestrator:
         page: int = 1,
         size: int = 20,
         bucket_id: str | None = None,
+        workspace_id: str | None = None,
         file_format: str | None = None,
         source: str | None = None,
         created_by: str | None = None,
@@ -248,6 +269,13 @@ class BucketOrchestrator:
         if file_path_contains:
             term = file_path_contains.strip().lower()
             rows = [row for row in rows if term in (row.file_path or "").lower()]
+        if workspace_id:
+            rows = [
+                row
+                for row in rows
+                if workspace_id
+                in self._parse_connected_workspace_ids(row.connected_workspace_ids)
+            ]
 
         reverse_order = sort_order == "desc"
         if sort_by == "created_at":

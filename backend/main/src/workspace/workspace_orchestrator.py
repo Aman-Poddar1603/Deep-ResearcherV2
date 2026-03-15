@@ -1,9 +1,18 @@
+import json
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from main.apis.models.workspaces import WorkspaceCreate, WorkspaceOut, WorkspacePatch
-from main.src.store.DBManager import main_db_manager
+from main.apis.models.workspaces import (
+    WorkspaceCreate,
+    WorkspaceListItem,
+    WorkspaceListResponse,
+    WorkspaceOut,
+    WorkspacePatch,
+    WorkspaceResourceStats,
+)
+from main.src.store.DBManager import buckets_db_manager, main_db_manager
 from main.src.bucket.bucket_store import bucket_store
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.version_constants import get_raw_version
@@ -116,6 +125,72 @@ class WorkspaceOrchestrator:
             except ValueError:
                 pass
         return datetime.min
+
+    def _parse_connected_workspace_ids(self, value: object) -> set[str]:
+        if value is None:
+            return set()
+        if not isinstance(value, str):
+            return set()
+
+        normalized = value.strip()
+        if not normalized:
+            return set()
+
+        try:
+            parsed = json.loads(normalized)
+        except json.JSONDecodeError:
+            return {item.strip() for item in normalized.split(",") if item.strip()}
+
+        if isinstance(parsed, list):
+            return {str(item).strip() for item in parsed if str(item).strip()}
+        if isinstance(parsed, str):
+            return {item.strip() for item in parsed.split(",") if item.strip()}
+        return set()
+
+    def _paginate(
+        self, items: list[Any], page: int, size: int
+    ) -> tuple[list[Any], int, int, int]:
+        total_items = len(items)
+        total_pages = math.ceil(total_items / size) if total_items > 0 else 0
+        offset = (page - 1) * size
+        return items[offset : offset + size], total_items, total_pages, offset
+
+    def _build_workspace_resource_count_lookup(
+        self, workspaces: list[WorkspaceOut]
+    ) -> dict[str, int]:
+        workspace_ids = {workspace.id for workspace in workspaces}
+        if not workspace_ids:
+            return {}
+
+        bucket_ids = {
+            workspace.connected_bucket_id
+            for workspace in workspaces
+            if workspace.connected_bucket_id
+        }
+        if not bucket_ids:
+            return {workspace_id: 0 for workspace_id in workspace_ids}
+
+        counts = {workspace_id: 0 for workspace_id in workspace_ids}
+        for bucket_id in bucket_ids:
+            items_result = buckets_db_manager.fetch_all(
+                "bucket_items", where={"bucket_id": bucket_id}
+            )
+            if not items_result.get("success"):
+                raise ValueError(
+                    items_result.get("message")
+                    or "Failed to fetch workspace resource counts"
+                )
+
+            for item in items_result.get("data") or []:
+                if bool(item.get("is_deleted", False)):
+                    continue
+                linked_workspace_ids = self._parse_connected_workspace_ids(
+                    item.get("connected_workspace_ids")
+                )
+                for linked_workspace_id in linked_workspace_ids & workspace_ids:
+                    counts[linked_workspace_id] += 1
+
+        return counts
 
     def _set_workspace_asset_url(
         self,
@@ -243,6 +318,59 @@ class WorkspaceOrchestrator:
         )
         return self._format_row_to_workspace_out(result["data"])
 
+    def getWorkspaceResourceStats(self, workspace_id: str) -> WorkspaceResourceStats:
+        workspace = self.getWorkspace(workspace_id)
+
+        if not workspace.connected_bucket_id:
+            return WorkspaceResourceStats(workspace_id=workspace_id)
+
+        bucket_result = buckets_db_manager.fetch_one(
+            "buckets", {"id": workspace.connected_bucket_id}
+        )
+        if not bucket_result.get("success"):
+            raise ValueError(
+                bucket_result.get("message") or "Failed to fetch connected bucket"
+            )
+
+        bucket_row = bucket_result.get("data")
+        if bucket_row is None:
+            raise KeyError(
+                f"Connected bucket {workspace.connected_bucket_id} not found"
+            )
+
+        items_result = buckets_db_manager.fetch_all(
+            "bucket_items", where={"bucket_id": workspace.connected_bucket_id}
+        )
+        if not items_result.get("success"):
+            raise ValueError(
+                items_result.get("message") or "Failed to fetch workspace resources"
+            )
+
+        resource_count = 0
+        total_size = 0
+        for item in items_result.get("data") or []:
+            if bool(item.get("is_deleted", False)):
+                continue
+            linked_workspace_ids = self._parse_connected_workspace_ids(
+                item.get("connected_workspace_ids")
+            )
+            if workspace_id not in linked_workspace_ids:
+                continue
+            resource_count += 1
+            try:
+                total_size += int(item.get("file_size") or 0)
+            except (TypeError, ValueError):
+                continue
+
+        return WorkspaceResourceStats(
+            workspace_id=workspace_id,
+            connected_bucket_id=workspace.connected_bucket_id,
+            resource_count=resource_count,
+            total_size=total_size,
+            bucket_total_files=int(bucket_row.get("total_files") or 0),
+            bucket_total_size=int(bucket_row.get("total_size") or 0),
+        )
+
     def getAllWorkspaces(
         self,
         page: int = 1,
@@ -253,7 +381,7 @@ class WorkspaceOrchestrator:
         connected_bucket_id: str | None = None,
         sort_by: Literal["updated_at", "created_at", "name"] = "updated_at",
         sort_order: Literal["asc", "desc"] = "desc",
-    ) -> list[WorkspaceOut]:
+    ) -> WorkspaceListResponse:
         _log_system_workspace_event("Fetching all workspaces")
 
         where: dict[str, Any] = {}
@@ -308,14 +436,32 @@ class WorkspaceOrchestrator:
                 reverse=reverse_order,
             )
 
-        offset = (page - 1) * size
-        workspaces = workspaces[offset : offset + size]
+        paged_workspaces, total_items, total_pages, offset = self._paginate(
+            workspaces, page, size
+        )
+        resource_counts = self._build_workspace_resource_count_lookup(
+            paged_workspaces
+        )
+        items = [
+            WorkspaceListItem(
+                **workspace.model_dump(mode="python"),
+                resource_count=resource_counts.get(workspace.id, 0),
+            )
+            for workspace in paged_workspaces
+        ]
 
         _log_system_workspace_event(
-            f"Successfully fetched {len(workspaces)} workspaces", level="success"
+            f"Successfully fetched {len(items)} workspaces", level="success"
         )
 
-        return workspaces
+        return WorkspaceListResponse(
+            items=items,
+            page=page,
+            size=size,
+            total_items=total_items,
+            total_pages=total_pages,
+            offset=offset,
+        )
 
     def updateWorkspace(
         self, workspace_id: str, workspace_data: WorkspaceCreate

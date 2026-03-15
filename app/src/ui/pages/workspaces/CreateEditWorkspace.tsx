@@ -345,10 +345,10 @@ const CreateEditWorkspace = () => {
       sortBy: "updated_at",
       sortOrder: "desc",
     })
-      .then((workspaces) => {
+      .then((response) => {
         if (isCancelled) return;
         setConnectedWorkspaceNames(
-          workspaces
+          response.items
             .map((workspace) => workspace.name)
             .filter((name): name is string => name.trim().length > 0),
         );
