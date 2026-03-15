@@ -383,7 +383,7 @@ const ViewWorkspace = () => {
       setIsFilesLoading(true)
       try {
         const bucketItems = await listBucketItems({
-          bucketId: workspace.connected_bucket_id,
+          bucketId: workspace.connected_bucket_id ?? undefined,
           workspaceId: id,
           page: filesPage,
           size: filesSize,
