@@ -1125,7 +1125,7 @@ export const uploadBucketFile = async (
   return requestData(
     api.post<BucketItemRecord>(
       withQuery(`/bucket/${encodeURIComponent(bucketId)}/upload`, {
-        created_by: query.created_by ?? query.createdBy,
+        createdBy: query.createdBy || query.created_by,
         source: query.source,
         summary: query.summary,
         connectedWorkspaceIds: query.connectedWorkspaceIds,
@@ -1151,7 +1151,7 @@ export const uploadBucketFiles = async (
   return requestData(
     api.post<BucketItemRecord[]>(
       withQuery(`/bucket/${encodeURIComponent(bucketId)}/upload/bulk`, {
-        created_by: query.created_by ?? query.createdBy,
+        createdBy: query.createdBy || query.created_by,
         source: query.source,
         summary: query.summary,
         connectedWorkspaceIds: query.connectedWorkspaceIds,

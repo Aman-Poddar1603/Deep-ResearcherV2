@@ -161,9 +161,7 @@ async def upload_workspace_resource(
             summary=summary,
         )
     except Exception as exc:
-        _raise_workspace_http_error(
-            f"Upload resource to workspace {workspace_id}", exc
-        )
+        _raise_workspace_http_error(f"Upload resource to workspace {workspace_id}", exc)
 
 
 @router.post(

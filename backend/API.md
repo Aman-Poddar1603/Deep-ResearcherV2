@@ -195,24 +195,24 @@ Create workspace and upload banner, icon, **and resource files** in the same mul
 
 **Form fields:**
 
-| Field                       | Type                                | Required | Notes                                                           |
-| --------------------------- | ----------------------------------- | -------- | --------------------------------------------------------------- |
-| `name`                      | string                              | ✅       | workspace name                                                  |
-| `desc`                      | string                              | ✅       | workspace description                                           |
-| `icon`                      | string\|null                        | ❌       | optional text icon value                                        |
-| `accent_clr`                | string\|null                        | ❌       | color                                                           |
-| `banner_img`                | string\|null                        | ❌       | optional pre-set URL/text                                       |
-| `connected_bucket_id`       | string\|null                        | ❌       | required if uploading resource files                            |
-| `ai_config`                 | `"auto"` \| `"local"` \| `"online"` | ❌       | default `auto`                                                  |
-| `workspace_resources_id`    | string\|null                        | ❌       |                                                                 |
-| `workspace_research_agents` | boolean                             | ❌       | default `true`                                                  |
-| `workspace_chat_agents`     | boolean                             | ❌       | default `true`                                                  |
-| `banner_file`               | file                                | ❌       | uploaded banner image                                           |
-| `icon_file`                 | file                                | ❌       | uploaded icon image                                             |
-| `resource_files`            | file[] (multi)                      | ❌       | resource files to store in connected bucket; type-checked       |
-| `resource_created_by`       | string                              | ❌       | creator identifier for resource items (default `"system"`)      |
-| `resource_source`           | string\|null                        | ❌       | optional source label for resource items                        |
-| `resource_summary`          | string\|null                        | ❌       | optional summary applied to all resource items                  |
+| Field                       | Type                                | Required | Notes                                                      |
+| --------------------------- | ----------------------------------- | -------- | ---------------------------------------------------------- |
+| `name`                      | string                              | ✅       | workspace name                                             |
+| `desc`                      | string                              | ✅       | workspace description                                      |
+| `icon`                      | string\|null                        | ❌       | optional text icon value                                   |
+| `accent_clr`                | string\|null                        | ❌       | color                                                      |
+| `banner_img`                | string\|null                        | ❌       | optional pre-set URL/text                                  |
+| `connected_bucket_id`       | string\|null                        | ❌       | required if uploading resource files                       |
+| `ai_config`                 | `"auto"` \| `"local"` \| `"online"` | ❌       | default `auto`                                             |
+| `workspace_resources_id`    | string\|null                        | ❌       |                                                            |
+| `workspace_research_agents` | boolean                             | ❌       | default `true`                                             |
+| `workspace_chat_agents`     | boolean                             | ❌       | default `true`                                             |
+| `banner_file`               | file                                | ❌       | uploaded banner image                                      |
+| `icon_file`                 | file                                | ❌       | uploaded icon image                                        |
+| `resource_files`            | file[] (multi)                      | ❌       | resource files to store in connected bucket; type-checked  |
+| `resource_created_by`       | string                              | ❌       | creator identifier for resource items (default `"system"`) |
+| `resource_source`           | string\|null                        | ❌       | optional source label for resource items                   |
+| `resource_summary`          | string\|null                        | ❌       | optional summary applied to all resource items             |
 
 > **Type validation:** Each file in `resource_files` must belong to a type category
 > permitted by the connected bucket's `allowed_file_types`. All files are validated
@@ -245,11 +245,11 @@ Returns `400` if the workspace has no connected bucket or if the file type is re
 
 **Query params:**
 
-| Param        | Type   | Required | Notes                               |
-| ------------ | ------ | -------- | ----------------------------------- |
-| `createdBy`  | string | ✅       | creator identifier                  |
-| `source`     | string | ❌       | origin label (URL, app name, etc.)  |
-| `summary`    | string | ❌       | short description of the resource   |
+| Param       | Type   | Required | Notes                              |
+| ----------- | ------ | -------- | ---------------------------------- |
+| `createdBy` | string | ✅       | creator identifier                 |
+| `source`    | string | ❌       | origin label (URL, app name, etc.) |
+| `summary`   | string | ❌       | short description of the resource  |
 
 **Response `201`** — `BucketItemRecord`
 
@@ -263,17 +263,17 @@ Returns `400` if the workspace has no connected bucket or if any file type is re
 
 **Content-Type:** `multipart/form-data`
 
-| Field   | Type    | Required |
-| ------- | ------- | -------- |
-| `files` | file[]  | ✅       |
+| Field   | Type   | Required |
+| ------- | ------ | -------- |
+| `files` | file[] | ✅       |
 
 **Query params:**
 
-| Param        | Type   | Required | Notes                               |
-| ------------ | ------ | -------- | ----------------------------------- |
-| `createdBy`  | string | ✅       | creator identifier                  |
-| `source`     | string | ❌       | origin label                        |
-| `summary`    | string | ❌       | short description (shared)          |
+| Param       | Type   | Required | Notes                      |
+| ----------- | ------ | -------- | -------------------------- |
+| `createdBy` | string | ✅       | creator identifier         |
+| `source`    | string | ❌       | origin label               |
+| `summary`   | string | ❌       | short description (shared) |
 
 **Response `201`** — `BucketItemRecord[]`
 

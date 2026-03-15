@@ -48,7 +48,6 @@ import {
   listWorkspaceRecords,
   uploadWorkspaceBanner,
   uploadWorkspaceIcon,
-  uploadBucketFiles,
   type BucketRecord,
   type WorkspaceRecord,
 } from "@/lib/apis";
@@ -72,7 +71,6 @@ import {
   getBucketAllowedTypeLabel,
   serializeBucketAllowedTypes,
   getAcceptExtensionsForBucketTypes,
-  getAcceptedExtensionLabels,
   validateFilesAgainstBucket,
   type BucketAllowedType,
 } from "@/lib/bucket-types";
@@ -143,7 +141,7 @@ interface WorkspaceFormData {
   icon: { icon: LucideIcon; name: string; color: string } | null;
   accentColor: { name: string; hex: string; class: string; bg: string } | null;
   bannerImage: File | null;
-  aiMode: string;
+  aiMode: "auto" | "offline" | "local" | "online";
   resources: File[];
   enableResearch: boolean;
   enableChat: boolean;
@@ -225,7 +223,7 @@ const CreateEditWorkspace = () => {
     accentColor: null,
     bannerImage: null,
     aiMode: "auto",
-    resources: [],
+    resources: [] as File[],
     enableResearch: true,
     enableChat: true,
     bucket: "",
@@ -241,7 +239,6 @@ const CreateEditWorkspace = () => {
   const [isBucketModalOpen, setIsBucketModalOpen] = useState(false);
   const [connectedWorkspaceNames, setConnectedWorkspaceNames] = useState<string[]>([]);
   const [isLoadingConnectedWorkspaces, setIsLoadingConnectedWorkspaces] = useState(false);
-  const [isUploadingResources, setIsUploadingResources] = useState(false);
 
   const selectedBucket = buckets.find((bucket) => bucket.id === formData.bucket) ?? null;
 
@@ -434,7 +431,7 @@ const CreateEditWorkspace = () => {
   const isStep2Valid =
     (formData.icon !== null || formData.customIcon !== null || iconPreview !== null) &&
     formData.accentColor !== null;
-  const isStep3Valid = formData.aiMode !== ""; // Bucket is optional
+  const isStep3Valid = Boolean(formData.aiMode); // aiMode is always valid if selected from list
   const isStep4Valid = true; // All fields optional
 
   const canProceed = () => {
@@ -484,7 +481,7 @@ const CreateEditWorkspace = () => {
         bucket: formData.bucket || null,
         bannerImage: formData.bannerImage ?? null,
         customIcon: formData.customIcon ?? null,
-        resources: [], // Resources already uploaded to bucket
+        resources: formData.resources ?? [],
       };
 
       if (isEditMode && id) {
@@ -550,7 +547,7 @@ const CreateEditWorkspace = () => {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const newFiles = Array.from(e.target.files);
 
@@ -569,35 +566,17 @@ const CreateEditWorkspace = () => {
           e.target.value = "";
           return;
         }
-      }
-
-      setIsUploadingResources(true);
-      try {
-        const creator = localStorage.getItem("dr_profile_email") ||
-          localStorage.getItem("dr_profile_name") ||
-          DEFAULT_CREATED_BY;
-
-        // Upload immediately to the bucket
-        const uploadedRecords = await uploadBucketFiles(selectedBucket.id, newFiles, {
-          created_by: creator,
-          source: `Workspace creation: ${formData.name}`,
+        setFormData({
+          ...formData,
+          resources: [...formData.resources, ...validFiles],
         });
-
-        // Add to local state to show in the list (using the File objects for display/size)
-        // In a real app, you might want to store the record details too
+      } else {
         setFormData({
           ...formData,
           resources: [...formData.resources, ...newFiles],
         });
-
-        toast.success(`Successfully uploaded ${uploadedRecords.length} file(s)`);
-      } catch (err) {
-        console.error("Resource upload failed:", err);
-        toast.error(err instanceof Error ? err.message : "Failed to upload resources");
-      } finally {
-        setIsUploadingResources(false);
-        e.target.value = "";
       }
+      e.target.value = "";
     }
   };
 
@@ -1236,14 +1215,13 @@ const CreateEditWorkspace = () => {
                     >
                       <Upload className="w-10 h-10 mb-2 text-muted-foreground" />
                       <p className="text-sm font-medium">
-                        {isUploadingResources ? "Uploading resources..." : "Click to upload or drag and drop"}
+                        Click to upload or drag and drop
                       </p>
                       <input
                         id="resource-upload"
                         type="file"
                         className="hidden"
                         multiple
-                        disabled={isUploadingResources}
                         accept={getAcceptExtensionsForBucketTypes(selectedBucket.allowedFileTypes)}
                         onChange={handleFileUpload}
                       />

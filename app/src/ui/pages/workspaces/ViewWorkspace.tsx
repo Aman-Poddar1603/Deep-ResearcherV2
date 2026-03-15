@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,6 @@ import {
   Edit,
   Eye,
   ChevronRight,
-  Link,
   FileCode,
   FileImage,
   FileVideo,
@@ -44,11 +43,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -59,7 +53,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/components/ui/sonner'
-import { fetchLinkMetadata, type LinkMetadata, cn, resolveApiAssetUrl } from '@/lib/utils'
+import { cn, resolveApiAssetUrl } from '@/lib/utils'
 import {
   getWorkspaceRecord,
   listResearchRecords,
@@ -342,7 +336,7 @@ const ViewWorkspace = () => {
             bucketId: ws.connected_bucket_id,
             page: 1,
             size: 20,
-            sortBy: 'updated_at',
+            sortBy: 'created_at',
             sortOrder: 'desc',
           })
           setFiles(bucketItems.items)
@@ -382,7 +376,7 @@ const ViewWorkspace = () => {
         localStorage.getItem('dr_profile_name') ||
         'local-user'
       const uploaded = await uploadBucketFiles(workspace.connected_bucket_id, selected, {
-        created_by: createdBy,
+        createdBy: createdBy,
         connectedWorkspaceIds: workspace.id,
       })
       setFiles((prev) => [...uploaded, ...prev])
@@ -392,6 +386,26 @@ const ViewWorkspace = () => {
     } finally {
       setIsUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+  
+  const handleDownload = (file: BucketItemRecord) => {
+    // Correct pattern is /bucket/assets/{file_path}
+    const assetUrl = resolveApiAssetUrl(`/bucket/assets/${file.file_path}`)
+    if (assetUrl) {
+      const link = document.createElement('a')
+      link.href = assetUrl
+      link.download = file.file_name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+  }
+
+  const handleView = (file: BucketItemRecord) => {
+    const assetUrl = resolveApiAssetUrl(`/bucket/assets/${file.file_path}`)
+    if (assetUrl) {
+      window.open(assetUrl, '_blank')
     }
   }
 
@@ -747,6 +761,7 @@ const ViewWorkspace = () => {
                         variant="ghost"
                         size="sm"
                         className={cn("h-8 w-8 p-0", accent.hoverText)}
+                        onClick={() => handleView(file)}
                       >
                         <Eye className="w-4 h-4" />
                       </Button>
@@ -754,6 +769,7 @@ const ViewWorkspace = () => {
                         variant="ghost"
                         size="sm"
                         className={cn("h-8 w-8 p-0", accent.hoverText)}
+                        onClick={() => handleDownload(file)}
                       >
                         <Download className="w-4 h-4" />
                       </Button>

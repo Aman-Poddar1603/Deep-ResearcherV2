@@ -444,7 +444,9 @@ class BucketOrchestrator:
 
         created: list[BucketItemRecord] = []
         for file_name, file_format, content in files:
-            rel_path = bucket_store.save_file(bucket_id, file_format, file_name, content)
+            rel_path = bucket_store.save_file(
+                bucket_id, file_format, file_name, content
+            )
             payload = BucketItemCreate(
                 bucket_id=bucket_id,
                 file_name=file_name,

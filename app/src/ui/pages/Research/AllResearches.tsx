@@ -175,12 +175,25 @@ const AllResearches = () => {
     const loadData = useCallback(async () => {
         setIsLoading(true)
         try {
-            const [researchResponse, workspaceList] = await Promise.all([
-                listResearchRecords({ page: 1, size: 500, sortBy: 'id', sortOrder: 'desc' }),
-                getAllWorkspaces(),
-            ])
+            const pageSize = 200
+            let page = 1
+            let totalPages = 1
+            const allResearchRecords: ResearchRecord[] = []
 
-            const mappedResearches = researchResponse.items.map(mapResearch)
+            do {
+                const response = await listResearchRecords({
+                    page,
+                    size: pageSize,
+                    sortBy: 'id',
+                    sortOrder: 'desc',
+                })
+                allResearchRecords.push(...response.items)
+                totalPages = response.total_pages
+                page += 1
+            } while (page <= totalPages)
+
+            const workspaceList = await getAllWorkspaces()
+            const mappedResearches = allResearchRecords.map(mapResearch)
 
             const countByWs: Record<string, number> = {}
             mappedResearches.forEach((r) => {
@@ -260,7 +273,11 @@ const AllResearches = () => {
     const toggleWorkspaceCollapse = (wsId: string) => {
         setCollapsedWorkspaces((prev) => {
             const next = new Set(prev)
-            next.has(wsId) ? next.delete(wsId) : next.add(wsId)
+            if (next.has(wsId)) {
+                next.delete(wsId)
+            } else {
+                next.add(wsId)
+            }
             return next
         })
     }
@@ -484,48 +501,47 @@ const AllResearches = () => {
                     )}
                 </div>
 
-                {/* ── Pagination ───────────────────────────────────────────── */}
-                {!isLoading && totalItems > 0 && (
-                    <div className="sticky bottom-0 border-t border-border/30 bg-background/80 backdrop-blur-sm px-8 py-3">
-                        <div className="flex items-center justify-between max-w-7xl mx-auto">
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)}–{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}</span>
-                                <Separator orientation="vertical" className="h-4 bg-border/50" />
-                                <Select value={String(itemsPerPage)} onValueChange={(v) => { setItemsPerPage(Number(v)); setCurrentPage(1) }}>
-                                    <SelectTrigger className="w-20 h-7 text-xs bg-background border-border/50">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {ITEMS_PER_PAGE_OPTIONS.map((n) => (
-                                            <SelectItem key={n} value={String(n)}>{n} / page</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+            </div>
+            {!isLoading && totalItems > 0 && (
+                <div className="shrink-0 border-t border-border/30 bg-background/50 backdrop-blur-md px-8 py-3 z-30">
+                    <div className="flex items-center justify-between max-w-7xl mx-auto">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)}–{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}</span>
+                            <Separator orientation="vertical" className="h-4 bg-border/50" />
+                            <Select value={String(itemsPerPage)} onValueChange={(v) => { setItemsPerPage(Number(v)); setCurrentPage(1) }}>
+                                <SelectTrigger className="w-20 h-7 text-xs bg-background border-border/50">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {ITEMS_PER_PAGE_OPTIONS.map((n) => (
+                                        <SelectItem key={n} value={String(n)}>{n} / page</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
 
-                            <div className="flex items-center gap-1">
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}>
-                                    <ChevronLeft className="size-4" />
+                        <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={currentPage <= 1} onClick={() => setCurrentPage((p) => p - 1)}>
+                                <ChevronLeft className="size-4" />
+                            </Button>
+                            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map((page) => (
+                                <Button
+                                    key={page}
+                                    variant={currentPage === page ? 'secondary' : 'ghost'}
+                                    size="sm"
+                                    className={cn("h-8 w-8 p-0 text-xs", currentPage === page && "font-bold")}
+                                    onClick={() => setCurrentPage(page)}
+                                >
+                                    {page}
                                 </Button>
-                                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map((page) => (
-                                    <Button
-                                        key={page}
-                                        variant={currentPage === page ? 'secondary' : 'ghost'}
-                                        size="sm"
-                                        className={cn("h-8 w-8 p-0 text-xs", currentPage === page && "font-bold")}
-                                        onClick={() => setCurrentPage(page)}
-                                    >
-                                        {page}
-                                    </Button>
-                                ))}
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
-                                    <ChevronRight className="size-4" />
-                                </Button>
-                            </div>
+                            ))}
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={currentPage >= totalPages} onClick={() => setCurrentPage((p) => p + 1)}>
+                                <ChevronRight className="size-4" />
+                            </Button>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
 
             {/* ── Preview Sheet ────────────────────────────────────────────── */}
             <Sheet open={!!previewResearch} onOpenChange={(open) => { if (!open) setPreviewResearch(null) }}>
