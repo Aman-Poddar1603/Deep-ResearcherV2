@@ -1,0 +1,554 @@
+{
+  "name": "research_workflow_v1",
+  "version": "1.0.0",
+  "description": "End-to-end research workflow: normalizes inputs, generates clarification questions, builds an execution plan, runs multi-source research (web/local/images/videos), consolidates and summarizes findings, runs entity & contradiction detection, fact-checks results, stores to knowledge base, and formats final deliverable. Includes a user approval loop for the execution plan.",
+  "inputs": {
+    "title": "Optional title or short description provided by the user",
+    "prompt": "Primary user request or query",
+    "sources": ["URLs", "uploaded_files", "previous_research_ids"],
+    "workspace": "workspace_id / settings",
+    "system_prompt": "System-level instructions for the agent (optional)",
+    "custom_prompt": "User-provided custom prompt augmentations (optional)",
+    "research_template": "Template selection controlling structure and depth",
+    "ai_personality": "Descriptor for persona (tone, depth, style)",
+    "user_info": "User profile (expertise level, preferences, locale)"
+  },
+  "flow_control": {
+    "max_iterations": 3,
+    "approval_timeout_seconds": 1200,
+    "default_research_depth": "medium"
+  },
+  "steps": [
+    {
+      "id": 1,
+      "name": "input_normalization",
+      "type": "preprocess",
+      "description": "Normalize and validate all incoming inputs. Create canonical 'user_raw_query' and canonical sources list.",
+      "agent": "input_agent",
+      "input": [
+        "title",
+        "prompt",
+        "sources",
+        "workspace",
+        "system_prompt",
+        "custom_prompt",
+        "research_template",
+        "ai_personality",
+        "user_info"
+      ],
+      "params": {
+        "sanitize_html": true,
+        "filter_profanity": true,
+        "max_prompt_length": 5000
+      },
+      "output": {
+        "user_raw_query": "string",
+        "normalized_title": "string | null",
+        "canonical_sources": ["url", "file_reference"],
+        "applied_template": "string | null"
+      },
+      "next": [2, 3]
+    },
+    {
+      "id": 2,
+      "name": "title_generation",
+      "type": "agent_call",
+      "agent": "title_agent",
+      "description": "Generate or refine title/short description when not provided or when user asks for improvements.",
+      "input": [
+        "normalized_title",
+        "user_raw_query",
+        "user_info",
+        "research_template"
+      ],
+      "params": {
+        "max_tokens": 60,
+        "tone": "concise"
+      },
+      "output": {
+        "title_generated": "string",
+        "title_confidence": "0-1"
+      },
+      "next": [3]
+    },
+    {
+      "id": 3,
+      "name": "prompt_analysis",
+      "type": "agent_call",
+      "agent": "prompt_analysis_agent",
+      "description": "Analyze the query/prompt: identify intent, detect ambiguous parts, estimate reliability; produce a sanitized brief query ready for LLM use.",
+      "input": [
+        "user_raw_query",
+        "custom_prompt",
+        "system_prompt",
+        "user_info",
+        "research_template"
+      ],
+      "params": {
+        "perform_realtime_filter": true,
+        "detect_questionables": true
+      },
+      "output": {
+        "analysis_success": "boolean",
+        "query_reliability_score_0_10": "integer",
+        "brief_sanitized_query": "string",
+        "ambiguity_flags": ["string"]
+      },
+      "next": [4, 5]
+    },
+    {
+      "id": 4,
+      "name": "file_ingestion_and_analysis",
+      "type": "async_processing",
+      "description": "Upload and asynchronously analyze attached files (text, pdf, docx, images). Produce file summaries and indexed metadata.",
+      "agent": "file_analysis_agent",
+      "input": ["canonical_sources", "user_info", "research_template"],
+      "params": {
+        "text_extraction": true,
+        "ocr_images": true,
+        "page_limit_per_file": 200
+      },
+      "output": {
+        "file_summaries": [
+          {
+            "file_id": "string",
+            "summary": "string",
+            "keywords": ["string"],
+            "text_length": "int"
+          }
+        ],
+        "indexed_documents": ["doc_ref_id"]
+      },
+      "next": [6]
+    },
+    {
+      "id": 5,
+      "name": "confirmation_question_generation",
+      "type": "agent_call",
+      "agent": "question_agent",
+      "description": "Generate clarification/confirmation questions based on sanitized query, user bio, selected research template and available sources; questions are customized to the user persona and research template.",
+      "input": [
+        "brief_sanitized_query",
+        "file_summaries",
+        "user_info",
+        "research_template"
+      ],
+      "params": {
+        "max_questions": 12,
+        "question_types": ["clarifying", "scope", "preference"]
+      },
+      "output": {
+        "questions": [
+          {
+            "id": "q1",
+            "text": "string",
+            "required": "boolean",
+            "reason": "string"
+          }
+        ],
+        "expected_answer_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "next": [6, 7]
+    },
+    {
+      "id": 6,
+      "name": "execution_plan_creation",
+      "type": "plan_generation",
+      "agent": "plan_agent",
+      "description": "Generate a structured execution plan for the research run using inputs, detected ambiguities, and file summaries. The plan enumerates sub-tasks, resources to query, and priority.",
+      "input": [
+        "brief_sanitized_query",
+        "file_summaries",
+        "user_info",
+        "research_template",
+        "ai_personality",
+        "title_generated"
+      ],
+      "params": {
+        "detailed_steps": true,
+        "allow_workspace_switch": true
+      },
+      "output": {
+        "plan_id": "string",
+        "plan_card": {
+          "steps": [
+            {
+              "step_id": "string",
+              "description": "string",
+              "resource_type": "web | local | image | video",
+              "priority": "low|medium|high"
+            }
+          ],
+          "estimated_time_seconds": "int",
+          "resources": ["resource_descriptor"]
+        }
+      },
+      "next": [7]
+    },
+    {
+      "id": 7,
+      "name": "user_approval_loop",
+      "type": "human_in_the_loop",
+      "agent": "ui_confirmation",
+      "description": "Present the execution plan to the user; allow accept/reject/revise. If rejected, allow modifications and re-generation. Implements a max iteration limit.",
+      "input": ["plan_card", "questions"],
+      "params": {
+        "timeout_seconds": 1200,
+        "max_iterations": 3
+      },
+      "output": {
+        "approved": "boolean",
+        "approval_comments": "string",
+        "iterations_used": "int"
+      },
+      "next": [
+        {
+          "if": "approved == true",
+          "goto": 8
+        },
+        {
+          "if": "approved == false && iterations_used < flow_control.max_iterations",
+          "goto": 6
+        },
+        {
+          "if": "approved == false && iterations_used >= flow_control.max_iterations",
+          "goto": 19
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "research_orchestrator",
+      "type": "orchestrator",
+      "agent": "research_orchestrator_agent",
+      "description": "Dispatch subtasks to specialized research workers (web, local KB, images, videos). Receives intermediate results and coordinates merging and follow-ups.",
+      "input": [
+        "plan_card",
+        "brief_sanitized_query",
+        "canonical_sources",
+        "user_info",
+        "research_template"
+      ],
+      "params": {
+        "concurrency": 8,
+        "retry_policy": {
+          "retries": 2,
+          "backoff_seconds": 3
+        }
+      },
+      "output": {
+        "task_refs": ["task_id_1", "task_id_2"],
+        "raw_collected_results": ["raw_result_reference"]
+      },
+      "next": [9, 10, 11, 12]
+    },
+    {
+      "id": 9,
+      "name": "web_search_agent",
+      "type": "agent_call",
+      "agent": "web_agent",
+      "description": "Search the web, capture top results, and store page snapshots and candidate passages.",
+      "input": ["brief_sanitized_query", "plan_card", "canonical_sources"],
+      "params": {
+        "top_k": 20,
+        "fetch_full_page": false,
+        "respect_robots": true
+      },
+      "output": {
+        "search_results": [
+          {
+            "url": "string",
+            "title": "string",
+            "snippet": "string",
+            "relevance_score": "0-1"
+          }
+        ],
+        "raw_html_refs": ["ref_id"]
+      },
+      "next": [13]
+    },
+    {
+      "id": 10,
+      "name": "local_knowledgebase_search",
+      "type": "agent_call",
+      "agent": "local_kb_agent",
+      "description": "Search local knowledge stores and previously saved research artifacts.",
+      "input": ["brief_sanitized_query", "indexed_documents", "workspace"],
+      "params": {
+        "semantic_search": true,
+        "similarity_threshold": 0.75
+      },
+      "output": {
+        "local_hits": [
+          {
+            "doc_ref": "string",
+            "summary": "string",
+            "score": "0-1"
+          }
+        ]
+      },
+      "next": [13]
+    },
+    {
+      "id": 11,
+      "name": "image_search_agent",
+      "type": "agent_call",
+      "agent": "image_agent",
+      "description": "Find relevant images and extract alt text / captions; optionally run basic OCR when images contain text.",
+      "input": ["brief_sanitized_query", "canonical_sources", "plan_card"],
+      "params": {
+        "top_k_images": 10,
+        "ocr_if_text": true
+      },
+      "output": {
+        "image_hits": [
+          {
+            "image_ref": "string",
+            "caption": "string",
+            "relevance_score": "0-1",
+            "ocr_text": "string | null"
+          }
+        ]
+      },
+      "next": [13]
+    },
+    {
+      "id": 12,
+      "name": "video_search_agent",
+      "type": "agent_call",
+      "agent": "video_agent",
+      "description": "Search for relevant videos, capture timestamps of important segments and generate short summaries for each segment.",
+      "input": ["brief_sanitized_query", "plan_card"],
+      "params": {
+        "top_k_videos": 8,
+        "segment_duration_seconds": 30
+      },
+      "output": {
+        "video_segments": [
+          {
+            "video_ref": "string",
+            "segment_start": "int",
+            "segment_end": "int",
+            "summary": "string"
+          }
+        ]
+      },
+      "next": [13]
+    },
+    {
+      "id": 13,
+      "name": "summarization_and_extraction",
+      "type": "aggregation",
+      "agent": "summarizer_agent",
+      "description": "Consolidate raw results from web/local/image/video tasks; produce concise summaries, extract candidate passages, and produce structured facts.",
+      "input": [
+        "search_results",
+        "local_hits",
+        "image_hits",
+        "video_segments",
+        "file_summaries"
+      ],
+      "params": {
+        "summary_style": "top_down",
+        "max_output_length": 3000,
+        "extract_facts": true
+      },
+      "output": {
+        "consolidated_summary": "string",
+        "candidate_passages": [
+          {
+            "source_ref": "string",
+            "text": "string",
+            "confidence": "0-1"
+          }
+        ],
+        "structured_facts": [
+          {
+            "fact_id": "string",
+            "statement": "string",
+            "supporting_refs": ["string"]
+          }
+        ]
+      },
+      "next": [14, 15, 16]
+    },
+    {
+      "id": 14,
+      "name": "entity_and_relationship_extraction",
+      "type": "agent_call",
+      "agent": "entity_agent",
+      "description": "Extract entities, relationships and build a small knowledge graph schema for the research session.",
+      "input": ["candidate_passages", "consolidated_summary"],
+      "params": {
+        "extract_relations": true,
+        "entity_types": ["PERSON", "ORG", "LOCATION", "TOPIC", "METRIC"]
+      },
+      "output": {
+        "entities": [
+          {
+            "id": "string",
+            "type": "string",
+            "label": "string",
+            "context_snippet": "string"
+          }
+        ],
+        "relationships": [
+          {
+            "from": "entity_id",
+            "to": "entity_id",
+            "relation": "string",
+            "confidence": "0-1"
+          }
+        ]
+      },
+      "next": [15]
+    },
+    {
+      "id": 15,
+      "name": "contradiction_and_consensus_detection",
+      "type": "analysis",
+      "agent": "consensus_agent",
+      "description": "Detect conflicting claims, measure consensus across sources, and tag high-risk contradictions requiring deeper verification.",
+      "input": ["structured_facts", "candidate_passages", "entities"],
+      "params": {
+        "contradiction_threshold": 0.6
+      },
+      "output": {
+        "contradictions": [
+          {
+            "fact_id": "string",
+            "conflict_summary": "string",
+            "supporting_refs": ["string"]
+          }
+        ],
+        "consensus_score": "0-1",
+        "verification_priority_list": ["fact_id"]
+      },
+      "next": [16, 17]
+    },
+    {
+      "id": 16,
+      "name": "knowledge_store_write",
+      "type": "store",
+      "agent": "kb_agent",
+      "description": "Persist the consolidated summary, entities and validated facts into the local knowledge base for future research reuse. Writes metadata and provenance.",
+      "input": [
+        "consolidated_summary",
+        "entities",
+        "structured_facts",
+        "plan_id",
+        "workspace"
+      ],
+      "params": {
+        "store_type": "session_snapshot",
+        "provenance": true
+      },
+      "output": {
+        "kb_record_id": "string",
+        "kb_snapshot_refs": ["string"]
+      },
+      "next": [17]
+    },
+    {
+      "id": 17,
+      "name": "fact_checking",
+      "type": "agent_call",
+      "agent": "fact_check_agent",
+      "description": "Perform fact-checks on high-priority facts/contradictions using high-quality sources or dedicated fact-check databases. Update fact statuses.",
+      "input": [
+        "verification_priority_list",
+        "contradictions",
+        "candidate_passages"
+      ],
+      "params": {
+        "trusted_sources_only": true,
+        "top_k_trusted": 5
+      },
+      "output": {
+        "fact_checks": [
+          {
+            "fact_id": "string",
+            "status": "verified | unverified | disputed",
+            "evidence_refs": ["string"],
+            "confidence": "0-1"
+          }
+        ],
+        "updated_structured_facts": ["fact_id"]
+      },
+      "next": [18]
+    },
+    {
+      "id": 18,
+      "name": "output_formatting_and_presenting",
+      "type": "formatter",
+      "agent": "presentation_agent",
+      "description": "Format the final research deliverable according to the chosen research template and user persona. Builds visualizable assets and an executive summary plus appendices with references.",
+      "input": [
+        "consolidated_summary",
+        "fact_checks",
+        "entities",
+        "kb_record_id",
+        "plan_card",
+        "user_info",
+        "research_template",
+        "ai_personality"
+      ],
+      "params": {
+        "formats": ["report", "slide_deck", "brief"],
+        "include_raw_refs": true
+      },
+      "output": {
+        "final_report": {
+          "report_id": "string",
+          "title": "string",
+          "executive_summary": "string",
+          "sections": [
+            {
+              "heading": "string",
+              "content": "string",
+              "references": ["string"]
+            }
+          ],
+          "assets": {
+            "images": ["string"],
+            "tables": ["string"],
+            "charts": ["string"]
+          }
+        },
+        "visual_assets_refs": ["string"]
+      },
+      "next": [19]
+    },
+    {
+      "id": 19,
+      "name": "finalize_and_close_session",
+      "type": "finalize",
+      "agent": "session_agent",
+      "description": "Wrap up the session: deliver final content to user, store session metadata, and optionally create follow-up tasks or persistent records.",
+      "input": [
+        "final_report",
+        "kb_record_id",
+        "approval_comments",
+        "plan_card"
+      ],
+      "params": {
+        "notify_user": true,
+        "archive_session": true
+      },
+      "output": {
+        "delivery_status": "delivered | failed",
+        "session_id": "string",
+        "follow_up_tasks": ["task_ref"]
+      },
+      "next": []
+    }
+  ],
+  "metadata": {
+    "created_by": "user",
+    "created_at": "2026-03-17T00:00:00Z",
+    "notes": "Designed from provided input and research layer diagrams. Each step maps to a specialized agent or orchestrator. Implementations must ensure data provenance and LLM-safety of saved content."
+  }
+}
