@@ -16,51 +16,59 @@ from src.agents.webSearchAgent.core.web_crawler import (
 # ────────────────────────────────────────────────
 # 50 Test URLs — mix of travel, recipes, local Ranchi/Jharkhand, general
 # ────────────────────────────────────────────────
-TEST_URLS: List[str] = [
-    # Your original 10 (travel/flight heavy — expect many blocked/empty)
-    "https://www.baliholidaysecrets.com/flights-from-india-to-bali/",
-    "https://www.kayak.co.in/flight-routes/India-IN0/Bali-IDBA",
-    "https://www.momondo.in/flights/india/bali",
-    "https://in.trip.com/flights/to-bali/airfares-dps/",
-    "https://www.wego.co.in/flights/in/dps/cheapest-flights-from-india-to-bali-1906",
-    "https://www.airindia.com/in/en/book/exclusive-deals/india-bali-flight-sale.html",
-    "https://www.tripadvisor.in/Flights-g294226-Bali-Cheap_Discount_Airfares.html",
-    "https://www.google.com/travel/flights/flights-to-bali.html?gl=IN&hl=en",
-    "https://www.makemytrip.com/international-flights/india-denpasar_bali-cheap-airtickets.html",
-    "https://www.skyscanner.co.in/flights/flights-to-region/44292244/cheap-flights-to-bali.html",
-    # Travel / Bali / India guides — lighter pages
-    "https://www.baliholidaysecrets.com/flights-from-india-to-bali/",
-    "https://www.lonelyplanet.com/indonesia/bali",
-    "https://www.tripoto.com/india/trips/best-places-to-visit-in-bali-for-indians",
-    "https://www.holidify.com/places/bali/sightseeing-and-things-to-do.html",
-    # Beginner Indian recipes (mostly static — should be fast & successful)
-    "https://www.allrecipes.com/gallery/best-indian-recipes-for-beginning-cooks",
-    "https://www.bbcgoodfood.com/recipes/collection/indian-recipes",
-    "https://www.foodnetwork.com/recipes/photos/indian-recipes",
-    "https://www.allrecipes.com/recipes/233/world-cuisine/asian/indian/",
-    "https://www.bbcgoodfood.com/recipes/kitchari",
-    "https://www.allrecipes.com/recipe/23600/indian-butter-chicken/",
-    "https://www.bbcgoodfood.com/recipes/healthy-tikka-masala",
-    "https://www.allrecipes.com/recipe/141939/easy-indian-butter-chicken/",
-    # Ranchi / Jharkhand tourist places (local relevance — mix of light & medium)
-    "https://www.tripadvisor.com/Attractions-g662320-Activities-Ranchi_Ranchi_District_Jharkhand.html",
-    "https://www.holidify.com/places/ranchi/sightseeing-and-things-to-do.html",
-    "https://www.makemytrip.com/tripideas/places/ranchi",
-    "https://www.travelladda.com/best-places-to-visit-in-ranchi",
-    "https://us.trip.com/travel-guide/destination/ranchi-2131241",
-    "https://www.treebo.com/blog/12-places-to-visit-in-ranchi",
-    "https://www.tripclap.com/places/ranchi/places-to-visit",
-    # Some Ranchi/Jharkhand news or recent pages (March 2026 context)
-    "https://www.uniindia.com/ranchi-on-high-alert-a-jharkhand-on-high-alert-ahead-of-president-murmu-s-3-day-visit/east/news/3687573.html",
-    # If you have a local news site you like, add more here
-    # General / diverse test cases (Wikipedia, blogs, etc.)
-    "https://en.wikipedia.org/wiki/Ranchi",
-    "https://en.wikipedia.org/wiki/Bali",
-    "https://en.wikipedia.org/wiki/Indian_cuisine",
-    "https://www.bbc.com/news/topics/cvenzmgyg4rt/india",
-    "https://www.thehindu.com/news/national/jharkhand/",
-    "https://timesofindia.indiatimes.com/city/ranchi",
+TEST_URLS = [
+    # Travel / destinations (new ones)
+    "https://www.thrillophilia.com/places-to-visit-in-ranchi",
+    "https://www.fabhotels.com/blog/places-to-visit-in-ranchi/",
+    "https://www.nativeplanet.com/ranchi/attractions/",
+    "https://www.jharkhandtourism.gov.in/destinations/ranchi",
+    "https://www.lonelyplanet.com/india/jharkhand/ranchi",
+    "https://www.tripoto.com/jharkhand/trips/best-places-to-visit-in-ranchi",
+    "https://www.makemytrip.com/tripideas/places-to-visit-in-goa",
+    "https://www.holidify.com/places/goa/sightseeing-and-things-to-do.html",
+    "https://www.thrillophilia.com/places-to-visit-in-kerala",
+    "https://www.fabhotels.com/blog/places-to-visit-in-kerala/",
+    # Recipes (fresh Indian + some fusion)
+    "https://www.swasthi.com/chicken-biryani-recipe",
+    "https://www.indianhealthyrecipes.com/paneer-butter-masala-recipe/",
+    "https://www.vegrecipesofindia.com/pav-bhaji-recipe/",
+    "https://www.tarladalal.com/recipes-for-indian-vegetarian-209",
+    "https://www.sanjeevkapoor.com/recipe/Aloo-Paratha-Indian-Bread-with-Potato-Filling.html",
+    "https://www.archanaskitchen.com/recipes/indian-breakfast-recipes",
+    "https://www.vegrecipesofindia.com/dal-makhani-recipe/",
+    "https://www.indianhealthyrecipes.com/rasmalai-recipe/",
+    "https://www.swasthi.com/rajma-recipe-rajma-masala-recipe/",
+    "https://www.tarladalal.com/recipes-for-south-indian-vegetarian-210",
+    # Ranchi / Jharkhand local (new pages)
+    "https://ranchi.nic.in/tourist-places/",
+    "https://www.jharkhandtourism.gov.in/destinations/jamshedpur",
+    "https://www.tripadvisor.in/Attractions-g662320-Activities-c47-t26-Ranchi_Ranchi_District_Jharkhand.html",
+    "https://www.holidify.com/places/ranchi/jagannath-temple-sightseeing-125612.html",
+    "https://ranchi.nic.in/places-of-interest/",
+    "https://www.nativeplanet.com/ranchi/hundru-falls/",
+    "https://www.jharkhandtourism.gov.in/destinations/dassam-falls",
+    "https://www.tripoto.com/ranchi/trips/weekend-getaways-near-ranchi",
+    "https://www.fabhotels.com/blog/best-places-to-visit-in-jharkhand/",
+    "https://ranchi.nic.in/paras-nath-hill/",
+    # General / diverse / news / articles
+    "https://www.thehindu.com/news/national/other-states/jharkhand/",
+    "https://indianexpress.com/section/india/jharkhand/",
+    "https://www.prabhatkhabar.com/state/jharkhand/ranchi",
+    "https://en.wikipedia.org/wiki/Jharkhand",
+    "https://en.wikipedia.org/wiki/Ranchi_district",
+    "https://www.bbc.com/news/world-asia-india-12345678",  # example, replace if dead
+    "https://www.ndtv.com/india-news/jharkhand-news",
+    "https://www.downtoearth.org.in/news/agriculture/jharkhand-farmers-struggle-with-drought-2025",
+    "https://www.youthkiawaaz.com/tag/jharkhand/",
+    "https://scroll.in/article/1067890/how-jharkhand-is-dealing-with-its-water-crisis",
+    # Bonus: some e-commerce/product pages (test another type)
+    "https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4",
+    "https://www.amazon.in/Samsung-Galaxy-Ultra-Storage-Without/dp/B0CX59H5W6",
+    "https://www.myntra.com/men-tshirts/roadster/roadster-men-black-solid-polo-collar-t-shirt/1234567/buy",
+    "https://www.ajio.com/peter-england-men-slim-fit-formal-shirt/p/460123456789",
 ]
+
+print(f"New test set ready: {len(TEST_URLS)} URLs")
 
 
 async def run_test():
