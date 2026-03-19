@@ -3,6 +3,7 @@
 Defines table creation functions and foreign key relationship setup
 for all SQLite databases used by the application.
 """
+
 import logging
 import sqlite3
 from typing import Literal
@@ -173,9 +174,7 @@ def create_workspace_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create workspace tables: %s", e, stack_info=True
-        )
+        logger.error("Failed to create workspace tables: %s", e, stack_info=True)
 
 
 # HISTORY MANAGEMENT
@@ -321,9 +320,7 @@ def create_history_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create history tables: %s", e, stack_info=True
-        )
+        logger.error("Failed to create history tables: %s", e, stack_info=True)
 
 
 # CHAT MANAGEMENT
@@ -406,9 +403,7 @@ def create_chat_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create chat tables: %s", e, stack_info=True
-        )
+        logger.error("Failed to create chat tables: %s", e, stack_info=True)
 
 
 # RESEARCH MANAGEMENT
@@ -514,6 +509,7 @@ def create_research_tables() -> None:
                 "connected_bucket": "TEXT",
                 "time_taken_sec": "INTEGER",
                 "token_count": "INTEGER",
+                "num_api_calls": "INTEGER",
                 "source_count": "INTEGER",
                 "websites_count": "INTEGER",
                 "file_count": "INTEGER",
@@ -549,9 +545,7 @@ def create_research_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create research tables: %s", e, stack_info=True
-        )
+        logger.error("Failed to create research tables: %s", e, stack_info=True)
 
 
 # FILE MANAGEMENT
@@ -621,9 +615,7 @@ def create_bucket_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create bucket tables: %s", e, stack_info=True
-        )
+        logger.error("Failed to create bucket tables: %s", e, stack_info=True)
 
 
 # SETTINGS
@@ -686,9 +678,7 @@ def create_settings_table() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create settings table: %s", e, stack_info=True
-        )
+        logger.error("Failed to create settings table: %s", e, stack_info=True)
 
 
 # DBMS
@@ -755,9 +745,7 @@ def create_scrapes_database() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create scrapes tables: %s", e, stack_info=True
-        )
+        logger.error("Failed to create scrapes tables: %s", e, stack_info=True)
 
 
 def create_database_stats_tables() -> None:
@@ -799,9 +787,7 @@ def create_database_stats_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create db_stats table: %s", e, stack_info=True
-        )
+        logger.error("Failed to create db_stats table: %s", e, stack_info=True)
 
 
 # SEARCH MANAGEMENT
@@ -845,9 +831,7 @@ def create_search_tables() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create searches table: %s", e, stack_info=True
-        )
+        logger.error("Failed to create searches table: %s", e, stack_info=True)
 
 
 # Utilities
@@ -886,9 +870,7 @@ def create_backgraound_running_task_table() -> None:
             level="error",
             urgency="critical",
         )
-        logger.error(
-            "Failed to create bg_process table: %s", e, stack_info=True
-        )
+        logger.error("Failed to create bg_process table: %s", e, stack_info=True)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1031,9 +1013,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK bg_process->workspaces: %s", result["message"]
-            )
+            logger.warning("FK bg_process->workspaces: %s", result["message"])
 
         # ──────────────────────────────────────────────────────
         # HISTORY DATABASE (history_db_manager)
@@ -1074,9 +1054,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK chat_messages->chat_threads: %s", result["message"]
-            )
+            logger.warning("FK chat_messages->chat_threads: %s", result["message"])
 
         # chat_attachments.message_id → chat_messages.message_id
         logger.info("Adding FK: chat_attachments → chat_messages")
@@ -1093,9 +1071,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK chat_attachments->chat_messages: %s", result["message"]
-            )
+            logger.warning("FK chat_attachments->chat_messages: %s", result["message"])
 
         # ──────────────────────────────────────────────────────
         # RESEARCHES DATABASE (researches_db_manager)
@@ -1156,9 +1132,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK research_metadata->researches: %s", result["message"]
-            )
+            logger.warning("FK research_metadata->researches: %s", result["message"])
 
         # research_sources.research_id → researches.id
         logger.info("Adding FK: research_sources → researches")
@@ -1175,9 +1149,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK research_sources->researches: %s", result["message"]
-            )
+            logger.warning("FK research_sources->researches: %s", result["message"])
 
         # ──────────────────────────────────────────────────────
         # BUCKETS DATABASE (buckets_db_manager)
@@ -1198,9 +1170,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK bucket_items->buckets: %s", result["message"]
-            )
+            logger.warning("FK bucket_items->buckets: %s", result["message"])
 
         # ──────────────────────────────────────────────────────
         # SCRAPES DATABASE (scrapes_db_manager)
@@ -1221,9 +1191,7 @@ def create_foreign_key_relationships() -> None:
             ],
         )
         if not result["success"]:
-            logger.warning(
-                "FK scrapes_metadata->scrapes: %s", result["message"]
-            )
+            logger.warning("FK scrapes_metadata->scrapes: %s", result["message"])
 
         logger.info("Foreign key relationships created successfully!")
         _log_system_migrations_event(
