@@ -113,7 +113,6 @@ class CrawlerEngine:
             run_configs = [
                 CrawlerRunConfig(
                     page_timeout=5000,  # 5s internal limit (we enforce 6s externally)
-                    wait_for=None,
                     cache_mode=CacheMode.BYPASS,
                     semaphore_count=self.concurrency,
                     mean_delay=0.1,
@@ -122,13 +121,24 @@ class CrawlerEngine:
                 for _ in batch_urls
             ]
 
+            crawler = self.crawler
+            if crawler is None:
+                raise RuntimeError("Crawler is not initialized")
+
             try:
                 # Hard Python-level timeout: cancel whole batch if >6s
                 async with asyncio.timeout(6.0):
-                    batch_results = await self.crawler.arun_many(
+                    batch_result_obj: Any = await crawler.arun_many(
                         urls=batch_urls,
                         configs=run_configs,
                     )
+
+                    if hasattr(batch_result_obj, "__aiter__"):
+                        batch_results = [result async for result in batch_result_obj]
+                    elif hasattr(batch_result_obj, "_results"):
+                        batch_results = list(batch_result_obj._results)
+                    else:
+                        batch_results = list(batch_result_obj)
             except asyncio.TimeoutError:
                 print("⚠️ Batch timeout after 6s - skipping remaining in batch")
                 # Mark remaining as timeout (approximate)
