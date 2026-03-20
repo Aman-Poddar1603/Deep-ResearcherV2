@@ -32,6 +32,6 @@ management and worker queueing.
 - Modify the `workers=4` argument here to scale the default concurrent background task capacity globally.
 """
 
-from main.src.utils.core.task_schedular.scheduler import Scheduler
+from utils.task_scheduler.scheduler import Scheduler
 
 scheduler: Scheduler = Scheduler(workers=4)

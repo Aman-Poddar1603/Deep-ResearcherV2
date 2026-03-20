@@ -1,6 +1,1 @@
-def main():
-    print("Hello from agents!")
-
-
-if __name__ == "__main__":
-    main()
+# Nothing here Check `server.py` for the server code

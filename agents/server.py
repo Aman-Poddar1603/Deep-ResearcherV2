@@ -1,11 +1,25 @@
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 
 from sse.event_bus import event_bus
+from utils.task_scheduler import scheduler
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # -------- SERVER START --------
+    await scheduler.start()
+
+    yield
+
+    # -------- SERVER SHUTDOWN --------
+    await scheduler.shutdown()
+
+
+app = FastAPI(title="Agent Server DRv2!", version="1.0.0", lifespan=lifespan)
 
 
 def format_sse(data: dict):
