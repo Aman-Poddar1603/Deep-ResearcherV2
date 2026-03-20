@@ -38,9 +38,8 @@ import inspect
 import logging
 from typing import Literal
 
-from main.src.utils.core.task_schedular.queue import Task, TaskQueue
-from main.src.utils.DRLogger import dr_logger
-from main.src.utils.version_constants import get_raw_version
+from utils.logger.AgentLogger import dr_logger
+from utils.task_scheduler.queue import Task, TaskQueue
 
 LOG_SOURCE = "system"
 
@@ -102,7 +101,7 @@ def _log_worker_event(
         origin=LOG_SOURCE,
         urgency=urgency,
         module="BACKGROUND_TASKS",
-        app_version=get_raw_version(),
+        app_version="1.0.0",
     )
 
 
@@ -209,20 +208,27 @@ class Worker:
             try:
                 func = task.func
 
-                logger.info(f"Worker {self.worker_id} running {func.__name__}")
+                logger.info(
+                    f"Worker {self.worker_id} running {func.__name__} with params={getattr(task, 'params', {})}"
+                )
                 _log_worker_event(
                     message=f"Worker {self.worker_id} running {func.__name__}",
                     level="info",
                     urgency="none",
                 )
 
+                # New behavior: Task.parameters are provided as a single dict (`Task.params`)
+                # and are always passed to the target function as keyword arguments.
+                # This provides a consistent way to supply parameters to both sync and async callables.
+                params = getattr(task, "params", {}) or {}
+
                 if inspect.iscoroutinefunction(func):
-                    await func(*task.args, **task.kwargs)
+                    # Pass all parameters as keyword args from Task.params
+                    await func(**params)
                 else:
                     loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None, lambda: func(*task.args, **task.kwargs)
-                    )
+                    # Run synchronous functions in the default executor and forward params as kwargs
+                    await loop.run_in_executor(None, lambda: func(**params))
 
             except Exception as e:
                 logger.error(f"Task failed: {e}")

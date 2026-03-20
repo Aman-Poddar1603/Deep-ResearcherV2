@@ -42,7 +42,7 @@ class Task:
     ## Description
 
     A data class representing a single background task to be executed by a worker.
-    It encapsulates the function, its arguments, and retry tracking.
+    It encapsulates the function and its parameters as a single dict for consistency.
 
     ## Parameters
 
@@ -51,15 +51,10 @@ class Task:
       - Constraints: Can be synchronous or asynchronous.
       - Example: `my_async_function`
 
-    - `args` (`tuple`)
-      - Description: Positional arguments to pass to the function.
-      - Constraints: Must match the function signature.
-      - Example: `(1, "test")`
-
-    - `kwargs` (`dict`)
+    - `params` (`dict`)
       - Description: Keyword arguments to pass to the function.
       - Constraints: Must match the function signature.
-      - Example: `{"timeout": 10}`
+      - Example: `{"name": "test", "timeout": 10}`
 
     - `retries` (`int`, optional)
       - Description: Current number of execution attempts.
@@ -73,8 +68,7 @@ class Task:
     """
 
     func: Callable
-    args: tuple
-    kwargs: dict
+    params: dict
     retries: int = 0
     max_retries: int = 3
 
