@@ -13,6 +13,8 @@ from crawl4ai import (
     CrawlerRunConfig,
 )
 
+from utils.logger.AgentLogger import quickLog
+
 # Helpers (unchanged)
 EMPTY_PATTERNS = [
     r"(?i)enable javascript",
@@ -123,6 +125,12 @@ class CrawlerEngine:
 
             crawler = self.crawler
             if crawler is None:
+                quickLog(
+                    level="error",
+                    message="Crawler is not initilized",
+                    module=["CRAWLER", "UTILS"],
+                    urgency="critical",
+                )
                 raise RuntimeError("Crawler is not initialized")
 
             try:
