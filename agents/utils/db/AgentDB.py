@@ -1510,7 +1510,7 @@ def _initialize_store():
     # Create directories if they do not exist
     database_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Ensured directories exist: %s and %s", database_dir)
+    logger.info("Ensured directories exist: %s", database_dir)
 
     required_dbs = [
         "logs.db.sqlite3",

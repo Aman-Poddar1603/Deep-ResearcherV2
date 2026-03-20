@@ -10,8 +10,6 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from utils.db.AgentDB import SQLiteManager
-
 LogType = Literal["success", "error", "warning", "info"]
 LogOrigin = Literal["system", "user"]
 LogUrgency = Literal["none", "moderate", "critical"]
@@ -70,13 +68,19 @@ class DRLogger:
         since DBManager uses DRLogger too.
         """
         if self.logs_db_manager is None:
+            # NOTE: Import inside the method to avoid a circular import:
+            # AgentLogger -> AgentDB -> AgentLogger
+            from utils.db.AgentDB import SQLiteManager
+
             current_dir = Path(__file__).parent
             src_dir = current_dir.parent
             if str(src_dir) not in sys.path:
                 sys.path.append(str(src_dir))
 
-            store_dir = src_dir / "store"
-            db_dir = store_dir / "database"
+            # IMPORTANT: AgentDB initializes the logs DB at `utils/db/database/logs.db.sqlite3`.
+            # Keep both logger and DB manager writing to the same file, otherwise
+            # you end up with an "empty" DB being inspected while logging writes elsewhere.
+            db_dir = src_dir / "db" / "database"
             db_dir.mkdir(parents=True, exist_ok=True)
             logs_db_path = db_dir / "logs.db.sqlite3"
 
