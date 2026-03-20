@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from utils.logger.AgentLogger import quickLog
+from utils.task_scheduler import scheduler
+
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -13,7 +16,7 @@ class SearXNGClient:
         self,
         base_url="http://localhost:8080",
         max_connections=50,
-        max_concurrent_requests=5,  # 🔥 control aggression
+        max_concurrent_requests=5,
     ):
         self.base_url = base_url.rstrip("/")
 
@@ -52,6 +55,15 @@ class SearXNGClient:
 
             for attempt in range(retries + 1):
                 try:
+                    await scheduler.schedule(
+                        quickLog,
+                        params={
+                            "level": "info",
+                            "message": f"Try {attempt + 1}: Collecting URLs {query} src:search_urls:62",
+                            "module": ["CRAWLER"],
+                            "urgency": "none",
+                        },
+                    )
                     response = await self._client.get(
                         "/search",
                         params={"q": query, "format": "json"},
@@ -65,6 +77,15 @@ class SearXNGClient:
                     if attempt < retries:
                         await asyncio.sleep(0.5 * (attempt + 1))  # ⏳ backoff
                     else:
+                        await scheduler.schedule(
+                            quickLog,
+                            params={
+                                "level": "info",
+                                "message": f"Try {attempt + 1}: Collecting URLs {query} src:search_urls:84",
+                                "module": ["CRAWLER"],
+                                "urgency": "none",
+                            },
+                        )
                         print(f"[ERROR] {query} -> {e}")
                         return None
 
@@ -77,6 +98,15 @@ class SearXNGClient:
 
         async def runner():
             tasks = [self._search_async(q) for q in queries]
+            await scheduler.schedule(
+                quickLog,
+                params={
+                    "level": "info",
+                    "message": f"Queries: {queries} src:search_urls:105",
+                    "module": ["CRAWLER"],
+                    "urgency": "none",
+                },
+            )
             return await asyncio.gather(*tasks)
 
         return self._loop.run_until_complete(runner())

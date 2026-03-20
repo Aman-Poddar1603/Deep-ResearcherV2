@@ -3,121 +3,327 @@
 # Make sure your project structure allows the import below
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-# Your crawler imports (adjust path if needed)
-from .web_crawler import (
+from sse.event_bus import event_bus
+from utils.logger.AgentLogger import quickLog
+from utils.task_scheduler import scheduler
+from web.search_urls import SearXNGClient
+from web.web_crawler import (
     crawl_urls,
     get_crawler_engine,
 )
 
-# ────────────────────────────────────────────────
-# 50 Test URLs — mix of travel, recipes, local Ranchi/Jharkhand, general
-# ────────────────────────────────────────────────
-TEST_URLS = [
-    # Travel / destinations (new ones)
-    "https://www.thrillophilia.com/places-to-visit-in-ranchi",
-    "https://www.fabhotels.com/blog/places-to-visit-in-ranchi/",
-    "https://www.nativeplanet.com/ranchi/attractions/",
-    "https://www.jharkhandtourism.gov.in/destinations/ranchi",
-    "https://www.lonelyplanet.com/india/jharkhand/ranchi",
-    "https://www.tripoto.com/jharkhand/trips/best-places-to-visit-in-ranchi",
-    "https://www.makemytrip.com/tripideas/places-to-visit-in-goa",
-    "https://www.holidify.com/places/goa/sightseeing-and-things-to-do.html",
-    "https://www.thrillophilia.com/places-to-visit-in-kerala",
-    "https://www.fabhotels.com/blog/places-to-visit-in-kerala/",
-    # Recipes (fresh Indian + some fusion)
-    "https://www.swasthi.com/chicken-biryani-recipe",
-    "https://www.indianhealthyrecipes.com/paneer-butter-masala-recipe/",
-    "https://www.vegrecipesofindia.com/pav-bhaji-recipe/",
-    "https://www.tarladalal.com/recipes-for-indian-vegetarian-209",
-    "https://www.sanjeevkapoor.com/recipe/Aloo-Paratha-Indian-Bread-with-Potato-Filling.html",
-    "https://www.archanaskitchen.com/recipes/indian-breakfast-recipes",
-    "https://www.vegrecipesofindia.com/dal-makhani-recipe/",
-    "https://www.indianhealthyrecipes.com/rasmalai-recipe/",
-    "https://www.swasthi.com/rajma-recipe-rajma-masala-recipe/",
-    "https://www.tarladalal.com/recipes-for-south-indian-vegetarian-210",
-    # Ranchi / Jharkhand local (new pages)
-    "https://ranchi.nic.in/tourist-places/",
-    "https://www.jharkhandtourism.gov.in/destinations/jamshedpur",
-    "https://www.tripadvisor.in/Attractions-g662320-Activities-c47-t26-Ranchi_Ranchi_District_Jharkhand.html",
-    "https://www.holidify.com/places/ranchi/jagannath-temple-sightseeing-125612.html",
-    "https://ranchi.nic.in/places-of-interest/",
-    "https://www.nativeplanet.com/ranchi/hundru-falls/",
-    "https://www.jharkhandtourism.gov.in/destinations/dassam-falls",
-    "https://www.tripoto.com/ranchi/trips/weekend-getaways-near-ranchi",
-    "https://www.fabhotels.com/blog/best-places-to-visit-in-jharkhand/",
-    "https://ranchi.nic.in/paras-nath-hill/",
-    # General / diverse / news / articles
-    "https://www.thehindu.com/news/national/other-states/jharkhand/",
-    "https://indianexpress.com/section/india/jharkhand/",
-    "https://www.prabhatkhabar.com/state/jharkhand/ranchi",
-    "https://en.wikipedia.org/wiki/Jharkhand",
-    "https://en.wikipedia.org/wiki/Ranchi_district",
-    "https://www.bbc.com/news/world-asia-india-12345678",  # example, replace if dead
-    "https://www.ndtv.com/india-news/jharkhand-news",
-    "https://www.downtoearth.org.in/news/agriculture/jharkhand-farmers-struggle-with-drought-2025",
-    "https://www.youthkiawaaz.com/tag/jharkhand/",
-    "https://scroll.in/article/1067890/how-jharkhand-is-dealing-with-its-water-crisis",
-    # Bonus: some e-commerce/product pages (test another type)
-    "https://www.flipkart.com/apple-iphone-15-black-128-gb/p/itm6ac6485515ae4",
-    "https://www.amazon.in/Samsung-Galaxy-Ultra-Storage-Without/dp/B0CX59H5W6",
-    "https://www.myntra.com/men-tshirts/roadster/roadster-men-black-solid-polo-collar-t-shirt/1234567/buy",
-    "https://www.ajio.com/peter-england-men-slim-fit-formal-shirt/p/460123456789",
-]
-
-print(f"New test set ready: {len(TEST_URLS)} URLs")
+# Search the URLs using SearXNG
+search_client = SearXNGClient()
 
 
-async def run_test():
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting crawler test with {len(TEST_URLS)} URLs..."
+async def search_urls(queries: List) -> List[str]:
+    await scheduler.schedule(
+        quickLog,
+        params={
+            "level": "info",
+            "message": f"Trying Collecting URLs {queries}",
+            "module": ["CRAWLER"],
+            "urgency": "none",
+        },
     )
 
-    # Optional: warm up engine first (helps avoid cold-start lag)
-    engine = await get_crawler_engine(batch_size=10)
-    print("Engine warmed up.")
-
-    # Run the batch crawl
-    results: List[Dict[str, Any]] = await crawl_urls(TEST_URLS, batch_size=10)
-
-    # Print summary stats
-    success = sum(1 for r in results if r.get("status") == "success")
-    blocked_empty = sum(
-        1 for r in results if r.get("status") in ["empty_or_blocked", "blocked"]
+    # Run the client's blocking parallel search in a threadpool so we don't block
+    # the current event loop (SearXNGClient.search_parallel uses its own loop/run_until_complete).
+    loop = asyncio.get_running_loop()
+    await event_bus.broadcast(message={"msg": "I'm on the internet..."})
+    results = await loop.run_in_executor(
+        None, lambda: search_client.search_parallel(queries)
     )
-    fail = sum(1 for r in results if r.get("status") == "fail")
-    total_time = max(r.get("crawling_time_sec", 0) for r in results)  # rough batch time
 
-    print("\n" + "=" * 60)
-    print(f"RESULTS SUMMARY ({len(results)} URLs)")
-    print(f"Success       : {success}")
-    print(f"Blocked/Empty : {blocked_empty}")
-    print(f"Fail/Timeout  : {fail}")
-    print(f"Rough total time: ~{total_time:.1f} sec (parallel batches)")
-    print("=" * 60 + "\n")
+    # Normalize and extract URLs from a variety of possible response shapes:
+    # - If response contains a 'results' list (typical Searx), extract item['url']
+    # - If response has a top-level 'url' (or 'link'/'uri'), use it
+    # - If response is a plain string, treat it as a URL
+    urls: List[str] = []
+    seen = set()
+    if not results:
+        return []
 
-    # Print short report for each (you can save to file too)
     for r in results:
-        status_emoji = (
-            "✅"
-            if r["status"] == "success"
-            else "⚠️"
-            if r["status"] in ["empty_or_blocked", "fail"]
-            else "❌"
+        if not r:
+            continue
+
+        if isinstance(r, dict):
+            # Prefer structured 'results' list if present
+            res_list = r.get("results")
+            if isinstance(res_list, list):
+                for item in res_list:
+                    if not isinstance(item, dict):
+                        continue
+                    url = item.get("url") or item.get("link") or item.get("uri")
+                    if url and url not in seen:
+                        seen.add(url)
+                        urls.append(url)
+                continue
+
+            # Fall back to top-level url/link/uri
+            url = r.get("url") or r.get("link") or r.get("uri")
+            if url and url not in seen:
+                seen.add(url)
+                urls.append(url)
+            continue
+
+        # If the result is a simple string, treat it as a URL
+        if isinstance(r, str) and r not in seen:
+            seen.add(r)
+            urls.append(r)
+
+    await event_bus.broadcast(
+        message={"msg": f"I've got {len(urls)} pages, on the internet..."}
+    )
+    return urls
+
+
+async def read_pages(
+    urls: List[str],
+    *,
+    max_urls: Optional[int] = None,
+    max_concurrent_scrape_batches: int = 3,
+    origin_research_id: Optional[str] = None,
+) -> AsyncIterator[Dict[str, Any]]:
+    """
+    Scrape the provided URLs (no searching) and yield results in parallel batches.
+
+    Yields dicts shaped for your `scrapes` / `scrapes_metadata` fill:
+    - success: true/false
+    - url
+    - content
+    - scrape_duration
+    - datetime_Scrape
+    """
+    async for item in search_and_scrape_pages(
+        urls,
+        max_urls=max_urls,
+        max_concurrent_scrape_batches=max_concurrent_scrape_batches,
+        queries_are_urls=True,
+        origin_research_id=origin_research_id,
+    ):
+        yield item
+
+
+async def search_and_scrape_pages(
+    queries_or_urls: List[str],
+    *,
+    max_urls: Optional[int] = None,
+    max_concurrent_scrape_batches: int = 3,
+    queries_are_urls: bool = False,
+    origin_research_id: Optional[str] = None,
+) -> AsyncIterator[Dict[str, Any]]:
+    """
+    End-to-end pipeline:
+    1) collect URLs (SearXNG) from `queries_or_urls` unless `queries_are_urls=True`
+    2) scrape URLs using the shared crawl4ai engine
+    3) yield per-page results as each scrape batch finishes
+
+    Returned items include at least:
+    - success, url, content, scrape_duration, datetime_Scrape
+    plus extra fields useful for your DB inserts.
+    """
+
+    if not queries_or_urls:
+        return
+    if queries_are_urls:
+        await event_bus.broadcast(
+            message={"msg": f"I'm scraping {len(queries_or_urls)} provided URLs..."}
         )
-        js_note = " (used JS)" if r.get("used_js") else ""
-        print(
-            f"{status_emoji} {r['status'].upper():<12} | {r['crawling_time_sec']:.2f}s | {r['url'][:80]}{'...' if len(r['url']) > 80 else ''}{js_note}"
+    else:
+        await event_bus.broadcast(
+            message={"msg": f"I'm collecting search results for {len(queries_or_urls)} queries..."}
         )
 
-    # Optional: save full results to JSON for inspection
-    with open("crawler_test_results_2026.json", "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    print("\nFull results saved to: crawler_test_results_2026.json")
+    if queries_are_urls:
+        urls: List[str] = list(queries_or_urls)
+    else:
+        urls = await search_urls(queries_or_urls)
+
+    # Safety: avoid accidental huge crawls.
+    if max_urls is not None:
+        urls = urls[:max_urls]
+
+    urls = list(dict.fromkeys(urls))  # stable de-dupe
+    if not urls:
+        await event_bus.broadcast(message={"msg": "No URLs found to scrape."})
+        return
+
+    await event_bus.broadcast(message={"msg": f"I'm scraping {len(urls)} pages..."})
+
+    engine = await get_crawler_engine()
+    batch_size = getattr(engine, "batch_size", 10) or 10
+
+    batches: List[List[str]] = [
+        urls[i : i + batch_size] for i in range(0, len(urls), batch_size)
+    ]
+
+    semaphore = asyncio.Semaphore(max_concurrent_scrape_batches)
+
+    async def scrape_batch(batch_urls: List[str], batch_idx: int) -> List[Dict[str, Any]]:
+        async with semaphore:
+            await scheduler.schedule(
+                quickLog,
+                params={
+                    "level": "info",
+                    "message": (
+                        f"Scrape batch {batch_idx + 1}/{len(batches)} "
+                        f"({len(batch_urls)} urls) src:scraper: end-to-end"
+                    ),
+                    "module": ["SCRAPER", "CRAWLER"],
+                    "urgency": "none",
+                },
+            )
+
+            scrape_dt = datetime.utcnow().isoformat()
+            try:
+                results = await engine.crawl_batch(batch_urls)
+            except Exception as e:
+                # If the crawler batch fails hard, emit a failure item per URL.
+                results = [
+                    {
+                        "url": u,
+                        "status": "fail",
+                        "title": None,
+                        "description": None,
+                        "favicon": None,
+                        "banner_image": None,
+                        "markdown": None,
+                        "crawling_time_sec": 0.0,
+                        "error": str(e),
+                    }
+                    for u in batch_urls
+                ]
+
+            items: List[Dict[str, Any]] = []
+            for r in results:
+                status = r.get("status")
+                success = status == "success"
+                content = r.get("markdown") if success else None
+
+                metadata: Dict[str, Any] = {
+                    "title": r.get("title"),
+                    "description": r.get("description"),
+                    "banner_image": r.get("banner_image"),
+                    "favicon": r.get("favicon"),
+                    "status": status,
+                    "error": r.get("error"),
+                    "crawling_time_sec": r.get("crawling_time_sec"),
+                    "scraped_at": scrape_dt,
+                }
+
+                no_words = 0
+                if content and isinstance(content, str):
+                    no_words = len(content.split())
+
+                items.append(
+                    {
+                        # ---- your minimum required fields ----
+                        "success": success,
+                        "url": r.get("url"),
+                        "content": content,
+                        "scrape_duration": r.get("crawling_time_sec"),
+                        "datetime_Scrape": scrape_dt,
+                        # ---- extra fields for your DB mapping ----
+                        # Candidate deterministic identifiers (your DB layer can choose to use/update them).
+                        "scrapes_id_candidate": hashlib.sha256(
+                            r.get("url", "").encode("utf-8")
+                        ).hexdigest(),
+                        "scrape_id_candidate": hashlib.sha256(
+                            r.get("url", "").encode("utf-8")
+                        ).hexdigest(),
+                        "scrapes_metadata_id_candidate": hashlib.sha256(
+                            f"meta|{r.get('url', '')}".encode("utf-8")
+                        ).hexdigest(),
+                        "title": r.get("title"),
+                        "favicon": r.get("favicon"),
+                        "metadata": metadata,
+                        "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                        "search_engine": "SearXNG",
+                        "clawler": "crawl4ai",  # matches your schema spelling
+                        "clawling_time_sec": r.get("crawling_time_sec"),
+                        "no_words": no_words,
+                        "created_at": scrape_dt,
+                        "updated_at": scrape_dt,
+                        "is_vector_stored": False,
+                        # placeholders to be filled later by your pipeline
+                        "chats_cited": None,
+                        "research_cited": None,
+                        "num_crawls": None,
+                        "num_cited": None,
+                        "origin_research_id": origin_research_id,
+                    }
+                )
+
+            return items
+
+    tasks = [
+        asyncio.create_task(scrape_batch(batch, i)) for i, batch in enumerate(batches)
+    ]
+
+    for fut in asyncio.as_completed(tasks):
+        batch_items = await fut
+        for item in batch_items:
+            yield item
+
+    await event_bus.broadcast(
+        message={"msg": f"Finished scraping all batches ({len(urls)} urls)."}
+    )
 
 
-if __name__ == "__main__":
-    asyncio.run(run_test())
+# async def run_test():
+#     print(
+#         f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting crawler test with {len(TEST_URLS)} URLs..."
+#     )
+
+#     # Optional: warm up engine first (helps avoid cold-start lag)
+#     engine = await get_crawler_engine(batch_size=10)
+#     print("Engine warmed up.")
+
+#     # Run the batch crawl
+#     results: List[Dict[str, Any]] = await crawl_urls(TEST_URLS, batch_size=10)
+
+#     # Print summary stats
+#     success = sum(1 for r in results if r.get("status") == "success")
+#     blocked_empty = sum(
+#         1 for r in results if r.get("status") in ["empty_or_blocked", "blocked"]
+#     )
+#     fail = sum(1 for r in results if r.get("status") == "fail")
+#     total_time = max(r.get("crawling_time_sec", 0) for r in results)  # rough batch    time
+
+#     print("\n" + "=" * 60)
+#     print(f"RESULTS SUMMARY ({len(results)} URLs)")
+#     print(f"Success       : {success}")
+#     print(f"Blocked/Empty : {blocked_empty}")
+#     print(f"Fail/Timeout  : {fail}")
+#     print(f"Rough total time: ~{total_time:.1f} sec (parallel batches)")
+#     print("=" * 60 + "\n")
+
+#     # Print short report for each (you can save to file too)
+#     for r in results:
+#         status_emoji = (
+#             "✅"
+#             if r["status"] == "success"
+#             else "⚠️"
+#             if r["status"] in ["empty_or_blocked", "fail"]
+#             else "❌"
+#         )
+#         js_note = " (used JS)" if r.get("used_js") else ""
+#         print(
+#             f"{status_emoji} {r['status'].upper():<12} | {r['crawling_time_sec']:.2f}s | {r['url'][:80]}{'...' if len(r['url']) > 80 else ''}{js_note}"
+#         )
+
+#     # Optional: save full results to JSON for inspection
+#     with open("crawler_test_results_2026.json", "w", encoding="utf-8") as f:
+#         json.dump(results, f, indent=2, ensure_ascii=False)
+#     print("\nFull results saved to: crawler_test_results_2026.json")
+
+
+# if __name__ == "__main__":
+#     asyncio.run(run_test())

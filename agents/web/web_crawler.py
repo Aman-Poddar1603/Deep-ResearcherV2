@@ -1,7 +1,6 @@
 # src/agents/webSearchAgent/core/web_crawler.py
 
 import asyncio
-import re
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -14,6 +13,7 @@ from crawl4ai import (
 )
 
 from utils.logger.AgentLogger import quickLog
+from utils.task_scheduler import scheduler
 
 # Helpers (unchanged)
 EMPTY_PATTERNS = [
@@ -23,18 +23,6 @@ EMPTY_PATTERNS = [
     r"(?i)please wait while your request is being verified",
     r"(?i)loading.*please wait",
 ]
-
-
-def _looks_empty_or_blocked(markdown: str | None) -> bool:
-    if not markdown:
-        return True
-    cleaned = markdown.strip()
-    if len(cleaned) < 400:
-        return True
-    for pattern in EMPTY_PATTERNS:
-        if re.search(pattern, cleaned):
-            return True
-    return False
 
 
 def _normalize_metadata(meta: Optional[dict], url: str) -> Dict[str, Any]:
@@ -110,7 +98,15 @@ class CrawlerEngine:
 
         for i in range(0, len(urls), self.batch_size):
             batch_urls = urls[i : i + self.batch_size]
-            print(f"🚀 Batch {i // self.batch_size + 1} ({len(batch_urls)} URLs)")
+            await scheduler.schedule(
+                quickLog,
+                params={
+                    "level": "info",
+                    "message": f"🚀 Batch {i // self.batch_size + 1} ({len(batch_urls)} URLs) src:web_crawler:105",
+                    "module": ["CRAWLER"],
+                    "urgency": "none",
+                },
+            )
 
             run_configs = [
                 CrawlerRunConfig(
@@ -125,11 +121,14 @@ class CrawlerEngine:
 
             crawler = self.crawler
             if crawler is None:
-                quickLog(
-                    level="error",
-                    message="Crawler is not initilized",
-                    module=["CRAWLER", "UTILS"],
-                    urgency="critical",
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "level": "error",
+                        "message": "Crawler is not initilized... src:web_crawler:128",
+                        "module": ["CRAWLER", "UTILS"],
+                        "urgency": "critical",
+                    },
                 )
                 raise RuntimeError("Crawler is not initialized")
 
@@ -148,7 +147,15 @@ class CrawlerEngine:
                     else:
                         batch_results = list(batch_result_obj)
             except asyncio.TimeoutError:
-                print("⚠️ Batch timeout after 6s - skipping remaining in batch")
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "level": "error",
+                        "message": "⚠️ Batch timeout after 6s - skipping remaining in batch src:web_crawler:154",
+                        "module": ["CRAWLER"],
+                        "urgency": "critical",
+                    },
+                )
                 # Mark remaining as timeout (approximate)
                 for u in batch_urls:
                     all_results.append(
@@ -190,23 +197,87 @@ class CrawlerEngine:
                         "error": result.error_message if not result.success else None,
                     }
                 )
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "level": "info",
+                "message": f"✅ Finished {len(urls)} URLs in {round(time.time() - start_all, 2)} s src:web_crawler:204",
+                "module": ["CRAWLER"],
+                "urgency": "none",
+            },
+        )
 
-        print(f"✅ Finished {len(urls)} URLs in {round(time.time() - start_all, 2)} s")
         return all_results
 
 
-# Singleton (unchanged)
+# Global Singleton Engine
 _engine: Optional[CrawlerEngine] = None
+
+
+async def init_crawler_engine(batch_size: int = 10, concurrency: int = 8):
+    """Initialize the crawler engine. Call this during server startup."""
+    global _engine
+    if _engine is None:
+        _engine = CrawlerEngine(batch_size=batch_size, concurrency=concurrency)
+        await _engine.start()
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "level": "info",
+                "message": "CrawlerEngine initialized globally on server startup. src:web_crawler:227",
+                "module": ["CRAWLER"],
+                "urgency": "none",
+            },
+        )
+
+
+async def close_crawler_engine():
+    """Close the crawler engine. Call this during server shutdown."""
+    global _engine
+    if _engine is not None:
+        await _engine.stop()
+        _engine = None
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "level": "info",
+                "message": "CrawlerEngine closed gracefully on server shutdown. src:web_crawler:244",
+                "module": ["CRAWLER"],
+                "urgency": "none",
+            },
+        )
 
 
 async def get_crawler_engine(
     batch_size: int = 10,
     concurrency: int = 8,
 ) -> CrawlerEngine:
+    """Get the active crawler engine. Initializes it if not already running."""
     global _engine
     if _engine is None:
-        _engine = CrawlerEngine(batch_size=batch_size, concurrency=concurrency)
-        await _engine.start()
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "level": "info",
+                "message": "Initializing the Engine & Starting crawl of URLs src:web_crawler:262",
+                "module": ["CRAWLER", "UTILS"],
+                "urgency": "none",
+            },
+        )
+        await init_crawler_engine(batch_size=batch_size, concurrency=concurrency)
+
+    if _engine is None:
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "level": "error",
+                "message": "Failed to initialize CrawlerEngine src:web_crawler:274",
+                "module": ["CRAWLER"],
+                "urgency": "critical",
+            },
+        )
+        raise RuntimeError("Failed to initialize CrawlerEngine")
+
     return _engine
 
 
@@ -215,5 +286,14 @@ async def crawl_urls(
     batch_size: int = 10,
     concurrency: int = 8,
 ) -> List[Dict[str, Any]]:
+    await scheduler.schedule(
+        quickLog,
+        params={
+            "level": "info",
+            "message": f"Initilizing the Engine & Starting crawl of {len(urls)} URLs src:web_crawler:293",
+            "module": ["CRAWLER", "UTILS"],
+            "urgency": "none",
+        },
+    )
     engine = await get_crawler_engine(batch_size=batch_size, concurrency=concurrency)
     return await engine.crawl_batch(urls)
