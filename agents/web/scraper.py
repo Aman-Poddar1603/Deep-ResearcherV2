@@ -13,7 +13,6 @@ from utils.logger.AgentLogger import quickLog
 from utils.task_scheduler import scheduler
 from web.search_urls import SearXNGClient
 from web.web_crawler import (
-    crawl_urls,
     get_crawler_engine,
 )
 
@@ -22,6 +21,15 @@ search_client = SearXNGClient()
 
 
 async def search_urls(queries: List) -> List[str]:
+    """
+    Search for URLs across multiple queries using SearXNG and return a list of unique results.
+
+    Args:
+        queries: A list of search query strings.
+
+    Returns:
+        A list of unique URLs discovered from the search results.
+    """
     await scheduler.schedule(
         quickLog,
         params={
@@ -32,13 +40,10 @@ async def search_urls(queries: List) -> List[str]:
         },
     )
 
-    # Run the client's blocking parallel search in a threadpool so we don't block
-    # the current event loop (SearXNGClient.search_parallel uses its own loop/run_until_complete).
-    loop = asyncio.get_running_loop()
     await event_bus.broadcast(message={"msg": "I'm on the internet..."})
-    results = await loop.run_in_executor(
-        None, lambda: search_client.search_parallel(queries)
-    )
+    # Fully async path to avoid cross-loop / run_until_complete conflicts
+    # when multiple requests hit /scrape/search concurrently.
+    results = await search_client.search_parallel_async(queries)
 
     # Normalize and extract URLs from a variety of possible response shapes:
     # - If response contains a 'results' list (typical Searx), extract item['url']
@@ -138,7 +143,9 @@ async def search_and_scrape_pages(
         )
     else:
         await event_bus.broadcast(
-            message={"msg": f"I'm collecting search results for {len(queries_or_urls)} queries..."}
+            message={
+                "msg": f"I'm collecting search results for {len(queries_or_urls)} queries..."
+            }
         )
 
     if queries_are_urls:
@@ -166,109 +173,125 @@ async def search_and_scrape_pages(
 
     semaphore = asyncio.Semaphore(max_concurrent_scrape_batches)
 
-    async def scrape_batch(batch_urls: List[str], batch_idx: int) -> List[Dict[str, Any]]:
-        async with semaphore:
-            await scheduler.schedule(
-                quickLog,
-                params={
-                    "level": "info",
-                    "message": (
-                        f"Scrape batch {batch_idx + 1}/{len(batches)} "
-                        f"({len(batch_urls)} urls) src:scraper: end-to-end"
-                    ),
-                    "module": ["SCRAPER", "CRAWLER"],
-                    "urgency": "none",
-                },
+    async def scrape_batch(
+        batch_urls: List[str], batch_idx: int
+    ) -> List[Dict[str, Any]]:
+        scrape_dt = datetime.utcnow().isoformat()
+        try:
+            async with semaphore:
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "level": "info",
+                        "message": (
+                            f"Scrape batch {batch_idx + 1}/{len(batches)} "
+                            f"({len(batch_urls)} urls) src:scraper: end-to-end"
+                        ),
+                        "module": ["SCRAPER", "CRAWLER"],
+                        "urgency": "none",
+                    },
+                )
+                results = await engine.crawl_batch(batch_urls)
+        except Exception as e:
+            # Never leak task exceptions outward: a single batch failure
+            # must not terminate the stream while other batches keep running.
+            results = [
+                {
+                    "url": u,
+                    "status": "fail",
+                    "title": None,
+                    "description": None,
+                    "favicon": None,
+                    "banner_image": None,
+                    "markdown": None,
+                    "crawling_time_sec": 0.0,
+                    "error": str(e),
+                }
+                for u in batch_urls
+            ]
+
+        items: List[Dict[str, Any]] = []
+        for r in results:
+            status = r.get("status")
+            success = status == "success"
+            content = r.get("markdown") if success else None
+
+            metadata: Dict[str, Any] = {
+                "title": r.get("title"),
+                "description": r.get("description"),
+                "banner_image": r.get("banner_image"),
+                "favicon": r.get("favicon"),
+                "status": status,
+                "error": r.get("error"),
+                "crawling_time_sec": r.get("crawling_time_sec"),
+                "scraped_at": scrape_dt,
+            }
+
+            no_words = 0
+            if content and isinstance(content, str):
+                no_words = len(content.split())
+
+            items.append(
+                {
+                    # ---- your minimum required fields ----
+                    "success": success,
+                    "url": r.get("url"),
+                    "content": content,
+                    "scrape_duration": r.get("crawling_time_sec"),
+                    "datetime_Scrape": scrape_dt,
+                    # ---- extra fields for your DB mapping ----
+                    # Candidate deterministic identifiers (your DB layer can choose to use/update them).
+                    "scrapes_id_candidate": hashlib.sha256(
+                        r.get("url", "").encode("utf-8")
+                    ).hexdigest(),
+                    "scrape_id_candidate": hashlib.sha256(
+                        r.get("url", "").encode("utf-8")
+                    ).hexdigest(),
+                    "scrapes_metadata_id_candidate": hashlib.sha256(
+                        f"meta|{r.get('url', '')}".encode("utf-8")
+                    ).hexdigest(),
+                    "title": r.get("title"),
+                    "favicon": r.get("favicon"),
+                    "metadata": metadata,
+                    "metadata_json": json.dumps(metadata, ensure_ascii=False),
+                    "search_engine": "SearXNG",
+                    "clawler": "crawl4ai",  # matches your schema spelling
+                    "clawling_time_sec": r.get("crawling_time_sec"),
+                    "no_words": no_words,
+                    "created_at": scrape_dt,
+                    "updated_at": scrape_dt,
+                    "is_vector_stored": False,
+                    # placeholders to be filled later by your pipeline
+                    "chats_cited": None,
+                    "research_cited": None,
+                    "num_crawls": None,
+                    "num_cited": None,
+                    "origin_research_id": origin_research_id,
+                }
             )
 
-            scrape_dt = datetime.utcnow().isoformat()
-            try:
-                results = await engine.crawl_batch(batch_urls)
-            except Exception as e:
-                # If the crawler batch fails hard, emit a failure item per URL.
-                results = [
-                    {
-                        "url": u,
-                        "status": "fail",
-                        "title": None,
-                        "description": None,
-                        "favicon": None,
-                        "banner_image": None,
-                        "markdown": None,
-                        "crawling_time_sec": 0.0,
-                        "error": str(e),
-                    }
-                    for u in batch_urls
-                ]
-
-            items: List[Dict[str, Any]] = []
-            for r in results:
-                status = r.get("status")
-                success = status == "success"
-                content = r.get("markdown") if success else None
-
-                metadata: Dict[str, Any] = {
-                    "title": r.get("title"),
-                    "description": r.get("description"),
-                    "banner_image": r.get("banner_image"),
-                    "favicon": r.get("favicon"),
-                    "status": status,
-                    "error": r.get("error"),
-                    "crawling_time_sec": r.get("crawling_time_sec"),
-                    "scraped_at": scrape_dt,
-                }
-
-                no_words = 0
-                if content and isinstance(content, str):
-                    no_words = len(content.split())
-
-                items.append(
-                    {
-                        # ---- your minimum required fields ----
-                        "success": success,
-                        "url": r.get("url"),
-                        "content": content,
-                        "scrape_duration": r.get("crawling_time_sec"),
-                        "datetime_Scrape": scrape_dt,
-                        # ---- extra fields for your DB mapping ----
-                        # Candidate deterministic identifiers (your DB layer can choose to use/update them).
-                        "scrapes_id_candidate": hashlib.sha256(
-                            r.get("url", "").encode("utf-8")
-                        ).hexdigest(),
-                        "scrape_id_candidate": hashlib.sha256(
-                            r.get("url", "").encode("utf-8")
-                        ).hexdigest(),
-                        "scrapes_metadata_id_candidate": hashlib.sha256(
-                            f"meta|{r.get('url', '')}".encode("utf-8")
-                        ).hexdigest(),
-                        "title": r.get("title"),
-                        "favicon": r.get("favicon"),
-                        "metadata": metadata,
-                        "metadata_json": json.dumps(metadata, ensure_ascii=False),
-                        "search_engine": "SearXNG",
-                        "clawler": "crawl4ai",  # matches your schema spelling
-                        "clawling_time_sec": r.get("crawling_time_sec"),
-                        "no_words": no_words,
-                        "created_at": scrape_dt,
-                        "updated_at": scrape_dt,
-                        "is_vector_stored": False,
-                        # placeholders to be filled later by your pipeline
-                        "chats_cited": None,
-                        "research_cited": None,
-                        "num_crawls": None,
-                        "num_cited": None,
-                        "origin_research_id": origin_research_id,
-                    }
-                )
-
-            return items
+        return items
 
     tasks = [
         asyncio.create_task(scrape_batch(batch, i)) for i, batch in enumerate(batches)
     ]
 
     for fut in asyncio.as_completed(tasks):
-        batch_items = await fut
+        # Defensive await: even if something unexpected escapes scrape_batch,
+        # keep consuming all task completions to avoid dangling background work.
+        try:
+            batch_items = await fut
+        except Exception as e:  # pragma: no cover - safety net
+            await scheduler.schedule(
+                quickLog,
+                params={
+                    "level": "error",
+                    "message": f"Unhandled batch task error: {e}",
+                    "module": ["SCRAPER", "CRAWLER"],
+                    "urgency": "critical",
+                },
+            )
+            batch_items = []
         for item in batch_items:
             yield item
 

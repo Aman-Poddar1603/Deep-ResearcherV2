@@ -4,6 +4,7 @@ __pycache__
 uv.lock
 *.db
 *.sqlite3
+database
 
 
 # temp testing files

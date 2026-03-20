@@ -110,7 +110,7 @@ class CrawlerEngine:
 
             run_configs = [
                 CrawlerRunConfig(
-                    page_timeout=5000,  # 5s internal limit (we enforce 6s externally)
+                    page_timeout=12000,  # 12s per page
                     cache_mode=CacheMode.BYPASS,
                     semaphore_count=self.concurrency,
                     mean_delay=0.1,
@@ -132,9 +132,11 @@ class CrawlerEngine:
                 )
                 raise RuntimeError("Crawler is not initialized")
 
+            # Scale timeout with batch size: 15s per URL, minimum 30s
+            batch_timeout = max(30.0, len(batch_urls) * 15.0)
+
             try:
-                # Hard Python-level timeout: cancel whole batch if >6s
-                async with asyncio.timeout(6.0):
+                async with asyncio.timeout(batch_timeout):
                     batch_result_obj: Any = await crawler.arun_many(
                         urls=batch_urls,
                         configs=run_configs,
@@ -151,7 +153,7 @@ class CrawlerEngine:
                     quickLog,
                     params={
                         "level": "error",
-                        "message": "⚠️ Batch timeout after 6s - skipping remaining in batch src:web_crawler:154",
+                        "message": f"⚠️ Batch timeout after {batch_timeout}s - skipping remaining in batch src:web_crawler:154",
                         "module": ["CRAWLER"],
                         "urgency": "critical",
                     },
@@ -167,8 +169,8 @@ class CrawlerEngine:
                             "favicon": None,
                             "banner_image": None,
                             "markdown": None,
-                            "crawling_time_sec": 6.0,
-                            "error": "Hard timeout after 6 seconds",
+                            "crawling_time_sec": batch_timeout,
+                            "error": f"Hard timeout after {batch_timeout} seconds",
                         }
                     )
                 continue  # next batch

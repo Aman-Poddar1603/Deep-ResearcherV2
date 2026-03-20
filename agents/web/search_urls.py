@@ -40,10 +40,6 @@ class SearXNGClient:
             ),
         )
 
-        # 🧠 dedicated loop
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-
     async def _search_async(self, query: str) -> Optional[Dict[str, Any]]:
         async with self._semaphore:  # 🚦 rate limiting
             headers = {
@@ -90,26 +86,44 @@ class SearXNGClient:
                         return None
 
     def search(self, query: str) -> Optional[Dict[str, Any]]:
-        """Same usage (sync)"""
-        return self._loop.run_until_complete(self._search_async(query))
+        """Sync wrapper for contexts that do not already run an event loop."""
+        try:
+            asyncio.get_running_loop()
+            raise RuntimeError(
+                "SearXNGClient.search() cannot be called from a running event loop. "
+                "Use await _search_async(...) or await search_parallel_async(...)."
+            )
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise
+            return asyncio.run(self._search_async(query))
 
     def search_parallel(self, queries: List[str]):
-        """Parallel execution (controlled)"""
-
-        async def runner():
-            tasks = [self._search_async(q) for q in queries]
-            await scheduler.schedule(
-                quickLog,
-                params={
-                    "level": "info",
-                    "message": f"Queries: {queries} src:search_urls:105",
-                    "module": ["CRAWLER"],
-                    "urgency": "none",
-                },
+        """Sync wrapper for contexts that do not already run an event loop."""
+        try:
+            asyncio.get_running_loop()
+            raise RuntimeError(
+                "SearXNGClient.search_parallel() cannot be called from a running event loop. "
+                "Use await search_parallel_async(...)."
             )
-            return await asyncio.gather(*tasks)
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                raise
+            return asyncio.run(self.search_parallel_async(queries))
 
-        return self._loop.run_until_complete(runner())
+    async def search_parallel_async(self, queries: List[str]):
+        """Fully async parallel search for async server flows."""
+        tasks = [self._search_async(q) for q in queries]
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "level": "info",
+                "message": f"Queries: {queries} src:search_urls:async",
+                "module": ["CRAWLER"],
+                "urgency": "none",
+            },
+        )
+        return await asyncio.gather(*tasks)
 
     async def search_fire_and_forget(self, query: str):
         """🔥 non-blocking trigger"""

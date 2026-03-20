@@ -149,6 +149,7 @@ async def scrape_search(req: SearchScrapeRequest):
     """
 
     async def event_generator():
+        yielded_items = 0
         yield format_sse(
             {
                 "success": True,
@@ -165,13 +166,18 @@ async def scrape_search(req: SearchScrapeRequest):
                 queries_are_urls=False,
                 origin_research_id=req.origin_research_id,
             ):
+                yielded_items += 1
                 yield format_sse(item)
 
             yield format_sse(
                 {
                     "success": True,
                     "type": "done",
-                    "message": "Finished search+scrape stream",
+                    "message": (
+                        f"Finished search+scrape stream. "
+                        f"Yielded {yielded_items} scrape item(s)."
+                    ),
+                    "yielded_items": yielded_items,
                 }
             )
         except Exception as e:
