@@ -1506,21 +1506,13 @@ def _initialize_store():
     - Increase database file sets strictly by adding new filenames to the `required_dbs` list.
     """
     database_dir = BASE_DIR / "database"
-    bucket_dir = BASE_DIR / "bucket"
 
     # Create directories if they do not exist
     database_dir.mkdir(parents=True, exist_ok=True)
-    bucket_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Ensured directories exist: %s and %s", database_dir, bucket_dir)
+    logger.info("Ensured directories exist: %s and %s", database_dir)
 
     required_dbs = [
-        "main.db.sqlite3",
-        "history.db.sqlite3",
-        "scrapes.db.sqlite3",
-        "buckets.db.sqlite3",
-        "researches.db.sqlite3",
-        "chats.db.sqlite3",
         "logs.db.sqlite3",
     ]
 
