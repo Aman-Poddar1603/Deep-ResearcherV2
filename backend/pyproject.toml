@@ -14,8 +14,11 @@ dependencies = [
     "onnxruntime==1.18.0",
     "pillow>=12.1.1",
     "pillow-avif-plugin>=1.5.5",
+    "psutil>=7.2.2",
+    "py-youtube>=1.1.7",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
     "redis>=7.2.1",
     "uvicorn>=0.41.0",
+    "youtube-transcript-api>=1.2.4",
 ]
