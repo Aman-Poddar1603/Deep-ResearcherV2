@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>SSE & Streaming Scrape Preview</title>
+        <style>
+            :root {
+                /* Color Palette */
+                --bg-base: #020617;
+                --bg-panel: #0f172a;
+                --bg-input: #1e293b;
+                --border-color: #334155;
+                --text-main: #f8fafc;
+                --text-muted: #94a3b8;
+
+                /* Accents */
+                --accent-glow: rgba(56, 189, 248, 0.4);
+                --btn-primary: #096499;
+                --btn-primary-hover: #19587c;
+                --btn-stop: linear-gradient(135deg, #ef4444, #b91c1c);
+                --btn-stop-hover: linear-gradient(135deg, #f87171, #dc2626);
+
+                /* Log Colors */
+                --log-bg: #000000;
+                --log-text: #e2e8f0;
+                --log-time: #38bdf8;
+                --log-error: #f87171;
+                --log-info: #a78bfa;
+                --log-success: #4ade80;
+            }
+
+            body {
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    Helvetica, Arial, sans-serif;
+                background-color: var(--bg-base);
+                color: var(--text-main);
+                margin: 0;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                height: 100vh;
+                box-sizing: border-box;
+                overflow: hidden;
+            }
+
+            /* --- Scrollbar Styling --- */
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: var(--bg-panel);
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--border-color);
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: #475569;
+            }
+
+            /* --- Animations --- */
+            @keyframes slideUpFade {
+                0% {
+                    opacity: 0;
+                    transform: translateY(30px);
+                }
+
+                100% {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @keyframes slideInRight {
+                0% {
+                    opacity: 0;
+                    transform: translateX(-15px);
+                }
+
+                100% {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+
+            @keyframes pulseShadow {
+                0% {
+                    box-shadow: 0 0 0 0 var(--accent-glow);
+                }
+
+                70% {
+                    box-shadow: 0 0 15px 10px rgba(56, 189, 248, 0);
+                }
+
+                100% {
+                    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+                }
+            }
+
+            .warning-banner {
+                background-color: rgba(234, 179, 8, 0.1);
+                color: #fde047;
+                padding: 12px 16px;
+                border: 1px solid rgba(234, 179, 8, 0.2);
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-size: 0.9em;
+                animation: slideUpFade 0.6s ease-out both;
+            }
+
+            .container {
+                display: flex;
+                gap: 20px;
+                flex: 1;
+                min-height: 0;
+            }
+
+            .panel {
+                background: var(--bg-panel);
+                border: 1px solid var(--border-color);
+                border-radius: 12px;
+                padding: 24px;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+                animation: slideUpFade 0.6s ease-out both;
+            }
+
+            .panel:nth-child(1) {
+                animation-delay: 0.1s;
+            }
+
+            .panel:nth-child(2) {
+                animation-delay: 0.2s;
+            }
+
+            h2 {
+                margin-top: 0;
+                font-size: 1.2em;
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 12px;
+                color: #fff;
+                letter-spacing: 0.5px;
+            }
+
+            /* --- Tabs --- */
+            .tabs {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 16px;
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 8px;
+            }
+
+            .tab-btn {
+                background: transparent;
+                color: var(--text-muted);
+                border: 1px solid transparent;
+                padding: 8px 16px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: bold;
+                transition: all 0.2s;
+                box-shadow: none;
+            }
+
+            .tab-btn:hover {
+                color: var(--text-main);
+                background: rgba(255, 255, 255, 0.05);
+            }
+
+            .tab-btn.active {
+                color: #fff;
+                background: var(--bg-input);
+                border: 1px solid var(--border-color);
+            }
+
+            .tab-content {
+                display: none;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+
+            .tab-content.active {
+                display: flex;
+            }
+
+            .form-group {
+                margin-bottom: 16px;
+            }
+
+            label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 6px;
+                font-size: 0.85em;
+                color: var(--text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            input[type="text"],
+            input[type="number"],
+            textarea {
+                width: 100%;
+                padding: 10px 12px;
+                background-color: var(--bg-input);
+                border: 1px solid var(--border-color);
+                color: var(--text-main);
+                border-radius: 6px;
+                box-sizing: border-box;
+                font-family: inherit;
+                transition: all 0.3s ease;
+            }
+
+            input:focus,
+            textarea:focus {
+                outline: none;
+                border-color: #3b82f6;
+                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+            }
+
+            textarea {
+                resize: vertical;
+                height: 80px;
+            }
+
+            .button-group {
+                display: flex;
+                gap: 12px;
+                margin-bottom: 16px;
+            }
+
+            button.action-btn {
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                background: var(--btn-primary);
+                color: white;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 0.9em;
+                letter-spacing: 0.5px;
+                transition:
+                    box-shadow 0.2s ease,
+                    opacity 0.2s ease;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            }
+
+            button.action-btn:hover:not(:disabled) {
+                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+                background: var(--btn-primary-hover);
+            }
+
+            button.action-btn:active:not(:disabled) {
+                transform: translateY(0);
+            }
+
+            button.stop-btn {
+                background: var(--btn-stop);
+            }
+
+            button.stop-btn:hover:not(:disabled) {
+                background: var(--btn-stop-hover);
+            }
+
+            button.action-btn:disabled {
+                opacity: 0.4;
+                cursor: not-allowed;
+                transform: none;
+                box-shadow: none;
+            }
+
+            button.active-pulse {
+                animation: pulseShadow 2s infinite;
+            }
+
+            .output-container {
+                flex: 1;
+                background-color: var(--log-bg);
+                color: var(--log-text);
+                padding: 16px;
+                border-radius: 8px;
+                border: 1px solid var(--border-color);
+                overflow-y: auto;
+                font-family: "Consolas", "Monaco", "Courier New", monospace;
+                font-size: 0.85em;
+                margin: 0;
+                box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
+            }
+
+            .log-entry {
+                margin-bottom: 8px;
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                animation: slideInRight 0.3s ease-out forwards;
+                padding-left: 8px;
+                border-left: 2px solid transparent;
+                padding-bottom: 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            }
+
+            .log-entry:hover {
+                background-color: rgba(255, 255, 255, 0.03);
+                border-left-color: var(--border-color);
+            }
+
+            .log-time {
+                color: var(--log-time);
+                font-size: 0.9em;
+                margin-right: 8px;
+                user-select: none;
+            }
+
+            .log-error {
+                color: var(--log-error);
+                font-weight: bold;
+            }
+
+            .log-info {
+                color: var(--log-info);
+                font-style: italic;
+            }
+
+            .log-success {
+                color: var(--log-success);
+            }
+
+            .log-key {
+                color: #9cdcfe;
+            }
+
+            .log-string {
+                color: #ce9178;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="warning-banner">
+            <strong>⚠️ Important CORS Note:</strong> Ensure this page is served
+            from an allowed origin (e.g., <code>http://localhost:5500</code> or
+            <code>http://127.0.0.1:5500</code>) so the backend FastAPI server
+            accepts the connections.
+        </div>
+
+        <div class="container">
+            <div class="panel">
+                <h2>Panel A: Global Connection</h2>
+
+                <div class="form-group">
+                    <label for="baseUrl">Base URL</label>
+                    <input
+                        type="text"
+                        id="baseUrl"
+                        value="http://localhost:8000"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="clientId"
+                        >Client ID (SSE /events/{client_id})</label
+                    >
+                    <input type="text" id="clientId" value="test-client-1" />
+                </div>
+
+                <div class="button-group">
+                    <button
+                        class="action-btn"
+                        id="btnConnectA"
+                        onclick="connectSSE()"
+                    >
+                        Connect
+                    </button>
+                    <button
+                        class="action-btn stop-btn"
+                        id="btnDisconnectA"
+                        onclick="disconnectSSE()"
+                        disabled
+                    >
+                        Disconnect
+                    </button>
+                </div>
+
+                <div id="outputA" class="output-container"></div>
+            </div>
+
+            <div class="panel">
+                <h2>Panel B: Realtime Actions</h2>
+
+                <div class="tabs">
+                    <button
+                        class="tab-btn active"
+                        id="tab-btn-urls"
+                        onclick="switchTab('urls')"
+                    >
+                        Direct URLs
+                    </button>
+                    <button
+                        class="tab-btn"
+                        id="tab-btn-search"
+                        onclick="switchTab('search')"
+                    >
+                        Search + Scrape
+                    </button>
+                </div>
+
+                <div id="tab-content-urls" class="tab-content active">
+                    <div class="form-group">
+                        <label for="urls">URLs (one per line)</label>
+                        <textarea id="urls" spellcheck="false">
+https://example.com&#10;https://example.org</textarea
+                        >
+                    </div>
+                    <div style="display: flex; gap: 12px">
+                        <div class="form-group" style="flex: 1">
+                            <label for="maxUrls">Max URLs</label>
+                            <input
+                                type="number"
+                                id="maxUrls"
+                                placeholder="null"
+                            />
+                        </div>
+                        <div class="form-group" style="flex: 1">
+                            <label for="maxBatches">Concurrent Batches</label>
+                            <input type="number" id="maxBatches" value="2" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="researchId">Origin Research ID</label>
+                        <input type="text" id="researchId" placeholder="null" />
+                    </div>
+                    <div class="button-group">
+                        <button
+                            class="action-btn"
+                            id="btnStartUrls"
+                            onclick="startUrlScrape()"
+                        >
+                            Start Scrape
+                        </button>
+                        <button
+                            class="action-btn stop-btn"
+                            id="btnStopUrls"
+                            onclick="stopUrlScrape()"
+                            disabled
+                        >
+                            Stop
+                        </button>
+                    </div>
+                    <div id="output-urls" class="output-container"></div>
+                </div>
+
+                <div id="tab-content-search" class="tab-content">
+                    <div class="form-group">
+                        <label for="searchQuery">Query</label>
+                        <textarea
+                            id="searchQuery"
+                            spellcheck="false"
+                            placeholder="Enter your search query..."
+                        >
+latest advancements in AI</textarea
+                        >
+                    </div>
+                    <div style="display: flex; gap: 12px">
+                        <div class="form-group" style="flex: 1">
+                            <label for="searchMaxUrls">Max No URL</label>
+                            <input
+                                type="number"
+                                id="searchMaxUrls"
+                                placeholder="null"
+                            />
+                        </div>
+                        <div class="form-group" style="flex: 1">
+                            <label for="searchMaxBatches"
+                                >Concurrent Batches</label
+                            >
+                            <input
+                                type="number"
+                                id="searchMaxBatches"
+                                value="3"
+                            />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="searchResearchId">Origin Research ID</label>
+                        <input
+                            type="text"
+                            id="searchResearchId"
+                            placeholder="null"
+                        />
+                    </div>
+                    <div class="button-group">
+                        <button
+                            class="action-btn"
+                            id="btnStartSearch"
+                            onclick="startSearchScrape()"
+                        >
+                            Start Search
+                        </button>
+                        <button
+                            class="action-btn stop-btn"
+                            id="btnStopSearch"
+                            onclick="stopSearchScrape()"
+                            disabled
+                        >
+                            Stop
+                        </button>
+                    </div>
+                    <div id="output-search" class="output-container"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // --- Shared Utilities ---
+            function getTimestamp() {
+                const now = new Date();
+                return `[${now.toLocaleTimeString("en-US", { hour12: false })}.${now.getMilliseconds().toString().padStart(3, "0")}]`;
+            }
+
+            function appendLog(elementId, message, type = "normal") {
+                const container = document.getElementById(elementId);
+                const entry = document.createElement("div");
+                entry.className = "log-entry";
+
+                const timeSpan = `<span class="log-time">${getTimestamp()}</span>`;
+                let contentSpan = `<span>${message}</span>`;
+
+                if (type === "error")
+                    contentSpan = `<span class="log-error">${message}</span>`;
+                if (type === "info")
+                    contentSpan = `<span class="log-info">${message}</span>`;
+                if (type === "success")
+                    contentSpan = `<span class="log-success">${message}</span>`;
+
+                entry.innerHTML = `${timeSpan} ${contentSpan}`;
+                container.appendChild(entry);
+
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: "smooth",
+                });
+            }
+
+            function safeJsonParse(str) {
+                try {
+                    return { ok: true, data: JSON.parse(str) };
+                } catch (e) {
+                    return { ok: false, error: e.message };
+                }
+            }
+
+            function formatDataBasic(dataString) {
+                const parsed = safeJsonParse(dataString);
+                if (parsed.ok) return JSON.stringify(parsed.data, null, 2);
+                return dataString;
+            }
+
+            // --- Custom formatting for Scrape Objects ---
+            function formatScrapeItem(dataString) {
+                const parsed = safeJsonParse(dataString);
+                if (!parsed.ok) return dataString;
+
+                const d = parsed.data;
+                let out = [];
+
+                // Format Type/Start/Done/Error cleanly if present
+                if (d.type)
+                    out.push(
+                        `<span class="log-info">[EVENT: ${d.type.toUpperCase()}]</span>`,
+                    );
+                if (d.status === "done")
+                    out.push(`<span class="log-success">[STATUS: DONE]</span>`);
+                if (d.error)
+                    out.push(
+                        `<span class="log-error">[ERROR: ${d.error}]</span>`,
+                    );
+
+                // Format standard scraped payload
+                if (d.url) {
+                    const statusIco = d.success ? "✅" : "❌";
+                    out.push(
+                        `<b>Result:</b> ${statusIco} (Success: ${!!d.success})`,
+                    );
+                    out.push(
+                        `<b>URL:</b> <span class="log-string">${d.url}</span>`,
+                    );
+                }
+                if (d.datetime_Scrape) {
+                    out.push(`<b>Scraped At:</b> ${d.datetime_Scrape}`);
+                }
+                if (d.content) {
+                    const snippet = d.content
+                        .substring(0, 150)
+                        .replace(/\n/g, " ");
+                    out.push(
+                        `<b>Content Preview:</b> <span class="log-text">"${snippet}..."</span>`,
+                    );
+                }
+
+                // Fallback for objects that don't match the expected schema
+                if (out.length === 0) {
+                    return JSON.stringify(d, null, 2);
+                }
+
+                return out.join("<br>");
+            }
+
+            // --- Tab Logic ---
+            function switchTab(tabId) {
+                document
+                    .querySelectorAll(".tab-btn")
+                    .forEach((b) => b.classList.remove("active"));
+                document
+                    .querySelectorAll(".tab-content")
+                    .forEach((c) => c.classList.remove("active"));
+
+                document
+                    .getElementById(`tab-btn-${tabId}`)
+                    .classList.add("active");
+                document
+                    .getElementById(`tab-content-${tabId}`)
+                    .classList.add("active");
+            }
+
+            // --- Panel A: Native EventSource ---
+            let eventSource = null;
+
+            function connectSSE() {
+                const baseUrl = document
+                    .getElementById("baseUrl")
+                    .value.replace(/\/$/, "");
+                const clientId = document
+                    .getElementById("clientId")
+                    .value.trim();
+                if (!clientId)
+                    return appendLog(
+                        "outputA",
+                        "Error: Client ID required.",
+                        "error",
+                    );
+
+                appendLog(
+                    "outputA",
+                    `Connecting to ${baseUrl}/events/${clientId}...`,
+                    "info",
+                );
+
+                try {
+                    eventSource = new EventSource(
+                        `${baseUrl}/events/${clientId}`,
+                    );
+                    document.getElementById("btnConnectA").disabled = true;
+                    document
+                        .getElementById("btnConnectA")
+                        .classList.add("active-pulse");
+                    document.getElementById("btnDisconnectA").disabled = false;
+
+                    eventSource.onopen = () =>
+                        appendLog(
+                            "outputA",
+                            "SSE Connection established.",
+                            "success",
+                        );
+                    eventSource.onmessage = (e) =>
+                        appendLog("outputA", formatDataBasic(e.data));
+                    eventSource.onerror = () =>
+                        appendLog(
+                            "outputA",
+                            "SSE Error/Disconnected.",
+                            "error",
+                        );
+                } catch (e) {
+                    appendLog(
+                        "outputA",
+                        `EventSource Init Failed: ${e.message}`,
+                        "error",
+                    );
+                }
+            }
+
+            function disconnectSSE() {
+                if (eventSource) {
+                    eventSource.close();
+                    eventSource = null;
+                }
+                appendLog("outputA", "SSE Disconnected by user.", "info");
+                document.getElementById("btnConnectA").disabled = false;
+                document
+                    .getElementById("btnConnectA")
+                    .classList.remove("active-pulse");
+                document.getElementById("btnDisconnectA").disabled = true;
+            }
+
+            // --- Panel B Common Stream Logic ---
+            async function runChunkedStream(
+                url,
+                payload,
+                logConsoleId,
+                abortSignal,
+                btnStartId,
+                btnStopId,
+            ) {
+                appendLog(
+                    logConsoleId,
+                    `Initializing POST stream to ${url}...`,
+                    "info",
+                );
+
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload),
+                        signal: abortSignal,
+                    });
+
+                    if (!response.ok) {
+                        const text = await response.text();
+                        appendLog(
+                            logConsoleId,
+                            `HTTP ${response.status}: ${text}`,
+                            "error",
+                        );
+                        return;
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder("utf-8");
+                    let buffer = "";
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            appendLog(
+                                logConsoleId,
+                                "Stream completely read and closed by server.",
+                                "success",
+                            );
+                            break;
+                        }
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const parts = buffer.split(/\r?\n\r?\n/);
+                        buffer = parts.pop(); // Keep incomplete frame
+
+                        for (const frame of parts) {
+                            if (!frame.trim()) continue;
+                            const dataLines = frame
+                                .split(/\r?\n/)
+                                .filter((line) => line.startsWith("data:"))
+                                .map((line) => line.replace(/^data:\s*/, ""));
+
+                            if (dataLines.length > 0) {
+                                appendLog(
+                                    logConsoleId,
+                                    formatScrapeItem(dataLines.join("\n")),
+                                );
+                            }
+                        }
+                    }
+                } catch (error) {
+                    if (error.name === "AbortError") {
+                        appendLog(
+                            logConsoleId,
+                            "🛑 Stream forcibly stopped by user.",
+                            "error",
+                        );
+                    } else {
+                        appendLog(
+                            logConsoleId,
+                            `Fetch error: ${error.message}`,
+                            "error",
+                        );
+                    }
+                }
+            }
+
+            // --- Tab 1: Direct URLs ---
+            let urlAbortController = null;
+
+            async function startUrlScrape() {
+                const baseUrl = document
+                    .getElementById("baseUrl")
+                    .value.replace(/\/$/, "");
+                const urlsRaw = document.getElementById("urls").value;
+                const urlsArray = urlsRaw
+                    .split("\n")
+                    .map((u) => u.trim())
+                    .filter((u) => u.length > 0);
+
+                const payload = {
+                    urls: urlsArray,
+                    max_urls: document.getElementById("maxUrls").value
+                        ? parseInt(document.getElementById("maxUrls").value, 10)
+                        : null,
+                    max_concurrent_scrape_batches:
+                        parseInt(
+                            document.getElementById("maxBatches").value,
+                            10,
+                        ) || 2,
+                    origin_research_id:
+                        document.getElementById("researchId").value.trim() ||
+                        null,
+                };
+
+                urlAbortController = new AbortController();
+
+                const btnStart = document.getElementById("btnStartUrls");
+                btnStart.disabled = true;
+                btnStart.classList.add("active-pulse");
+                document.getElementById("btnStopUrls").disabled = false;
+
+                await runChunkedStream(
+                    `${baseUrl}/scrape/urls`,
+                    payload,
+                    "output-urls",
+                    urlAbortController.signal,
+                );
+
+                btnStart.disabled = false;
+                btnStart.classList.remove("active-pulse");
+                document.getElementById("btnStopUrls").disabled = true;
+            }
+
+            function stopUrlScrape() {
+                if (urlAbortController) urlAbortController.abort();
+            }
+
+            // --- Tab 2: Search + Scrape ---
+            let searchAbortController = null;
+
+            async function startSearchScrape() {
+                const baseUrl = document
+                    .getElementById("baseUrl")
+                    .value.replace(/\/$/, "");
+
+                const payload = {
+                    query: document.getElementById("searchQuery").value.trim(),
+                    max_no_url: document.getElementById("searchMaxUrls").value
+                        ? parseInt(
+                              document.getElementById("searchMaxUrls").value,
+                              10,
+                          )
+                        : null,
+                    max_concurrent_scrape_batches:
+                        parseInt(
+                            document.getElementById("searchMaxBatches").value,
+                            10,
+                        ) || 3,
+                    origin_research_id:
+                        document
+                            .getElementById("searchResearchId")
+                            .value.trim() || null,
+                };
+
+                if (!payload.query)
+                    return appendLog(
+                        "output-search",
+                        "Error: Query is required.",
+                        "error",
+                    );
+
+                searchAbortController = new AbortController();
+
+                const btnStart = document.getElementById("btnStartSearch");
+                btnStart.disabled = true;
+                btnStart.classList.add("active-pulse");
+                document.getElementById("btnStopSearch").disabled = false;
+
+                await runChunkedStream(
+                    `${baseUrl}/scrape/search`,
+                    payload,
+                    "output-search",
+                    searchAbortController.signal,
+                );
+
+                btnStart.disabled = false;
+                btnStart.classList.remove("active-pulse");
+                document.getElementById("btnStopSearch").disabled = true;
+            }
+
+            function stopSearchScrape() {
+                if (searchAbortController) searchAbortController.abort();
+            }
+        </script>
+    </body>
+</html>
