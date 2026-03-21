@@ -11,6 +11,8 @@ from sse.event_bus import event_bus
 from utils.task_scheduler import scheduler
 from web.web_crawler import close_crawler_engine, init_crawler_engine
 from web.scraper import read_pages, search_and_scrape_pages
+from summarizer.summarizer import run_summarizer
+from query.query import run_query_validation
 
 
 @asynccontextmanager
@@ -61,6 +63,19 @@ class SearchScrapeRequest(BaseModel):
     # If SearXNG returns fewer than this number, we scrape all returned URLs.
     max_no_url: int | None = None
     max_concurrent_scrape_batches: int = 3
+    origin_research_id: str | None = None
+
+
+class SummarizeRequest(BaseModel):
+    query: str
+    content: str
+    api_key: str
+    origin_research_id: str | None = None
+
+
+class QueryValidateRequest(BaseModel):
+    query: str
+    api_key: str
     origin_research_id: str | None = None
 
 
@@ -178,6 +193,120 @@ async def scrape_search(req: SearchScrapeRequest):
                         f"Yielded {yielded_items} scrape item(s)."
                     ),
                     "yielded_items": yielded_items,
+                }
+            )
+        except Exception as e:
+            yield format_sse(
+                {
+                    "success": False,
+                    "type": "error",
+                    "message": str(e),
+                }
+            )
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/summarize")
+async def summarize_content(req: SummarizeRequest):
+    """
+    Summarize the provided content with respect to the query using Gemini.
+
+    SSE response (text/event-stream):
+    - type: "start"
+    - type: "progress" — intermediate status updates
+    - type: "result"   — the final summary
+    - type: "done"     — stream finished
+    - type: "error"    — on failure
+
+    Body example:
+      {
+        "query": "What is quantum computing?",
+        "content": "Quantum computing is ...",
+        "api_key": "your-gemini-api-key",
+        "origin_research_id": null
+      }
+    """
+
+    async def event_generator():
+        yield format_sse(
+            {
+                "success": True,
+                "type": "start",
+                "message": f"Starting summarization for query: {req.query[:80]}",
+            }
+        )
+
+        try:
+            async for item in run_summarizer(
+                query=req.query,
+                content=req.content,
+                api_key=req.api_key,
+                origin_research_id=req.origin_research_id,
+            ):
+                yield format_sse(item)
+
+            yield format_sse(
+                {
+                    "success": True,
+                    "type": "done",
+                    "message": "Summarization complete.",
+                }
+            )
+        except Exception as e:
+            yield format_sse(
+                {
+                    "success": False,
+                    "type": "error",
+                    "message": str(e),
+                }
+            )
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.post("/query/validate")
+async def validate_query(req: QueryValidateRequest):
+    """
+    Validate and pre-process a user query for safety and sanitization.
+
+    SSE response (text/event-stream):
+    - type: "start"
+    - type: "progress" — intermediate status updates
+    - type: "result"   — the validation result
+    - type: "done"     — stream finished
+    - type: "error"    — on failure
+
+    Body example:
+      {
+        "query": "What is the capital of France?",
+        "api_key": "your-gemini-api-key",
+        "origin_research_id": null
+      }
+    """
+
+    async def event_generator():
+        yield format_sse(
+            {
+                "success": True,
+                "type": "start",
+                "message": f"Starting query validation for: {req.query[:80]}",
+            }
+        )
+
+        try:
+            async for item in run_query_validation(
+                query=req.query,
+                api_key=req.api_key,
+                origin_research_id=req.origin_research_id,
+            ):
+                yield format_sse(item)
+
+            yield format_sse(
+                {
+                    "success": True,
+                    "type": "done",
+                    "message": "Query validation complete.",
                 }
             )
         except Exception as e:
