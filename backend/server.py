@@ -1,8 +1,14 @@
-from contextlib import asynccontextmanager
+"""
+This is the main entry point for the Deep Researcher v2 API.
+It is used to start and stop the background workers.
+"""
 
+from contextlib import asynccontextmanager
+import json
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from main.apis.bucket.bucket_urls import router as bucket_router
 from main.apis.chats.chat_urls import router as chats_router
@@ -11,12 +17,16 @@ from main.apis.reasearch.research_urls import router as research_router
 from main.apis.settings.settings_urls import router as settings_router
 from main.apis.workspace.workspace_urls import router as workspace_router
 from main.src.utils.core.task_schedular import scheduler
+from main.sse.event_bus import event_bus
 
 # Initilize the queue workers: queue system for entire application so add temprory non important task to background processing queue.
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """ A context manager for the FastAPI application lifespan. 
+    It is used to start and stop the background workers.
+    """
     # -------- SERVER START --------
     await scheduler.start()
 
@@ -42,6 +52,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def format_sse(data: dict):
+    return f"data: {json.dumps(data)}\n\n"
+
+
+@app.get("/events/{client_id}")
+async def stream(request: Request, client_id: str):
+    queue = event_bus.register(client_id)
+
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                data = await queue.get()
+                yield format_sse(data)
+
+        finally:
+            event_bus.unregister(client_id)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 app.include_router(research_router)
