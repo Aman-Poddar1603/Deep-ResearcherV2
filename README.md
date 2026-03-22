@@ -1,4 +1,4 @@
-# Deep Researcher
+# Deep Researcher v2
 
 **Version 2** — *Autonomously Synthesizing Global Knowledge*
 
