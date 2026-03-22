@@ -2,7 +2,6 @@ import asyncio
 from typing import Dict
 
 
-
 class EventBus:
     def __init__(self):
         self.clients: Dict[str, asyncio.Queue] = {}

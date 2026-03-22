@@ -1,18 +1,18 @@
 import json
 from contextlib import asynccontextmanager
 
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import uvicorn
 
-from sse.event_bus import event_bus
-from utils.task_scheduler import scheduler
-from web.web_crawler import close_crawler_engine, init_crawler_engine
-from web.scraper import read_pages, search_and_scrape_pages
-from summarizer.summarizer import run_summarizer
 from query.query import run_query_validation
+from sse.event_bus import event_bus
+from summarizer.summarizer import run_summarizer
+from utils.task_scheduler import scheduler
+from web.scraper import read_pages, search_and_scrape_pages
+from web.web_crawler import close_crawler_engine, init_crawler_engine
 
 
 @asynccontextmanager
@@ -32,8 +32,15 @@ app = FastAPI(title="Agent Server DRv2!", version="1.0.0", lifespan=lifespan)
 
 # Include the scheme (http) and port. Add 127.0.0.1 as well if needed.
 allowed_origins = [
-    "http://localhost:5500",
-    "http://127.0.0.1:5500",
+    # frontend api requests
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    # backend api requests
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://0.0.0.0:8000",
 ]
 
 # Register CORS middleware
@@ -322,4 +329,4 @@ async def validate_query(req: QueryValidateRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
