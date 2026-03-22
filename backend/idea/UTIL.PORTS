@@ -1,3 +1,3 @@
 8000: BACKEND Server
-8001: REDIS Server
-8002: WEBSERARCH Server
+8001: Agents
+6379: REDIS Server
