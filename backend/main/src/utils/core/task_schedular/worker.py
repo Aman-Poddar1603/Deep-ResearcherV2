@@ -209,20 +209,27 @@ class Worker:
             try:
                 func = task.func
 
-                logger.info(f"Worker {self.worker_id} running {func.__name__}")
+                logger.info(
+                    f"Worker {self.worker_id} running {func.__name__} with params={getattr(task, 'params', {})}"
+                )
                 _log_worker_event(
                     message=f"Worker {self.worker_id} running {func.__name__}",
                     level="info",
                     urgency="none",
                 )
 
+                # New behavior: Task.parameters are provided as a single dict (`Task.params`)
+                # and are always passed to the target function as keyword arguments.
+                # This provides a consistent way to supply parameters to both sync and async callables.
+                params = getattr(task, "params", {}) or {}
+
                 if inspect.iscoroutinefunction(func):
-                    await func(*task.args, **task.kwargs)
+                    # Pass all parameters as keyword args from Task.params
+                    await func(**params)
                 else:
                     loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None, lambda: func(*task.args, **task.kwargs)
-                    )
+                    # Run synchronous functions in the default executor and forward params as kwargs
+                    await loop.run_in_executor(None, lambda: func(**params))
 
             except Exception as e:
                 logger.error(f"Task failed: {e}")

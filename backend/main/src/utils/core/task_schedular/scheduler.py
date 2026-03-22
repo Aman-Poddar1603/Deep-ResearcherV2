@@ -100,7 +100,7 @@ def _log_worker_event(
         message=message,
         origin=LOG_SOURCE,
         urgency=urgency,
-        module="BACKGROUND_TASKS",
+        module="UTILS",
         app_version=get_raw_version(),
     )
 
@@ -205,28 +205,27 @@ class Scheduler:
 
         self.started = True
 
-    async def schedule(self, func, *args, **kwargs):
+    async def schedule(self, func, params: dict | None = None):
         """
         ## Description
 
         Enqueues a specific function or coroutine to be executed by an available worker.
+        Parameters are provided as a single `params` dictionary (object) for consistency
+        across scheduling calls and worker execution.
 
         ## Parameters
 
         - `func` (`Callable`)
           - Description: The target function or coroutine to execute.
-          - Constraints: Can be sync or async.
+          - Constraints: Can be synchronous or asynchronous.
           - Example: `fetch_data`
 
-        - `*args` (`tuple`)
-          - Description: Variable length argument list passed to the target function.
-          - Constraints: Must match the target function's signature.
-          - Example: `1, "query"`
-
-        - `**kwargs` (`dict`)
-          - Description: Arbitrary keyword arguments passed to the target function.
-          - Constraints: Must match target function's keyword arguments.
-          - Example: `timeout=10`
+        - `params` (`dict`, optional)
+          - Description: Single dictionary containing all parameters to pass to the function
+            as keyword arguments. This replaces separate `*args`/`**kwargs` usage and
+            keeps task payloads consistent.
+          - Constraints: Keys must match the target function's parameter names.
+          - Example: `{"name": "job1", "timeout": 10}`
 
         ## Returns
 
@@ -238,19 +237,23 @@ class Scheduler:
 
         ## Side Effects
 
-        - Appends a new `Task` payload to the internal `TaskQueue`.
+        - Appends a new `Task` payload (with `params`) to the internal `TaskQueue`.
         - Logs scheduling initiation.
 
         ## Debug Notes
 
         - Synchronous functions are executed in a separate thread pool by the worker.
+        - The `Worker` will call the target function with `**params`. If you need to
+          pass positional-only arguments, wrap them in the params dict under agreed keys.
 
         ## Customization
 
-        - Add a priority parameter or delay execution timing here if extending Task model.
+        - Add priority/delay fields inside the `Task.params` dict if extending the Task model.
         """
-        _log_worker_event(f"Scheduling task: {func.__name__}", level="info")
-        task = Task(func=func, args=args, kwargs=kwargs)
+        _log_worker_event(
+            f"Scheduling task: {getattr(func, '__name__', repr(func))}", level="info"
+        )
+        task = Task(func=func, params=params or {})
 
         await self.queue.put(task)
 
