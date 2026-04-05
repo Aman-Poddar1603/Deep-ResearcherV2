@@ -31,10 +31,12 @@ Research topic: {topic}
 
 Ask ONE focused question at a time. When you have gathered enough information to build a
 comprehensive research plan (or after {max_rounds} rounds), respond with:
-{{"question": null, "done": true}}
+{{"question": "", "done": true}}
 
 Otherwise respond with:
 {{"question": "your question here", "done": false}}
+
+IMPORTANT: "question" must always be a string. Never output null.
 
 Do NOT answer the question yourself. Only ask.
 Respond ONLY with the JSON — no markdown, no extra text."""
@@ -93,7 +95,7 @@ async def run_qa_loop(
 
         result: NextQuestion = await llm_with_tools.ainvoke(messages)
 
-        if result.done or result.question is None:
+        if result.done or not (result.question or "").strip():
             logger.info("[qa_loop] Done after %d rounds", round_idx)
             break
 
