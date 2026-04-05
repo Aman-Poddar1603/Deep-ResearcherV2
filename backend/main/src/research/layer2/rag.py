@@ -6,6 +6,7 @@ Chunks include metadata: research_id, step_index, source_url, partial
 """
 
 import logging
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
@@ -17,6 +18,52 @@ from langchain_core.tools import BaseTool
 from research.config import settings
 
 logger = logging.getLogger(__name__)
+
+_resolved_chroma_path: str | None = None
+
+
+def _ensure_writable_directory(path: Path) -> bool:
+    """Create and verify write access for a directory path."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".chroma_write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_chroma_path() -> str:
+    """
+    Resolve a writable Chroma persist directory.
+
+    Priority:
+    1) settings.CHROMA_PATH
+    2) workspace-local fallback at main/src/store/vector/chroma
+    """
+    global _resolved_chroma_path
+    if _resolved_chroma_path is not None:
+        return _resolved_chroma_path
+
+    configured = Path(settings.CHROMA_PATH).expanduser()
+    if _ensure_writable_directory(configured):
+        _resolved_chroma_path = str(configured)
+        return _resolved_chroma_path
+
+    fallback = Path(__file__).resolve().parents[2] / "store" / "vector" / "chroma"
+    if _ensure_writable_directory(fallback):
+        logger.warning(
+            "[rag] CHROMA_PATH '%s' is not writable. Falling back to '%s'.",
+            configured,
+            fallback,
+        )
+        _resolved_chroma_path = str(fallback)
+        return _resolved_chroma_path
+
+    raise PermissionError(
+        f"No writable Chroma directory. Tried '{configured}' and '{fallback}'."
+    )
 
 
 def get_embeddings() -> OllamaEmbeddings:
@@ -30,7 +77,7 @@ def get_vectorstore(research_id: str, read_only: bool = False) -> Chroma:
     return Chroma(
         collection_name=f"research_{research_id}",
         embedding_function=get_embeddings(),
-        persist_directory=settings.CHROMA_PATH,
+        persist_directory=_resolve_chroma_path(),
     )
 
 

@@ -19,6 +19,8 @@ MCP tool output formats (as documented):
 
 import json
 import logging
+import shlex
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -30,6 +32,11 @@ from research.config import settings
 logger = logging.getLogger(__name__)
 
 _cached_tools: list[BaseTool] | None = None
+
+# Use very large transport timeouts so long-running tools (web crawling, scraping,
+# doc processing) are not interrupted by client-side defaults.
+_MCP_HTTP_TIMEOUT = timedelta(hours=24)
+_MCP_SSE_READ_TIMEOUT = timedelta(hours=24)
 
 
 def _normalize_mcp_url(url: str) -> str:
@@ -45,34 +52,110 @@ def _normalize_mcp_url(url: str) -> str:
     return urlunparse(parsed)
 
 
+def _candidate_mcp_urls(url: str) -> list[str]:
+    """Build MCP URL candidates across common endpoint styles."""
+    parsed = urlparse(url)
+    path = parsed.path or ""
+
+    candidates: list[str] = []
+
+    def _add(candidate: str) -> None:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    normalized = _normalize_mcp_url(url)
+    _add(normalized)
+    _add(url)
+
+    # Some servers expose SSE endpoints at /sse instead of /mcp.
+    if path.endswith("/mcp"):
+        _add(urlunparse(parsed._replace(path=f"{path[:-4]}/sse")))
+    elif path.endswith("/sse"):
+        _add(urlunparse(parsed._replace(path=f"{path[:-4]}/mcp")))
+
+    return candidates
+
+
 async def get_mcp_tools() -> list[BaseTool]:
     global _cached_tools
     if _cached_tools is not None:
         return _cached_tools
 
     configured_url = settings.MCP_SERVER_URL
-    normalized_url = _normalize_mcp_url(configured_url)
-    urls_to_try = [normalized_url]
-    if normalized_url != configured_url:
-        urls_to_try.append(configured_url)
+    urls_to_try = _candidate_mcp_urls(configured_url)
+    stdio_command = settings.MCP_SERVER_COMMAND.strip()
+
+    connection_variants: list[dict[str, Any]] = [
+        {
+            "transport": "http",
+            "timeout": _MCP_HTTP_TIMEOUT,
+            "sse_read_timeout": _MCP_SSE_READ_TIMEOUT,
+        },
+        {
+            "transport": "sse",
+            "timeout": _MCP_HTTP_TIMEOUT.total_seconds(),
+            "sse_read_timeout": _MCP_SSE_READ_TIMEOUT.total_seconds(),
+        },
+    ]
 
     errors: list[str] = []
-    for candidate_url in urls_to_try:
-        logger.info("[mcp] Connecting to MCP server at %s", candidate_url)
+
+    # Optional stdio mode for servers started with FastMCP.run() default transport.
+    if stdio_command:
+        stdio_connection: dict[str, Any] = {
+            "transport": "stdio",
+            "command": stdio_command,
+            "args": (
+                shlex.split(settings.MCP_SERVER_ARGS.strip())
+                if settings.MCP_SERVER_ARGS.strip()
+                else []
+            ),
+        }
+        stdio_cwd = settings.MCP_SERVER_CWD.strip()
+        if stdio_cwd:
+            stdio_connection["cwd"] = stdio_cwd
+
+        logger.info(
+            "[mcp] Connecting to MCP server via stdio command: %s", stdio_command
+        )
         try:
-            connections: Any = {
-                "research_tools": {
-                    "url": candidate_url,
-                    "transport": "http",
-                }
-            }
+            connections: Any = {"research_tools": stdio_connection}
             client = MultiServerMCPClient(connections=connections)  # type: ignore[arg-type]
             tools = await client.get_tools()
             _cached_tools = tools
-            logger.info("[mcp] Loaded %d tools from MCP server", len(tools))
+            logger.info(
+                "[mcp] Loaded %d tools from MCP server (transport=stdio)", len(tools)
+            )
             return tools
         except Exception as exc:
-            errors.append(f"{candidate_url}: {exc}")
+            errors.append(f"stdio ({stdio_command}): {exc}")
+
+    for candidate_url in urls_to_try:
+        for variant in connection_variants:
+            transport = variant["transport"]
+            logger.info(
+                "[mcp] Connecting to MCP server at %s (transport=%s)",
+                candidate_url,
+                transport,
+            )
+            try:
+                connections: Any = {
+                    "research_tools": {
+                        "url": candidate_url,
+                        **variant,
+                    }
+                }
+                client = MultiServerMCPClient(connections=connections)  # type: ignore[arg-type]
+                tools = await client.get_tools()
+                _cached_tools = tools
+                logger.info(
+                    "[mcp] Loaded %d tools from MCP server (transport=%s)",
+                    len(tools),
+                    transport,
+                )
+                return tools
+            except Exception as exc:
+                errors.append(f"{candidate_url} ({transport}): {exc}")
 
     logger.warning(
         "[mcp] Failed to load tools from MCP server. Attempts: %s. Proceeding without MCP tools.",
@@ -194,7 +277,7 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
     # ── understand_images_tool ───────────────────────────────────────────────
     # {total_files, succeed, total_tokens_used, total_time_taken,
     #  content: {filename: {title, desc, tokens, time, stored_at}}}
-    if tool == "understand_images_tool":
+    if tool in ("understand_images_tool", "understand_images"):
         if not isinstance(data, dict):
             return []
         items = []
@@ -251,6 +334,12 @@ def summarise_tool_output(tool_name: str, output: Any) -> str:
     Produce a short human-readable summary for WS tool.result events.
     Uses the parsed source list so the logic is exact per tool.
     """
+    parsed_raw = _parse_raw(output)
+    if isinstance(parsed_raw, str):
+        raw_text = parsed_raw.strip()
+        if raw_text.lower().startswith("error"):
+            return raw_text.splitlines()[0][:280]
+
     items = parse_tool_output(tool_name, output)
     if not items:
         return "No results returned"

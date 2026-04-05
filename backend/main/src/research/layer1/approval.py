@@ -5,6 +5,7 @@ Emits input.plan_ready, then waits for user.approval message.
 If 'refactor' → sends plan + feedback to plan_generator and repeats.
 Max MAX_PLAN_REFACTOR_ROUNDS cycles.
 """
+
 import asyncio
 import logging
 
@@ -44,26 +45,26 @@ async def run_approval_loop(
 
     for attempt in range(settings.MAX_PLAN_REFACTOR_ROUNDS + 1):
         # Emit plan to frontend
-        await emitter.emit(InputPlanReadyEvent(
-            research_id=research_id,
-            plan=[step.model_dump() for step in current_plan.steps],
-        ))
+        await emitter.emit(
+            InputPlanReadyEvent(
+                research_id=research_id,
+                plan=[step.model_dump() for step in current_plan.steps],
+            )
+        )
 
-        # Await approval or refactor
-        try:
-            msg: dict = await asyncio.wait_for(approval_queue.get(), timeout=600)
-        except asyncio.TimeoutError:
-            logger.warning("[approval] Timeout — auto-approving plan")
-            break
+        # Await approval or refactor until user responds.
+        msg: dict = await approval_queue.get()
 
         action = msg.get("action", "approve")
 
         if action == "approve":
             logger.info("[approval] Plan approved on attempt %d", attempt)
-            await emitter.emit(InputApprovedEvent(
-                research_id=research_id,
-                confirmed=True,
-            ))
+            await emitter.emit(
+                InputApprovedEvent(
+                    research_id=research_id,
+                    confirmed=True,
+                )
+            )
             break
 
         if action == "refactor" and attempt < settings.MAX_PLAN_REFACTOR_ROUNDS:
@@ -72,11 +73,15 @@ async def run_approval_loop(
             current_plan = await refine_plan(current_plan, feedback, tracker)
         else:
             # Max refactors reached — accept current plan
-            logger.warning("[approval] Max refactor rounds reached — accepting current plan")
-            await emitter.emit(InputApprovedEvent(
-                research_id=research_id,
-                confirmed=True,
-            ))
+            logger.warning(
+                "[approval] Max refactor rounds reached — accepting current plan"
+            )
+            await emitter.emit(
+                InputApprovedEvent(
+                    research_id=research_id,
+                    confirmed=True,
+                )
+            )
             break
 
     return current_plan

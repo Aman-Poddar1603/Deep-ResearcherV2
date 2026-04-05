@@ -13,7 +13,7 @@ from src import (
     search_urls,
     understand_images,
 )
-from src.web.web_crawler import close_crawler_engine, init_crawler_engine
+from src.web.web_crawler import init_crawler_engine
 from sse.event_bus import event_bus
 from utils.logger.AgentLogger import quickLog
 from utils.task_scheduler import scheduler
@@ -26,21 +26,26 @@ logging.basicConfig(
 
 logger = logging.getLogger("MCP-Server")
 
+# Global flag to ensure initialization only once
+initialized = False
+
 
 # ─────────────────────────── LIFESPAN ──────────────────────────────────────
 
 
 @asynccontextmanager
 async def lifespan(app: FastMCP):
+    global initialized
     # -------- SERVER START --------
-    await scheduler.start()
-    await init_crawler_engine(batch_size=10, concurrency=8)
+    if not initialized:
+        await scheduler.start()
+        await init_crawler_engine(batch_size=10, concurrency=8)
+        initialized = True
 
     yield
 
     # -------- SERVER SHUTDOWN --------
-    await close_crawler_engine()
-    await scheduler.shutdown()
+    # Removed closes to allow persistence across sessions
 
 
 mcp_server = FastMCP(
@@ -138,9 +143,7 @@ async def scrape_single_url(url: str):
 
 def main():
     logger.info("🔥 Starting MCP Tools Server on port 8002")
-    mcp_server.run(
-        transport="streamable-http",
-    )
+    mcp_server.run()
 
 
 if __name__ == "__main__":

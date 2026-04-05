@@ -22,7 +22,8 @@ from typing import Any
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
-from langgraph.prebuilt import create_react_agent
+from langchain_core.runnables.config import RunnableConfig
+from langgraph.prebuilt import ToolNode, create_react_agent
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from research.config import settings
@@ -109,7 +110,7 @@ async def run_orchestrator1(
     redis_conn = await get_redis()
     checkpointer = AsyncRedisSaver(redis_client=redis_conn)
     await checkpointer.setup()
-    graph_config = {"configurable": {"thread_id": f"orc1_{research_id}"}}
+    base_thread_id = f"orc1_{research_id}"
 
     # ── MCP tools + RAG tool ──────────────────────────────────────────────────
     mcp_tools = await get_mcp_tools()
@@ -159,7 +160,7 @@ async def run_orchestrator1(
                 all_tools=all_tools,
                 llm=llm,
                 checkpointer=checkpointer,
-                graph_config=graph_config,
+                thread_id=f"{base_thread_id}_step_{step_idx}_{uuid.uuid4().hex[:8]}",
                 emitter=emitter,
                 tracker=current_tracker,
                 research_id=research_id,
@@ -223,7 +224,7 @@ async def _run_step(
     all_tools: list,
     llm: ChatOllama,
     checkpointer,
-    graph_config: dict,
+    thread_id: str,
     emitter: WSEmitter,
     tracker: TokenTracker,
     research_id: str,
@@ -231,11 +232,15 @@ async def _run_step(
     """Run a single ReAct step. Returns list of source dicts collected."""
     system_msg = _build_system_message(context, step, total_steps)
 
+    tool_node = ToolNode(all_tools, handle_tool_errors=True)
+
     agent = create_react_agent(
         model=llm.with_config({"callbacks": [tracker]}),
-        tools=all_tools,
+        tools=tool_node,
         checkpointer=checkpointer,
     )
+
+    step_graph_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
 
     inputs = {
         "messages": [
@@ -249,7 +254,11 @@ async def _run_step(
     step_sources: list[dict] = []
     final_summary = ""
 
-    async for event in agent.astream_events(inputs, config=graph_config, version="v2"):
+    async for event in agent.astream_events(
+        inputs,
+        config=step_graph_config,
+        version="v2",
+    ):
         # Stop check inside step too
         if await is_stop_requested(research_id):
             logger.info("[orc1] Stop flag detected mid-step %d", step.step_index)

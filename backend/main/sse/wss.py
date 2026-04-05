@@ -13,9 +13,8 @@ class QuestionResponse:
     _future: "asyncio.Future[Dict[str, Any]]"
 
     async def get_answers(self, timeout: Optional[float] = None) -> Dict[str, Any]:
-        if timeout is None:
-            return await self._future
-        return await asyncio.wait_for(self._future, timeout=timeout)
+        _ = timeout
+        return await self._future
 
     # Alias to match requested usage style.
     async def getAnswers(self, timeout: Optional[float] = None) -> Dict[str, Any]:
@@ -112,10 +111,9 @@ class WSSManager:
     async def receive_message(
         self, client_id: str, timeout: Optional[float] = None
     ) -> Dict[str, Any]:
+        _ = timeout
         queue = self._incoming_by_user.setdefault(client_id, asyncio.Queue())
-        if timeout is None:
-            return await queue.get()
-        return await asyncio.wait_for(queue.get(), timeout=timeout)
+        return await queue.get()
 
     async def send_questions(
         self,
@@ -174,9 +172,10 @@ class WSSManager:
         client_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
+        _ = timeout
         response = await self.send_questions(payload=payload, client_id=client_id)
         try:
-            return await response.get_answers(timeout=timeout)
+            return await response.get_answers()
         finally:
             # Make sure no leaked future remains if caller cancels while waiting.
             with contextlib.suppress(Exception):

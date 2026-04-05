@@ -15,7 +15,8 @@ from typing import Any
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
-from langgraph.prebuilt import create_react_agent
+from langchain_core.runnables.config import RunnableConfig
+from langgraph.prebuilt import ToolNode, create_react_agent
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
 from research.config import settings
@@ -106,7 +107,9 @@ async def run_orchestrator2(
     redis_conn = await get_redis()
     checkpointer = AsyncRedisSaver(redis_client=redis_conn)
     await checkpointer.setup()
-    graph_config = {"configurable": {"thread_id": f"orc2_{research_id}"}}
+    graph_config: RunnableConfig = {
+        "configurable": {"thread_id": f"orc2_{research_id}_{uuid.uuid4().hex[:8]}"}
+    }
 
     mcp_tools = await get_mcp_tools()
     rag_tool = get_retriever_tool(research_id)
@@ -126,9 +129,11 @@ async def run_orchestrator2(
         temperature=0.1,
     )
 
+    tool_node = ToolNode(all_tools, handle_tool_errors=True)
+
     agent = create_react_agent(
         model=llm.with_config({"callbacks": [tracker]}),
-        tools=all_tools,
+        tools=tool_node,
         checkpointer=checkpointer,
     )
 

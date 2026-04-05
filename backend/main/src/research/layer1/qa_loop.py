@@ -106,14 +106,8 @@ async def run_qa_loop(
             )
         )
 
-        # Await user answer from WS queue (with timeout)
-        try:
-            user_answer: str = await asyncio.wait_for(answer_queue.get(), timeout=300)
-        except asyncio.TimeoutError:
-            logger.warning(
-                "[qa_loop] Timeout waiting for answer on round %d", round_idx
-            )
-            break
+        # Await user answer from WS queue until user responds.
+        user_answer: str = await answer_queue.get()
 
         history.append(QAPair(question=result.question, answer=user_answer))
         messages.append(AIMessage(content=f"Question: {result.question}"))

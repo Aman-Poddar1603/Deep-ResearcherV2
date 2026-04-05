@@ -244,10 +244,7 @@ async def run_layer1(
             "table_name": "research_plans",
             "data": {
                 "id": str(uuid.uuid4()),
-                "title": cleaned.title,
-                "desc": cleaned.description,
                 "plan": str([s.model_dump() for s in approved_plan.steps]),
-                "workflow": "",
                 "workspace_id": request.workspace_id,
                 "research_template_id": "",
                 "prompt_order": "",
