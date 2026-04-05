@@ -3,6 +3,7 @@
 Exposes the `SQLiteManager` class with CRUD helpers, foreign key management,
 and automatic connection / PRAGMA handling for the Deep Researcher backend.
 """
+
 import logging
 import re
 import sqlite3
@@ -282,8 +283,7 @@ class SQLiteManager:
                 self._logging_error = True
                 try:
                     _log_db_event(
-                        f"Error connecting to database "
-                        f"at {self.db_path}: {e}",
+                        f"Error connecting to database " f"at {self.db_path}: {e}",
                         "error",
                         "critical",
                     )
@@ -549,9 +549,7 @@ class SQLiteManager:
                             index_name = self._validate_identifier(index_name)
                         except ValueError:
                             # fallback: sanitized index name
-                            index_name = re.sub(
-                                r"[^a-zA-Z0-9_]+", "_", index_name
-                            )
+                            index_name = re.sub(r"[^a-zA-Z0-9_]+", "_", index_name)
 
                         index_sql = (
                             f"CREATE INDEX IF NOT EXISTS {index_name} "
@@ -1226,9 +1224,7 @@ class SQLiteManager:
                         continue
 
                     cursor.execute(f"PRAGMA index_info({idx_name})")
-                    idx_columns = [
-                        row["name"] for row in cursor.fetchall()
-                    ]
+                    idx_columns = [row["name"] for row in cursor.fetchall()]
 
                     existing_indexes.append(
                         {
@@ -1253,29 +1249,18 @@ class SQLiteManager:
                 # ── Step 4: Rebuild the table ──────────────────────────
                 temp_table = f"_rebuild_{valid_table}"
 
-                all_defs = (
-                    ", ".join(column_defs)
-                    + ", "
-                    + ", ".join(fk_clauses)
-                )
+                all_defs = ", ".join(column_defs) + ", " + ", ".join(fk_clauses)
                 cols_csv = ", ".join(column_names)
 
                 # Clean up leftover temp table from previous failed runs
-                cursor.execute(
-                    f"DROP TABLE IF EXISTS {temp_table}"
-                )
-                cursor.execute(
-                    f"CREATE TABLE {temp_table} ({all_defs})"
-                )
+                cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+                cursor.execute(f"CREATE TABLE {temp_table} ({all_defs})")
                 cursor.execute(
                     f"INSERT INTO {temp_table} ({cols_csv}) "
                     f"SELECT {cols_csv} FROM {valid_table}"
                 )
                 cursor.execute(f"DROP TABLE {valid_table}")
-                cursor.execute(
-                    f"ALTER TABLE {temp_table} "
-                    f"RENAME TO {valid_table}"
-                )
+                cursor.execute(f"ALTER TABLE {temp_table} " f"RENAME TO {valid_table}")
 
                 # ── Step 5: Recreate indexes ───────────────────────────
                 for idx in existing_indexes:
@@ -1291,9 +1276,7 @@ class SQLiteManager:
 
                 # ── Step 6: Re-enable FKs and verify integrity ─────────
                 conn.execute("PRAGMA foreign_keys = ON;")
-                cursor.execute(
-                    f"PRAGMA foreign_key_check({valid_table})"
-                )
+                cursor.execute(f"PRAGMA foreign_key_check({valid_table})")
                 violations = cursor.fetchall()
                 if violations:
                     logger.warning(
@@ -1308,16 +1291,13 @@ class SQLiteManager:
                     conn.close()
 
             logger.info(
-                "Foreign keys added to '%s' successfully "
-                "(%d constraint(s)).",
+                "Foreign keys added to '%s' successfully " "(%d constraint(s)).",
                 valid_table,
                 len(validated_fks),
             )
             return {
                 "success": True,
-                "message": (
-                    f"Foreign keys added to '{valid_table}' successfully"
-                ),
+                "message": (f"Foreign keys added to '{valid_table}' successfully"),
                 "data": {"foreign_keys_added": len(validated_fks)},
             }
 
@@ -1325,9 +1305,7 @@ class SQLiteManager:
             # Use logger directly — NOT _log_db_event — to avoid
             # the recursive loop: _log_db_event → dr_logger.log →
             # insert → _get_connection → error → _log_db_event → ∞
-            logger.error(
-                "Error adding foreign keys to %s: %s", table_name, e
-            )
+            logger.error("Error adding foreign keys to %s: %s", table_name, e)
             return {"success": False, "message": str(e), "data": None}
 
     def verify_foreign_keys(self, table_name: Optional[str] = None) -> Dict[str, Any]:
@@ -1537,9 +1515,7 @@ def _initialize_store():
     database_dir.mkdir(parents=True, exist_ok=True)
     bucket_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(
-        "Ensured directories exist: %s and %s", database_dir, bucket_dir
-    )
+    logger.info("Ensured directories exist: %s and %s", database_dir, bucket_dir)
 
     required_dbs = [
         "main.db.sqlite3",
@@ -1597,3 +1573,6 @@ scrapes_db_manager = SQLiteManager(db_folder / "scrapes.db.sqlite3")
 buckets_db_manager = SQLiteManager(db_folder / "buckets.db.sqlite3")
 researches_db_manager = SQLiteManager(db_folder / "researches.db.sqlite3")
 chats_db_manager = SQLiteManager(db_folder / "chats.db.sqlite3")
+
+# Backward-compatible alias: older modules may still import research_db_manager.
+research_db_manager = researches_db_manager

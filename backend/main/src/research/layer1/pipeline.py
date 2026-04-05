@@ -9,6 +9,7 @@ Layer 1 pipeline — runs the full input processing flow:
 
 Returns ResearchContext ready for Layer 2.
 """
+
 import asyncio
 import logging
 import uuid
@@ -57,11 +58,13 @@ async def run_layer1(
     await update_session_status(research_id, "layer1_cleaning")
 
     # ── Step 0 progress ───────────────────────────────────────────────────────
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Processing your prompt...",
-        percent=5,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Processing your prompt...",
+            percent=5,
+        )
+    )
 
     # ── Token tracker for Ollama (step -1 = pre-plan) ────────────────────────
     ollama_tracker = TokenTracker(
@@ -87,47 +90,57 @@ async def run_layer1(
         tracker=ollama_tracker,
     )
 
-    await emitter.emit(InputValidatedEvent(
-        research_id=research_id,
-        title=cleaned.title,
-        description=cleaned.description,
-        cleaned_prompt=cleaned.cleaned_prompt,
-    ))
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Prompt cleaned and validated.",
-        percent=12,
-    ))
+    await emitter.emit(
+        InputValidatedEvent(
+            research_id=research_id,
+            title=cleaned.title,
+            description=cleaned.description,
+            cleaned_prompt=cleaned.cleaned_prompt,
+        )
+    )
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Prompt cleaned and validated.",
+            percent=12,
+        )
+    )
 
     # ── 2. Harm guard ─────────────────────────────────────────────────────────
     await update_session_status(research_id, "layer1_guard")
     guard = await run_guard(cleaned.cleaned_prompt, ollama_tracker)
 
     if not guard.safe:
-        await emitter.emit(SystemErrorEvent(
-            research_id=research_id,
-            message=f"Research blocked: {guard.reason}",
-            recoverable=False,
-        ))
+        await emitter.emit(
+            SystemErrorEvent(
+                research_id=research_id,
+                message=f"Research blocked: {guard.reason}",
+                recoverable=False,
+            )
+        )
         await update_session_status(research_id, "blocked")
         return None
 
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Safety check passed.",
-        percent=18,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Safety check passed.",
+            percent=18,
+        )
+    )
 
     # ── 3. Load MCP tools (available during Q&A too) ─────────────────────────
     mcp_tools = await get_mcp_tools()
 
     # ── 4. Clarification Q&A loop ─────────────────────────────────────────────
     await update_session_status(research_id, "layer1_qa")
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Starting clarification questions...",
-        percent=25,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Starting clarification questions...",
+            percent=25,
+        )
+    )
 
     qa_history = await run_qa_loop(
         cleaned_prompt=cleaned.cleaned_prompt,
@@ -139,11 +152,13 @@ async def run_layer1(
         research_id=research_id,
     )
 
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Clarification complete. Generating research plan...",
-        percent=45,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Clarification complete. Generating research plan...",
+            percent=45,
+        )
+    )
 
     # ── 5. Plan generation ────────────────────────────────────────────────────
     await update_session_status(research_id, "layer1_planning")
@@ -157,11 +172,13 @@ async def run_layer1(
         tracker=groq_tracker,
     )
 
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Plan ready. Waiting for your approval...",
-        percent=55,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Plan ready. Waiting for your approval...",
+            percent=55,
+        )
+    )
 
     # ── 6. User approval loop ─────────────────────────────────────────────────
     await update_session_status(research_id, "layer1_approval")
@@ -202,12 +219,12 @@ async def run_layer1(
 
     # Save plan + research record to DB via BG worker
     from main.src.utils.core.task_schedular import scheduler
-    from main.src.store.DBManager import research_db_manager
+    from main.src.store.DBManager import researches_db_manager
 
     await scheduler.schedule(
-        research_db_manager.insert,
+        researches_db_manager.insert,
         params={
-            "table": "researches",
+            "table_name": "researches",
             "data": {
                 "id": research_id,
                 "title": cleaned.title,
@@ -222,9 +239,9 @@ async def run_layer1(
         },
     )
     await scheduler.schedule(
-        research_db_manager.insert,
+        researches_db_manager.insert,
         params={
-            "table": "research_plans",
+            "table_name": "research_plans",
             "data": {
                 "id": str(uuid.uuid4()),
                 "title": cleaned.title,
@@ -239,10 +256,12 @@ async def run_layer1(
     )
 
     await update_session_status(research_id, "layer1_done", current_step=0)
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Plan approved. Starting research...",
-        percent=60,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Plan approved. Starting research...",
+            percent=60,
+        )
+    )
 
     return context

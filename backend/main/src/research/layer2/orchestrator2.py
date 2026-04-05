@@ -308,7 +308,7 @@ async def _schedule_chroma_indexing(research_id: str, sources: list[dict]) -> No
 
 async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> None:
     from main.src.utils.core.task_schedular import scheduler
-    from main.src.store.DBManager import research_db_manager
+    from main.src.store.DBManager import researches_db_manager
 
     website_tools = {
         "web_search",
@@ -323,9 +323,9 @@ async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> No
     file_sources = [s for s in sources if s.get("tool") in file_tools]
 
     await scheduler.schedule(
-        research_db_manager.insert,
+        researches_db_manager.insert,
         params={
-            "table": "research_metadata",
+            "table_name": "research_metadata",
             "data": {
                 "id": str(uuid.uuid4()),
                 "models": json.dumps(

@@ -60,7 +60,7 @@ async def flush_partial_research(
     sources_saved = 0
 
     from main.src.utils.core.task_schedular import scheduler
-    from main.src.store.DBManager import research_db_manager, history_db_manager
+    from main.src.store.DBManager import researches_db_manager, history_db_manager
 
     for s in gathered_sources:
         tool = s.get("tool", "unknown")
@@ -84,9 +84,9 @@ async def flush_partial_research(
             vectors_saved += n
 
         await scheduler.schedule(
-            research_db_manager.insert,
+            researches_db_manager.insert,
             params={
-                "table": "research_sources",
+                "table_name": "research_sources",
                 "data": {
                     "id": str(uuid.uuid4()),
                     "research_id": research_id,
@@ -104,7 +104,7 @@ async def flush_partial_research(
     await scheduler.schedule(
         history_db_manager.insert,
         params={
-            "table": "research_history",
+            "table_name": "research_history",
             "data": {
                 "id": str(uuid.uuid4()),
                 "research_id": research_id,

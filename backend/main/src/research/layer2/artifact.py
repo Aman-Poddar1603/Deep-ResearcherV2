@@ -4,6 +4,7 @@ Artifact generator — Groq streams the final long-form artifact.
 Applies: username, ai_personality, system_prompt, custom_prompt,
 research_template skeleton, cited sources, knowledge summary.
 """
+
 import json
 import logging
 import uuid
@@ -58,11 +59,15 @@ def _build_artifact_prompt_values(artifact_context: dict) -> dict:
         for c in artifact_context.get("cited_sources", [])
     )
     return {
-        "system_prompt": artifact_context.get("system_prompt") or "You are a professional research assistant.",
-        "ai_personality": artifact_context.get("ai_personality", "professional research analyst"),
+        "system_prompt": artifact_context.get("system_prompt")
+        or "You are a professional research assistant.",
+        "ai_personality": artifact_context.get(
+            "ai_personality", "professional research analyst"
+        ),
         "username": artifact_context.get("username", ""),
         "custom_prompt": artifact_context.get("custom_prompt") or "",
-        "research_template": artifact_context.get("research_template") or "Use well-structured headings and sections.",
+        "research_template": artifact_context.get("research_template")
+        or "Use well-structured headings and sections.",
         "cleaned_prompt": artifact_context.get("cleaned_prompt", ""),
         "knowledge_summary": artifact_context.get("knowledge_summary", "")[:12000],
         "cited_sources": citations_text or "No external sources.",
@@ -80,11 +85,13 @@ async def run_artifact_generation(
     Returns the full artifact text.
     """
     await update_session_status(research_id, "generating_artifact")
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Generating research artifact...",
-        percent=93,
-    ))
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Generating research artifact...",
+            percent=93,
+        )
+    )
 
     tracker = TokenTracker(
         emitter=emitter,
@@ -111,23 +118,29 @@ async def run_artifact_generation(
         token = chunk.content if isinstance(chunk.content, str) else ""
         if token:
             full_artifact += token
-            await emitter.emit(ArtifactChunkEvent(
-                research_id=research_id,
-                text=token,
-            ))
+            await emitter.emit(
+                ArtifactChunkEvent(
+                    research_id=research_id,
+                    text=token,
+                )
+            )
 
     # Approximate token count from artifact length
     artifact_token_estimate = len(full_artifact.split())
 
-    await emitter.emit(ArtifactDoneEvent(
-        research_id=research_id,
-        total_tokens_in_artifact=artifact_token_estimate,
-    ))
-    await emitter.emit(SystemProgressEvent(
-        research_id=research_id,
-        message="Artifact complete.",
-        percent=100,
-    ))
+    await emitter.emit(
+        ArtifactDoneEvent(
+            research_id=research_id,
+            total_tokens_in_artifact=artifact_token_estimate,
+        )
+    )
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Artifact complete.",
+            percent=100,
+        )
+    )
 
     # Persist via BG worker
     await _persist_artifact(research_id, workspace_id, artifact_context, full_artifact)
@@ -142,15 +155,15 @@ async def _persist_artifact(
     artifact_text: str,
 ) -> None:
     from main.src.utils.core.task_schedular import scheduler
-    from main.src.store.DBManager import research_db_manager, history_db_manager
+    from main.src.store.DBManager import researches_db_manager, history_db_manager
 
     # Update researches table with artifact
     await scheduler.schedule(
-        research_db_manager.update,
+        researches_db_manager.update,
         params={
-            "table": "researches",
+            "table_name": "researches",
             "data": {"artifacts": artifact_text},
-            "condition": f"id = '{research_id}'",
+            "where": {"id": research_id},
         },
     )
 
@@ -158,7 +171,7 @@ async def _persist_artifact(
     await scheduler.schedule(
         history_db_manager.insert,
         params={
-            "table": "research_history",
+            "table_name": "research_history",
             "data": {
                 "id": str(uuid.uuid4()),
                 "research_id": research_id,
@@ -174,7 +187,7 @@ async def _persist_artifact(
     await scheduler.schedule(
         history_db_manager.insert,
         params={
-            "table": "research_workflow",
+            "table_name": "research_workflow",
             "data": {
                 "id": str(uuid.uuid4()),
                 "workspace_id": workspace_id,

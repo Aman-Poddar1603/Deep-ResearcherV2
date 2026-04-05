@@ -374,7 +374,7 @@ async def _persist_step_sources(
 ) -> None:
     """Offload all source persistence to BG workers. Sources are already normalised dicts."""
     from main.src.utils.core.task_schedular import scheduler
-    from main.src.store.DBManager import research_db_manager
+    from main.src.store.DBManager import researches_db_manager
 
     for source in sources:
         tool = source.get("tool", "")
@@ -384,9 +384,9 @@ async def _persist_step_sources(
             continue
 
         await scheduler.schedule(
-            research_db_manager.insert,
+            researches_db_manager.insert,
             params={
-                "table": "research_sources",
+                "table_name": "research_sources",
                 "data": {
                     "id": str(uuid.uuid4()),
                     "research_id": research_id,
