@@ -3,3 +3,6 @@
 *.env.development.local
 app/prompt.md
 backend/.vscode/*.vsix
+backend/main/src/research/requirements.txt
+backend/RESEARCH CONNECTIONS.md
+backend/server.sh

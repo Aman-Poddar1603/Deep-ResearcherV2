@@ -28,6 +28,7 @@ from typing import Any
 
 def _json_safe(obj: Any) -> str:
     """Serialize obj to a JSON string, converting datetime to ISO format."""
+
     class _Enc(json.JSONEncoder):
         def default(self, o: Any) -> Any:
             if isinstance(o, datetime):
@@ -37,15 +38,15 @@ def _json_safe(obj: Any) -> str:
                 return super().default(o)
             except TypeError:
                 return str(o)
+
     return json.dumps(obj, cls=_Enc, ensure_ascii=False, indent=2)
+
 
 # ---------------------------------------------------------------------------
 # ── Terminal logger setup ────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
-LOG_FORMAT = (
-    "%(asctime)s  %(levelname)-8s  %(message)s"
-)
+LOG_FORMAT = "%(asctime)s  %(levelname)-8s  %(message)s"
 logging.basicConfig(
     level=logging.DEBUG,
     format=LOG_FORMAT,
@@ -55,25 +56,26 @@ logging.basicConfig(
 log = logging.getLogger("OllamaTest")
 
 # Make log levels visually distinct with ANSI colours
-_RESET    = "\033[0m"
-_BOLD     = "\033[1m"
-_GREEN    = "\033[92m"
-_YELLOW   = "\033[93m"
-_RED      = "\033[91m"
-_CYAN     = "\033[96m"
-_BLUE     = "\033[94m"
-_MAGENTA  = "\033[95m"
-_DIM      = "\033[2m"
+_RESET = "\033[0m"
+_BOLD = "\033[1m"
+_GREEN = "\033[92m"
+_YELLOW = "\033[93m"
+_RED = "\033[91m"
+_CYAN = "\033[96m"
+_BLUE = "\033[94m"
+_MAGENTA = "\033[95m"
+_DIM = "\033[2m"
 
 # ---------------------------------------------------------------------------
 # MODEL UNDER TEST
 # ---------------------------------------------------------------------------
-TEST_MODEL = "qwen3-vl:2b"
+TEST_MODEL = "gemma4:e2b"
 TEST_OPTIONS = {"num_ctx": 4096}
 
 # ---------------------------------------------------------------------------
 # Metric helpers
 # ---------------------------------------------------------------------------
+
 
 class TestMetrics:
     def __init__(self, name: str):
@@ -108,15 +110,31 @@ class TestMetrics:
         self.error = str(error)
 
     def report(self):
-        status  = f"{_GREEN}{_BOLD}✔ PASS{_RESET}" if self.passed else f"{_RED}{_BOLD}✘ FAIL{_RESET}"
-        latency = f"{self.elapsed * 1000:.1f} ms" if self.elapsed < 1 else f"{self.elapsed:.2f} s"
+        status = (
+            f"{_GREEN}{_BOLD}✔ PASS{_RESET}"
+            if self.passed
+            else f"{_RED}{_BOLD}✘ FAIL{_RESET}"
+        )
+        latency = (
+            f"{self.elapsed * 1000:.1f} ms"
+            if self.elapsed < 1
+            else f"{self.elapsed:.2f} s"
+        )
         log.info(
             "%s  %s%-36s%s │ latency: %s%-10s%s │ chars: %s%-7s%s │ ~tokens: %s%-6s%s",
             status,
-            _CYAN, self.name, _RESET,
-            _YELLOW, latency, _RESET,
-            _BLUE, self.response_chars, _RESET,
-            _MAGENTA, self.estimated_tokens, _RESET,
+            _CYAN,
+            self.name,
+            _RESET,
+            _YELLOW,
+            latency,
+            _RESET,
+            _BLUE,
+            self.response_chars,
+            _RESET,
+            _MAGENTA,
+            self.estimated_tokens,
+            _RESET,
         )
         if self.error:
             log.error("         %sError: %s%s", _RED, self.error, _RESET)
@@ -125,6 +143,7 @@ class TestMetrics:
 # ---------------------------------------------------------------------------
 # Separator helpers
 # ---------------------------------------------------------------------------
+
 
 def _section(title: str):
     bar = "─" * 70
@@ -145,18 +164,24 @@ def _print_response(label: str, value: Any):
         text = value
     else:
         text = _json_safe(value)
-    log.info("%s    ┌─ %s ─────────────────────────────────────────%s", _DIM, label, _RESET)
+    log.info(
+        "%s    ┌─ %s ─────────────────────────────────────────%s", _DIM, label, _RESET
+    )
     for line in text.splitlines():
         log.info("%s    │  %s%s", _DIM, line, _RESET)
-    log.info("%s    └──────────────────────────────────────────────────%s", _DIM, _RESET)
+    log.info(
+        "%s    └──────────────────────────────────────────────────%s", _DIM, _RESET
+    )
 
 
 # ---------------------------------------------------------------------------
 # Tiny disposable image (1×1 white JPEG)
 # ---------------------------------------------------------------------------
 
+
 def _create_test_image() -> str:
     from PIL import Image as PILImage
+
     img = PILImage.new("RGB", (64, 64), color=(135, 206, 235))
     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
     img.save(tmp.name, format="JPEG")
@@ -167,6 +192,7 @@ def _create_test_image() -> str:
 # ---------------------------------------------------------------------------
 # ── Test runner ──────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 async def run_all_tests():
     # Dynamic import to ensure the circular fix is respected
@@ -205,7 +231,11 @@ async def run_all_tests():
     all_metrics.append(m)
 
     if not aclient:
-        log.error("%sSkipping async tests because aclient failed to initialize.%s", _RED, _RESET)
+        log.error(
+            "%sSkipping async tests because aclient failed to initialize.%s",
+            _RED,
+            _RESET,
+        )
         return
 
     _section("2 · Model Inspection")
@@ -254,7 +284,9 @@ async def run_all_tests():
     m.start()
     result_gc = None
     try:
-        result_gc = W.generateContent("Say 'Test'", "System", TEST_MODEL, None, client, options=TEST_OPTIONS)
+        result_gc = W.generateContent(
+            "Say 'Test'", "System", TEST_MODEL, None, client, options=TEST_OPTIONS
+        )
         m.mark_pass(result_gc)
     except Exception as e:
         m.mark_fail(e)
@@ -268,7 +300,9 @@ async def run_all_tests():
     m.start()
     result_agc = None
     try:
-        result_agc = await W.asyncGenerateContent("Hi", "System", TEST_MODEL, None, aclient, options=TEST_OPTIONS)
+        result_agc = await W.asyncGenerateContent(
+            "Hi", "System", TEST_MODEL, None, aclient, options=TEST_OPTIONS
+        )
         m.mark_pass(result_agc)
     except Exception as e:
         m.mark_fail(e)
@@ -277,13 +311,18 @@ async def run_all_tests():
     all_metrics.append(m)
 
     _section("5 · Tools")
-    def test_tool(msg: str) -> str: return msg
+
+    def test_tool(msg: str) -> str:
+        return msg
+
     _subsection("asyncGenerateWithTools()")
     m = TestMetrics("asyncGenerateWithTools")
     m.start()
     resp = None
     try:
-        resp = await W.asyncGenerateWithTools("Use tool", "System", TEST_MODEL, aclient, [test_tool], options=TEST_OPTIONS)
+        resp = await W.asyncGenerateWithTools(
+            "Use tool", "System", TEST_MODEL, aclient, [test_tool], options=TEST_OPTIONS
+        )
         m.mark_pass("Tool call processed")
     except Exception as e:
         m.mark_fail(e)
@@ -292,7 +331,10 @@ async def run_all_tests():
         content = getattr(getattr(resp, "message", None), "content", None)
         tool_calls = getattr(getattr(resp, "message", None), "tool_calls", None)
         _print_response("asyncGenerateWithTools · content", content)
-        _print_response("asyncGenerateWithTools · tool_calls", str(tool_calls) if tool_calls else "(none)")
+        _print_response(
+            "asyncGenerateWithTools · tool_calls",
+            str(tool_calls) if tool_calls else "(none)",
+        )
     all_metrics.append(m)
 
     _section("6 · Vision")
@@ -301,7 +343,9 @@ async def run_all_tests():
     m.start()
     result_img = None
     try:
-        result_img = await W.understandImageWithoutSaving(img_path, "Describe", "System", TEST_MODEL, aclient, options=TEST_OPTIONS)
+        result_img = await W.understandImageWithoutSaving(
+            img_path, "Describe", "System", TEST_MODEL, aclient, options=TEST_OPTIONS
+        )
         m.mark_pass(result_img)
     except Exception as e:
         m.mark_fail(e)
@@ -329,7 +373,17 @@ async def run_all_tests():
     m.start()
     last_plan = None
     try:
-        async for p in W.planner(TEST_MODEL, "Sys", "User", "Pers", "Add", {"type":"object"}, aclient, 1, options=TEST_OPTIONS):
+        async for p in W.planner(
+            TEST_MODEL,
+            "Sys",
+            "User",
+            "Pers",
+            "Add",
+            {"type": "object"},
+            aclient,
+            1,
+            options=TEST_OPTIONS,
+        ):
             last_plan = p
         m.mark_pass("Planner finished")
     except Exception as e:
@@ -340,10 +394,11 @@ async def run_all_tests():
 
     os.unlink(img_path)
 
-    log.info("\n" + "="*70)
+    log.info("\n" + "=" * 70)
     passed = sum(1 for m in all_metrics if m.passed)
     log.info(f"SUMMARY: {passed}/{len(all_metrics)} PASSED")
-    log.info("="*70)
+    log.info("=" * 70)
+
 
 if __name__ == "__main__":
     asyncio.run(run_all_tests())
