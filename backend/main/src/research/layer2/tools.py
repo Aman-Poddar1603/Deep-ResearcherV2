@@ -37,18 +37,27 @@ async def get_mcp_tools() -> list[BaseTool]:
         return _cached_tools
 
     logger.info("[mcp] Connecting to MCP server at %s", settings.MCP_SERVER_URL)
-    client = MultiServerMCPClient(
-        {
-            "research_tools": {
-                "url": settings.MCP_SERVER_URL,
-                "transport": "http",
+    try:
+        client = MultiServerMCPClient(
+            {
+                "research_tools": {
+                    "url": settings.MCP_SERVER_URL,
+                    "transport": "http",
+                }
             }
-        }
-    )
-    tools = await client.get_tools()
-    _cached_tools = tools
-    logger.info("[mcp] Loaded %d tools from MCP server", len(tools))
-    return tools
+        )
+        tools = await client.get_tools()
+        _cached_tools = tools
+        logger.info("[mcp] Loaded %d tools from MCP server", len(tools))
+        return tools
+    except Exception as exc:
+        logger.warning(
+            "[mcp] Failed to connect to MCP server at %s: %s. Proceeding without MCP tools.",
+            settings.MCP_SERVER_URL,
+            exc,
+        )
+        _cached_tools = []
+        return []
 
 
 def invalidate_tool_cache() -> None:

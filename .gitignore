@@ -6,3 +6,6 @@ backend/.vscode/*.vsix
 backend/main/src/research/requirements.txt
 backend/RESEARCH CONNECTIONS.md
 backend/server.sh
+backend/server.log
+backend/test_mcp_fallback.py
+backend/test_ws.py
