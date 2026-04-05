@@ -104,7 +104,8 @@ async def run_orchestrator2(
 
     # ── Setup agent ───────────────────────────────────────────────────────────
     redis_conn = await get_redis()
-    checkpointer = AsyncRedisSaver(redis_conn)
+    checkpointer = AsyncRedisSaver(redis_client=redis_conn)
+    await checkpointer.setup()
     graph_config = {"configurable": {"thread_id": f"orc2_{research_id}"}}
 
     mcp_tools = await get_mcp_tools()

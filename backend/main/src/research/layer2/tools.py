@@ -20,6 +20,7 @@ MCP tool output formats (as documented):
 import json
 import logging
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -31,33 +32,54 @@ logger = logging.getLogger(__name__)
 _cached_tools: list[BaseTool] | None = None
 
 
+def _normalize_mcp_url(url: str) -> str:
+    """Ensure MCP streamable-http URL points to an actual MCP endpoint path."""
+    parsed = urlparse(url)
+    path = parsed.path or ""
+
+    # Most FastMCP streamable-http servers expose the MCP endpoint at /mcp.
+    # If the user provides only host:port (or /), default to /mcp.
+    if path in ("", "/"):
+        parsed = parsed._replace(path="/mcp")
+
+    return urlunparse(parsed)
+
+
 async def get_mcp_tools() -> list[BaseTool]:
     global _cached_tools
     if _cached_tools is not None:
         return _cached_tools
 
-    logger.info("[mcp] Connecting to MCP server at %s", settings.MCP_SERVER_URL)
-    try:
-        client = MultiServerMCPClient(
-            {
+    configured_url = settings.MCP_SERVER_URL
+    normalized_url = _normalize_mcp_url(configured_url)
+    urls_to_try = [normalized_url]
+    if normalized_url != configured_url:
+        urls_to_try.append(configured_url)
+
+    errors: list[str] = []
+    for candidate_url in urls_to_try:
+        logger.info("[mcp] Connecting to MCP server at %s", candidate_url)
+        try:
+            connections: Any = {
                 "research_tools": {
-                    "url": settings.MCP_SERVER_URL,
+                    "url": candidate_url,
                     "transport": "http",
                 }
             }
-        )
-        tools = await client.get_tools()
-        _cached_tools = tools
-        logger.info("[mcp] Loaded %d tools from MCP server", len(tools))
-        return tools
-    except Exception as exc:
-        logger.warning(
-            "[mcp] Failed to connect to MCP server at %s: %s. Proceeding without MCP tools.",
-            settings.MCP_SERVER_URL,
-            exc,
-        )
-        _cached_tools = []
-        return []
+            client = MultiServerMCPClient(connections=connections)  # type: ignore[arg-type]
+            tools = await client.get_tools()
+            _cached_tools = tools
+            logger.info("[mcp] Loaded %d tools from MCP server", len(tools))
+            return tools
+        except Exception as exc:
+            errors.append(f"{candidate_url}: {exc}")
+
+    logger.warning(
+        "[mcp] Failed to load tools from MCP server. Attempts: %s. Proceeding without MCP tools.",
+        " | ".join(errors),
+    )
+    _cached_tools = []
+    return []
 
 
 def invalidate_tool_cache() -> None:

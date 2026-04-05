@@ -129,7 +129,7 @@ async def run_layer1(
         )
     )
 
-    # ── 3. Load MCP tools (available during Q&A too) ─────────────────────────
+    # ── 3. Load MCP tools (used in orchestration stages) ─────────────────────
     mcp_tools = await get_mcp_tools()
 
     # ── 4. Clarification Q&A loop ─────────────────────────────────────────────

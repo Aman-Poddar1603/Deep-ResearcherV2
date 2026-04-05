@@ -7,6 +7,7 @@ the knowledge needed to build a solid research plan.
 Uses ChatGroq with tool access (user may mention URLs the agent can inspect).
 Conversation history is accumulated in-process and passed back each round.
 """
+
 import asyncio
 import logging
 
@@ -61,26 +62,34 @@ async def run_qa_loop(
     then awaits user.answer from the WS queue.
     Returns accumulated list of QAPair.
     """
+    _ = mcp_tools
+
     llm = _build_qa_llm(tracker)
-    llm_with_tools = llm.bind_tools(mcp_tools).with_structured_output(NextQuestion)
+    # Keep QA generation in strict structured-output mode.
+    # Binding external tools here can conflict with Groq's function-calling and
+    # produce tool_use_failed errors for the NextQuestion schema.
+    # MCP tools are still used in later research orchestration stages.
+    llm_with_tools = llm.with_structured_output(NextQuestion)
 
     history: list[QAPair] = []
     messages = [
-        SystemMessage(content=_QA_SYSTEM.format(
-            username=username,
-            topic=cleaned_prompt,
-            max_rounds=settings.MAX_QA_ROUNDS,
-        ))
+        SystemMessage(
+            content=_QA_SYSTEM.format(
+                username=username,
+                topic=cleaned_prompt,
+                max_rounds=settings.MAX_QA_ROUNDS,
+            )
+        )
     ]
 
     for round_idx in range(settings.MAX_QA_ROUNDS):
         # Build context from history
-        context_str = "\n".join(
-            f"Q: {p.question}\nA: {p.answer}" for p in history
+        context_str = "\n".join(f"Q: {p.question}\nA: {p.answer}" for p in history)
+        messages.append(
+            HumanMessage(
+                content=f"Conversation so far:\n{context_str or 'None yet.'}\n\nGenerate next question or done."
+            )
         )
-        messages.append(HumanMessage(
-            content=f"Conversation so far:\n{context_str or 'None yet.'}\n\nGenerate next question or done."
-        ))
 
         result: NextQuestion = await llm_with_tools.ainvoke(messages)
 
@@ -89,17 +98,21 @@ async def run_qa_loop(
             break
 
         # Emit question to frontend
-        await emitter.emit(InputQAQuestionEvent(
-            research_id=research_id,
-            question=result.question,
-            question_index=round_idx,
-        ))
+        await emitter.emit(
+            InputQAQuestionEvent(
+                research_id=research_id,
+                question=result.question,
+                question_index=round_idx,
+            )
+        )
 
         # Await user answer from WS queue (with timeout)
         try:
             user_answer: str = await asyncio.wait_for(answer_queue.get(), timeout=300)
         except asyncio.TimeoutError:
-            logger.warning("[qa_loop] Timeout waiting for answer on round %d", round_idx)
+            logger.warning(
+                "[qa_loop] Timeout waiting for answer on round %d", round_idx
+            )
             break
 
         history.append(QAPair(question=result.question, answer=user_answer))

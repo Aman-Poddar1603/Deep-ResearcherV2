@@ -107,7 +107,8 @@ async def run_orchestrator1(
 
     # ── LangGraph checkpointer (Redis) ────────────────────────────────────────
     redis_conn = await get_redis()
-    checkpointer = AsyncRedisSaver(redis_conn)
+    checkpointer = AsyncRedisSaver(redis_client=redis_conn)
+    await checkpointer.setup()
     graph_config = {"configurable": {"thread_id": f"orc1_{research_id}"}}
 
     # ── MCP tools + RAG tool ──────────────────────────────────────────────────
