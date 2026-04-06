@@ -12,8 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from main.src.utils.DRLogger import dr_logger
-from main.src.utils.version_constants import get_raw_version
+from utils.logger.AgentLogger import dr_logger
 
 BASE_DIR = Path(__file__).parent
 src_dir = BASE_DIR.parent
@@ -102,7 +101,7 @@ def _log_db_event(
             origin=LOG_SOURCE,
             urgency=urgency,
             module="DB",
-            app_version=get_raw_version(),
+            app_version="1.0.0",
         )
     except Exception:  # pylint: disable=broad-except
         # If the DB logger itself fails, don't crash — just log to console
@@ -283,7 +282,7 @@ class SQLiteManager:
                 self._logging_error = True
                 try:
                     _log_db_event(
-                        f"Error connecting to database " f"at {self.db_path}: {e}",
+                        f"Error connecting to database at {self.db_path}: {e}",
                         "error",
                         "critical",
                     )
@@ -291,8 +290,7 @@ class SQLiteManager:
                     self._logging_error = False
             else:
                 logger.error(
-                    "DB connection error (skipping DB log "
-                    "to avoid recursion): %s — %s",
+                    "DB connection error (skipping DB log to avoid recursion): %s — %s",
                     self.db_path,
                     e,
                 )
@@ -1182,8 +1180,7 @@ class SQLiteManager:
                     return {
                         "success": False,
                         "message": (
-                            f"Table '{valid_table}' does not exist "
-                            f"or has no columns"
+                            f"Table '{valid_table}' does not exist or has no columns"
                         ),
                         "data": None,
                     }
@@ -1260,7 +1257,7 @@ class SQLiteManager:
                     f"SELECT {cols_csv} FROM {valid_table}"
                 )
                 cursor.execute(f"DROP TABLE {valid_table}")
-                cursor.execute(f"ALTER TABLE {temp_table} " f"RENAME TO {valid_table}")
+                cursor.execute(f"ALTER TABLE {temp_table} RENAME TO {valid_table}")
 
                 # ── Step 5: Recreate indexes ───────────────────────────
                 for idx in existing_indexes:
@@ -1291,7 +1288,7 @@ class SQLiteManager:
                     conn.close()
 
             logger.info(
-                "Foreign keys added to '%s' successfully " "(%d constraint(s)).",
+                "Foreign keys added to '%s' successfully (%d constraint(s)).",
                 valid_table,
                 len(validated_fks),
             )
@@ -1509,21 +1506,13 @@ def _initialize_store():
     - Increase database file sets strictly by adding new filenames to the `required_dbs` list.
     """
     database_dir = BASE_DIR / "database"
-    bucket_dir = BASE_DIR / "bucket"
 
     # Create directories if they do not exist
     database_dir.mkdir(parents=True, exist_ok=True)
-    bucket_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Ensured directories exist: %s and %s", database_dir, bucket_dir)
+    logger.info("Ensured directories exist: %s", database_dir)
 
     required_dbs = [
-        "main.db.sqlite3",
-        "history.db.sqlite3",
-        "scrapes.db.sqlite3",
-        "buckets.db.sqlite3",
-        "researches.db.sqlite3",
-        "chats.db.sqlite3",
         "logs.db.sqlite3",
     ]
 
@@ -1567,12 +1556,3 @@ _initialize_store()
 db_folder = BASE_DIR / "database"
 
 logs_db_manager = SQLiteManager(db_folder / "logs.db.sqlite3")
-main_db_manager = SQLiteManager(db_folder / "main.db.sqlite3")
-history_db_manager = SQLiteManager(db_folder / "history.db.sqlite3")
-scrapes_db_manager = SQLiteManager(db_folder / "scrapes.db.sqlite3")
-buckets_db_manager = SQLiteManager(db_folder / "buckets.db.sqlite3")
-researches_db_manager = SQLiteManager(db_folder / "researches.db.sqlite3")
-chats_db_manager = SQLiteManager(db_folder / "chats.db.sqlite3")
-
-# Backward-compatible alias: older modules may still import research_db_manager.
-research_db_manager = researches_db_manager

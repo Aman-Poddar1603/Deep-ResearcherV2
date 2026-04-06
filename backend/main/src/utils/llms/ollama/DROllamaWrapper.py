@@ -58,7 +58,10 @@ from typing import (
 import json
 from pathlib import Path
 from main.src.utils.version_constants import get_raw_version
-from main.src.llms.prompts.getSchema import getImageUnderstandingSchema, getOllamaImageUnderstandingSchema
+from main.src.llms.prompts.getSchema import (
+    getImageUnderstandingSchema,
+    getOllamaImageUnderstandingSchema,
+)
 from main.src.utils.DRLogger import dr_logger
 from main.secrets.DRSecrets import Secrets
 
@@ -365,7 +368,9 @@ async def getModelList(aclient: AsyncClient) -> list[dict]:
             try:
                 model_dict = model.model_dump(mode="json")
             except AttributeError:
-                model_dict = model.__dict__ if hasattr(model, "__dict__") else dict(model)
+                model_dict = (
+                    model.__dict__ if hasattr(model, "__dict__") else dict(model)
+                )
             parsed_models.append(model_dict)
 
         _log_ollama_event(
@@ -441,7 +446,11 @@ async def getOllamaModel(aclient: AsyncClient, model_name: str = "gemma3:4b") ->
         try:
             return model_info.model_dump(mode="json")
         except AttributeError:
-            return model_info.__dict__ if hasattr(model_info, "__dict__") else dict(model_info)
+            return (
+                model_info.__dict__
+                if hasattr(model_info, "__dict__")
+                else dict(model_info)
+            )
     except Exception as e:
         _log_ollama_event(str(e), level="error", urgency="critical")
         raise
@@ -474,7 +483,7 @@ async def checkModelCapabilities(
     - `model_name` (`str`)
       - Description: The Ollama model tag to inspect.
       - Constraints: Must be a locally available model tag.
-      - Example: `"qwen3-vl:2b"`
+      - Example: `"gemma4:e2b"`
 
     ## Returns
 
@@ -931,9 +940,7 @@ async def asyncGenerateContent(
 
         response = await aclient.chat(**kwargs)
 
-        _log_ollama_event(
-            "[async] Content generated successfully.", level="success"
-        )
+        _log_ollama_event("[async] Content generated successfully.", level="success")
 
         text = getattr(getattr(response, "message", None), "content", None)
 
@@ -1073,9 +1080,7 @@ async def asyncGenerateContentStream(
 
         stream = await aclient.chat(**kwargs)
 
-        _log_ollama_event(
-            "[async] Stream connection established.", level="success"
-        )
+        _log_ollama_event("[async] Stream connection established.", level="success")
 
         total_chunks = 0
         total_chars = 0
@@ -1206,9 +1211,7 @@ async def asyncGenerateWithTools(
     For multi-turn tool loops, wrap this function in a `while` loop that
     appends tool results back to the messages.
     """
-    _log_ollama_event(
-        f"[async][tools] Generating with tools using model: {model}"
-    )
+    _log_ollama_event(f"[async][tools] Generating with tools using model: {model}")
 
     try:
         messages: List[Dict[str, Any]] = []
@@ -1322,7 +1325,7 @@ async def understandImageWithoutSaving(
     ## Debug Notes
 
     - Verify the model supports vision (`granite3.2-vision`, `gemma3`,
-      `minicpm-v`, `qwen3-vl`, etc.).
+      `minicpm-v`, `gemma4:e2b`, etc.).
     - Check the image path is accessible and the file is not corrupted.
 
     ## Customization
@@ -1356,11 +1359,13 @@ async def understandImageWithoutSaving(
         if system:
             messages.append({"role": "system", "content": system})
 
-        messages.append({
-            "role": "user",
-            "content": prompt,
-            "images": [image_path],
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": prompt,
+                "images": [image_path],
+            }
+        )
 
         response = await aclient.chat(
             model=model,
@@ -1370,9 +1375,7 @@ async def understandImageWithoutSaving(
             options=options,
         )
 
-        _log_ollama_event(
-            "Model processed image successfully.", level="success"
-        )
+        _log_ollama_event("Model processed image successfully.", level="success")
 
         text = getattr(getattr(response, "message", None), "content", None)
 
@@ -1475,9 +1478,7 @@ async def understandImagesWithoutSaving(
 
     Pass a custom `format` schema to the chat call for structured output.
     """
-    _log_ollama_event(
-        f"Starting multi-image understanding with model: {model}"
-    )
+    _log_ollama_event(f"Starting multi-image understanding with model: {model}")
 
     try:
         if not image_paths:
@@ -1514,11 +1515,13 @@ async def understandImagesWithoutSaving(
         if system:
             messages.append({"role": "system", "content": system})
 
-        messages.append({
-            "role": "user",
-            "content": prompt,
-            "images": valid_paths,
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": prompt,
+                "images": valid_paths,
+            }
+        )
 
         response = await aclient.chat(
             model=model,

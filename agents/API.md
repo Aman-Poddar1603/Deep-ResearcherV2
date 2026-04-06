@@ -402,7 +402,7 @@ streamPost("http://localhost:8000/scrape/search", {
 streamPost("http://localhost:8000/summarize", {
   query: "What is quantum computing?",
   content: "Quantum computing is ...",
-  api_key: "YOUR_API_KEY",
+  api_key: "REMOVED",
 }, (event) => {
   if (event.type === "result") {
     console.log("Summary:", event.summary);
@@ -412,7 +412,7 @@ streamPost("http://localhost:8000/summarize", {
 // ── Usage: Validate Query ──
 streamPost("http://localhost:8000/query/validate", {
   query: "What is the capital of France?",
-  api_key: "YOUR_API_KEY",
+  api_key: "REMOVED",
 }, (event) => {
   if (event.type === "result") {
     if (event.is_safe) {
@@ -485,7 +485,7 @@ async for event in stream_post("http://localhost:8000/scrape/search", {
 async for event in stream_post("http://localhost:8000/summarize", {
     "query": "What is AI?",
     "content": "Artificial intelligence is ...",
-    "api_key": "YOUR_API_KEY",
+    "api_key": "REMOVED",
 }):
     if event["type"] == "result":
         print("Summary:", event["summary"])
@@ -494,7 +494,7 @@ async for event in stream_post("http://localhost:8000/summarize", {
 # ── Validate Query ──
 async for event in stream_post("http://localhost:8000/query/validate", {
     "query": "How to hack a website",
-    "api_key": "YOUR_API_KEY",
+    "api_key": "REMOVED",
 }):
     if event["type"] == "result":
         print("Safe:", event["is_safe"], "Issues:", event["issue"])
@@ -521,7 +521,7 @@ def stream_post(url: str, body: dict):
 for event in stream_post("http://localhost:8000/summarize", {
     "query": "What is deep learning?",
     "content": "Deep learning is a subset of machine learning...",
-    "api_key": "YOUR_API_KEY",
+    "api_key": "REMOVED",
 }):
     if event["type"] == "result":
         print(event["summary"])

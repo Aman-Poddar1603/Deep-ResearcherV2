@@ -311,6 +311,45 @@ class ResearchSourceListResponse(BaseModel):
     offset: int
 
 
+class ResearchStartRequest(BaseModel):
+    prompt: str
+    sources: list[str] = Field(default_factory=list)
+    workspace_id: str
+    system_prompt: str = ""
+    custom_prompt: str = ""
+    title: str | None = None
+    description: str | None = None
+    research_template: str = ""
+    ai_personality: str = "professional research analyst"
+    username: str
+
+
+class ResearchStartResponse(BaseModel):
+    research_id: str
+    status: str
+
+
+class StopResearchResponse(BaseModel):
+    research_id: str
+    status: str
+
+
+class ResearchTokenTotals(BaseModel):
+    grand_total: int = 0
+    by_model: dict[str, int] = Field(default_factory=lambda: {"ollama": 0, "groq": 0})
+    by_step: dict[str, int] = Field(default_factory=dict)
+
+
+class ResearchStatusResponse(BaseModel):
+    research_id: str
+    status: str
+    current_step: int = 0
+    total_steps: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    token_totals: ResearchTokenTotals = Field(default_factory=ResearchTokenTotals)
+
+
 # Optional compatibility aliases
 Research = ResearchRecord
 ResearchTemplate = ResearchTemplateRecord
