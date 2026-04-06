@@ -3,6 +3,9 @@
 env/
 env/*
 uv.lock
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__
@@ -18,3 +21,5 @@ database/
 *.sqlite
 
 main/src/store/bucket/
+
+/main/src/store/vector/chroma/*

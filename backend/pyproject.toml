@@ -3,22 +3,36 @@ name = "deep-researcher-backend"
 version = "2.0.0"
 description = "This is an Backend for Deep Researcher, a research assistant that helps you to find relevant papers and summarize them."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "cairosvg>=2.8.2",
     "chromadb>=1.5.5",
     "fastapi>=0.135.1",
     "google-genai>=1.65.0",
+    "langchain>=0.3.27",
+    "langchain-chroma>=0.2.6",
+    "langchain-community>=0.4.1",
+    "langchain-core>=0.3.75",
+    "langchain-google-genai>=4.2.1",
+    "langchain-groq>=0.2.1",
+    "langchain-mcp-adapters>=0.1.8",
+    "langchain-ollama>=0.2.0",
+    "langgraph>=0.2.51",
+    "langgraph-checkpoint-redis>=0.0.5",
     "numpy<2",
     "ollama>=0.6.1",
     "onnxruntime==1.18.0",
     "pillow>=12.1.1",
     "pillow-avif-plugin>=1.5.5",
+    "protobuf<=3.20.3",  # Add this line
     "psutil>=7.2.2",
     "py-youtube>=1.1.7",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
     "python-dotenv>=1.2.1",
     "python-multipart>=0.0.22",
     "redis>=7.2.1",
     "uvicorn>=0.41.0",
+    "websockets>=16.0",
     "youtube-transcript-api>=1.2.4",
 ]
