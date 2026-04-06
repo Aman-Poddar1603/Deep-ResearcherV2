@@ -483,7 +483,7 @@ async def checkModelCapabilities(
     - `model_name` (`str`)
       - Description: The Ollama model tag to inspect.
       - Constraints: Must be a locally available model tag.
-      - Example: `"gemma4:e2b-vl:2b"`
+      - Example: `"gemma4:e2b"`
 
     ## Returns
 
@@ -1325,7 +1325,7 @@ async def understandImageWithoutSaving(
     ## Debug Notes
 
     - Verify the model supports vision (`granite3.2-vision`, `gemma3`,
-      `minicpm-v`, `gemma4:e2b-vl`, etc.).
+      `minicpm-v`, `gemma4:e2b`, etc.).
     - Check the image path is accessible and the file is not corrupted.
 
     ## Customization

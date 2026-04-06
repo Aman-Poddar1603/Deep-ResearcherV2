@@ -38,15 +38,15 @@ def _json_safe(obj: Any) -> str:
                 return super().default(o)
             except TypeError:
                 return str(o)
-
     return json.dumps(obj, cls=_Enc, ensure_ascii=False, indent=2)
-
 
 # ---------------------------------------------------------------------------
 # ── Terminal logger setup ────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
-LOG_FORMAT = "%(asctime)s  %(levelname)-8s  %(message)s"
+LOG_FORMAT = (
+    "%(asctime)s  %(levelname)-8s  %(message)s"
+)
 logging.basicConfig(
     level=logging.DEBUG,
     format=LOG_FORMAT,
@@ -75,7 +75,6 @@ TEST_OPTIONS = {"num_ctx": 4096}
 # ---------------------------------------------------------------------------
 # Metric helpers
 # ---------------------------------------------------------------------------
-
 
 class TestMetrics:
     def __init__(self, name: str):
@@ -144,7 +143,6 @@ class TestMetrics:
 # Separator helpers
 # ---------------------------------------------------------------------------
 
-
 def _section(title: str):
     bar = "─" * 70
     log.info("%s%s%s", _BOLD, bar, _RESET)
@@ -192,7 +190,6 @@ def _create_test_image() -> str:
 # ---------------------------------------------------------------------------
 # ── Test runner ──────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
-
 
 async def run_all_tests():
     # Dynamic import to ensure the circular fix is respected

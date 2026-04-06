@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Deep Research Agent API",
-    version="1.0.0",
+    version="2.0.0",
     description="""
 ## Deep Research Agent API
 
