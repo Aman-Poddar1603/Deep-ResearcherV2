@@ -1,51 +1,41 @@
 """
 MCP tool loader.
 
-Connects to the remote MCP server (MCP_SERVER_URL env) via HTTP transport
-and returns a list of LangChain BaseTool instances ready to bind to agents.
+Connects to the remote MCP server via streamable-http using direct MCP
+sessions (not langchain-mcp-adapters), then exposes LangChain-compatible
+BaseTool wrappers.
 
-Tools are cached at module level after first load.
-
-MCP tool output formats (as documented):
-  web_search        → {"results": [{success, url, content, scrape_duration, datetime_Scrape, metadata{title,...}}]}
-  read_webpages     → {"results": [{success, url, content, scrape_duration, datetime_Scrape, metadata{title,...}}]}
-  scrape_single_url → {"results": [{success, url, content, scrape_duration, datetime_Scrape, metadata{title,...}}]}
-  youtube_search    → {query, total_results, scrape_time, videos:[{title, url, description, channel, duration, views, upload_date, thumbnail}]}
-  image_search_tool → {<query>: [url, url, ...], <query2>: [...]}
-  understand_images → {total_files, succeed, total_tokens_used, total_time_taken, content:{filename:{title,desc,tokens,time,stored_at}}}
-  process_docs      → {total_files, succeed, total_tokens_used, total_time_taken, content:{filename: "summary string"}}
-  search_urls_tool  → ["url1", "url2", ...]
+Tools are cached at module level after first successful load.
 """
 
+from __future__ import annotations
+
+import asyncio
 import json
 import logging
-import shlex
-from datetime import timedelta
-from typing import Any
+import re
+from contextlib import AsyncExitStack
+from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
 
 from langchain_core.tools import BaseTool
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
-from research.config import settings
+from main.src.research.config import settings
 
 logger = logging.getLogger(__name__)
 
 _cached_tools: list[BaseTool] | None = None
 
-# Use very large transport timeouts so long-running tools (web crawling, scraping,
-# doc processing) are not interrupted by client-side defaults.
-_MCP_HTTP_TIMEOUT = timedelta(hours=24)
-_MCP_SSE_READ_TIMEOUT = timedelta(hours=24)
-
 
 def _normalize_mcp_url(url: str) -> str:
-    """Ensure MCP streamable-http URL points to an actual MCP endpoint path."""
+    """Ensure streamable-http MCP URL points to an MCP endpoint path."""
     parsed = urlparse(url)
     path = parsed.path or ""
 
-    # Most FastMCP streamable-http servers expose the MCP endpoint at /mcp.
-    # If the user provides only host:port (or /), default to /mcp.
+    # Most streamable-http MCP servers expose endpoint at /mcp.
     if path in ("", "/"):
         parsed = parsed._replace(path="/mcp")
 
@@ -53,121 +43,458 @@ def _normalize_mcp_url(url: str) -> str:
 
 
 def _candidate_mcp_urls(url: str) -> list[str]:
-    """Build MCP URL candidates across common endpoint styles."""
-    parsed = urlparse(url)
-    path = parsed.path or ""
-
+    """Build streamable-http URL candidates in safe order."""
     candidates: list[str] = []
 
     def _add(candidate: str) -> None:
         if candidate and candidate not in candidates:
             candidates.append(candidate)
 
-    normalized = _normalize_mcp_url(url)
-    _add(normalized)
+    _add(_normalize_mcp_url(url))
     _add(url)
-
-    # Some servers expose SSE endpoints at /sse instead of /mcp.
-    if path.endswith("/mcp"):
-        _add(urlunparse(parsed._replace(path=f"{path[:-4]}/sse")))
-    elif path.endswith("/sse"):
-        _add(urlunparse(parsed._replace(path=f"{path[:-4]}/mcp")))
-
     return candidates
 
 
+def _json_schema_to_python_type(schema: Any) -> Any:
+    """Map JSON-Schema primitive types to Python annotations."""
+    if not isinstance(schema, dict):
+        return Any
+
+    schema_type = schema.get("type")
+    if isinstance(schema_type, list):
+        non_null = [t for t in schema_type if t != "null"]
+        if len(non_null) == 1:
+            return _json_schema_to_python_type({**schema, "type": non_null[0]})
+        return Any
+
+    if schema_type == "string":
+        return str
+    if schema_type == "integer":
+        return int
+    if schema_type == "number":
+        return float
+    if schema_type == "boolean":
+        return bool
+    if schema_type == "array":
+        item_type = _json_schema_to_python_type(schema.get("items", {}))
+        if item_type is Any:
+            return list[Any]
+        return list[item_type]
+    if schema_type == "object":
+        return dict[str, Any]
+    return Any
+
+
+def _make_args_schema(tool_name: str, input_schema: Any) -> type[BaseModel]:
+    """Create best-effort Pydantic args schema from MCP inputSchema."""
+    if not isinstance(input_schema, dict):
+        input_schema = {}
+
+    properties = input_schema.get("properties") or {}
+    required = set(input_schema.get("required") or [])
+    model_config = ConfigDict(extra="allow")
+
+    safe_name = re.sub(r"[^0-9a-zA-Z_]", "_", tool_name).strip("_") or "mcp_tool"
+    if safe_name[0].isdigit():
+        safe_name = f"tool_{safe_name}"
+    model_name = "".join(part.capitalize() for part in safe_name.split("_")) + "Args"
+
+    if not isinstance(properties, dict) or not properties:
+        return create_model(model_name, __config__=model_config)
+
+    field_defs: dict[str, Any] = {}
+    for name, schema in properties.items():
+        if not isinstance(name, str) or not name.isidentifier():
+            continue
+
+        annotation = _json_schema_to_python_type(schema)
+        is_required = name in required
+        if not is_required and annotation is not Any:
+            annotation = annotation | None
+
+        description = schema.get("description", "") if isinstance(schema, dict) else ""
+        default = ... if is_required else None
+        if description:
+            field_defs[name] = (
+                annotation,
+                Field(default=default, description=description),
+            )
+        else:
+            field_defs[name] = (annotation, default)
+
+    if not field_defs:
+        return create_model(model_name, __config__=model_config)
+
+    return create_model(
+        model_name,
+        __config__=model_config,
+        **cast(dict[str, Any], field_defs),
+    )
+
+
+def _normalize_tool_result_content(result: Any) -> Any:
+    """Normalize MCP call result into str/dict/list for downstream parsing."""
+    if isinstance(result, (str, dict, list)):
+        return result
+
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        return structured
+
+    content = getattr(result, "content", None)
+    if content is not None:
+        text_parts: list[str] = []
+        for item in content:
+            text = getattr(item, "text", None)
+            if isinstance(text, str):
+                text_parts.append(text)
+                continue
+
+            model_dump = getattr(item, "model_dump", None)
+            if callable(model_dump):
+                try:
+                    text_parts.append(json.dumps(model_dump(), ensure_ascii=True))
+                except (TypeError, ValueError):
+                    text_parts.append(str(item))
+            else:
+                text_parts.append(str(item))
+
+        if len(text_parts) == 1:
+            return text_parts[0]
+
+        if text_parts:
+            joined = "\n".join(text_parts)
+            try:
+                return json.loads(joined)
+            except (json.JSONDecodeError, ValueError):
+                return joined
+
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump()
+        if isinstance(dumped, dict):
+            if dumped.get("structuredContent") is not None:
+                return dumped["structuredContent"]
+            if dumped.get("content") is not None:
+                return dumped["content"]
+        return dumped
+
+    return str(result)
+
+
+class _MCPRuntime:
+    """Direct MCP runtime using a persistent streamable-http session."""
+
+    def __init__(self, urls: list[str]):
+        self._urls = urls
+        self._lock = asyncio.Lock()
+        self._connected_url: str | None = None
+        self._stack: AsyncExitStack | None = None
+        self._session: ClientSession | None = None
+        self._session_id: str | None = None
+        self._tools: list[Any] = []
+
+    def _ordered_urls(self) -> list[str]:
+        urls: list[str] = []
+        if self._connected_url:
+            urls.append(self._connected_url)
+        for url in self._urls:
+            if url not in urls:
+                urls.append(url)
+        return urls
+
+    @staticmethod
+    def _read_session_id(get_session_id: Any) -> str | None:
+        if not callable(get_session_id):
+            return None
+        try:
+            value = get_session_id()
+        except Exception:
+            return None
+        if value is None:
+            return None
+        return str(value)
+
+    async def _list_tools_once(self, url: str) -> list[Any]:
+        """Probe tool metadata with a short-lived connection."""
+        async with AsyncExitStack() as stack:
+            read, write, _ = await stack.enter_async_context(
+                streamablehttp_client(
+                    url,
+                    timeout=cast(Any, None),
+                    sse_read_timeout=cast(Any, None),
+                    terminate_on_close=False,
+                )
+            )
+            session = await stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+            response = await session.list_tools()
+            return list(getattr(response, "tools", []) or [])
+
+    async def _connect_locked(self) -> None:
+        if self._session is not None:
+            return
+
+        errors: list[str] = []
+        for url in self._ordered_urls():
+            stack = AsyncExitStack()
+            try:
+                read, write, get_session_id = await stack.enter_async_context(
+                    streamablehttp_client(
+                        url,
+                        timeout=cast(Any, None),
+                        sse_read_timeout=cast(Any, None),
+                        terminate_on_close=False,
+                    )
+                )
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                session_id = self._read_session_id(get_session_id)
+
+                self._stack = stack
+                self._session = session
+                self._connected_url = url
+                self._session_id = session_id
+
+                logger.info(
+                    "[mcp] session_opened session_id=%s url=%s",
+                    session_id or "unknown",
+                    url,
+                )
+                return
+            except Exception as exc:
+                errors.append(f"{url}: {exc}")
+                await stack.aclose()
+
+        raise RuntimeError(
+            "Failed to connect to MCP server via streamable-http. Attempts: "
+            + " | ".join(errors)
+        )
+
+    async def _disconnect_locked(self) -> None:
+        stack = self._stack
+
+        session_id = self._session_id or "unknown"
+        url = self._connected_url or "unknown"
+
+        self._stack = None
+        self._session = None
+        self._session_id = None
+        self._connected_url = None
+        self._tools = []
+
+        if stack is None:
+            return
+
+        try:
+            await stack.aclose()
+            logger.info("[mcp] session_closed session_id=%s url=%s", session_id, url)
+        except RuntimeError as exc:
+            # streamable_http_client can raise if closed from a different task.
+            logger.warning(
+                "[mcp] session_close_skipped session_id=%s url=%s reason=%s",
+                session_id,
+                url,
+                exc,
+            )
+
+    async def list_tools(self) -> list[Any]:
+        async with self._lock:
+            if not self._tools:
+                errors: list[str] = []
+                for url in self._ordered_urls():
+                    try:
+                        logger.info("[mcp] Probing MCP tools at %s", url)
+                        self._tools = await self._list_tools_once(url)
+                        self._connected_url = url
+                        logger.info(
+                            "[mcp] Loaded %d tool(s) from %s",
+                            len(self._tools),
+                            url,
+                        )
+                        break
+                    except Exception as exc:
+                        errors.append(f"{url}: {exc}")
+
+                if not self._tools and errors:
+                    raise RuntimeError(
+                        "Failed to connect to MCP server via streamable-http. Attempts: "
+                        + " | ".join(errors)
+                    )
+
+            return list(self._tools)
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> Any:
+        payload = arguments or {}
+
+        async with self._lock:
+            if self._session is None:
+                await self._connect_locked()
+
+            assert self._session is not None
+            try:
+                print(f"DEBUG: MCP Tool Call In: {name} | Arguments: {payload}")
+                result = await self._session.call_tool(name, arguments=payload)
+                # return _normalize_tool_result_content(result)
+                print(f"DEBUG: MCP Tool Call Out: {result}")
+
+                # Returning raw result as string for UI debugging
+                return str(result)
+            except Exception as first_error:
+                logger.warning(
+                    "[mcp] tool_call_failed tool=%s session_id=%s url=%s error=%s",
+                    name,
+                    self._session_id or "unknown",
+                    self._connected_url or "unknown",
+                    first_error,
+                )
+                await self._disconnect_locked()
+                await self._connect_locked()
+                assert self._session is not None
+                result = await self._session.call_tool(name, arguments=payload)
+                return _normalize_tool_result_content(result)
+
+    async def close(self) -> None:
+        async with self._lock:
+            await self._disconnect_locked()
+
+
+class _DirectMCPTool(BaseTool):
+    """LangChain tool wrapper that proxies to direct MCP call_tool."""
+
+    name: str = ""
+    description: str = ""
+
+    _runtime: _MCPRuntime = PrivateAttr()
+    _tool_name: str = PrivateAttr()
+
+    def __init__(
+        self,
+        *,
+        runtime: _MCPRuntime,
+        tool_name: str,
+        description: str,
+        input_schema: Any,
+    ):
+        super().__init__(
+            name=tool_name,
+            description=description or f"MCP tool: {tool_name}",
+            args_schema=_make_args_schema(tool_name, input_schema),
+        )
+        self._runtime = runtime
+        self._tool_name = tool_name
+
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("Direct MCP tools are async-only; use async invoke")
+
+    async def _arun(
+        self,
+        *args: Any,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        _ = run_manager
+
+        payload: dict[str, Any]
+        if kwargs:
+            payload = dict(kwargs)
+            if (
+                len(payload) == 1
+                and "input" in payload
+                and isinstance(payload["input"], dict)
+            ):
+                payload = payload["input"]
+        elif len(args) == 1 and isinstance(args[0], dict):
+            payload = args[0]
+        elif len(args) == 1:
+            payload = {"input": args[0]}
+        else:
+            payload = {}
+
+        return await self._runtime.call_tool(self._tool_name, payload)
+
+
+_mcp_runtime: _MCPRuntime | None = None
+
+
 async def get_mcp_tools() -> list[BaseTool]:
-    global _cached_tools
+    global _cached_tools, _mcp_runtime
     if _cached_tools is not None:
         return _cached_tools
 
     configured_url = settings.MCP_SERVER_URL
     urls_to_try = _candidate_mcp_urls(configured_url)
-    stdio_command = settings.MCP_SERVER_COMMAND.strip()
 
-    connection_variants: list[dict[str, Any]] = [
-        {
-            "transport": "http",
-            "timeout": _MCP_HTTP_TIMEOUT,
-            "sse_read_timeout": _MCP_SSE_READ_TIMEOUT,
-        },
-        {
-            "transport": "sse",
-            "timeout": _MCP_HTTP_TIMEOUT.total_seconds(),
-            "sse_read_timeout": _MCP_SSE_READ_TIMEOUT.total_seconds(),
-        },
-    ]
-
-    errors: list[str] = []
-
-    # Optional stdio mode for servers started with FastMCP.run() default transport.
-    if stdio_command:
-        stdio_connection: dict[str, Any] = {
-            "transport": "stdio",
-            "command": stdio_command,
-            "args": (
-                shlex.split(settings.MCP_SERVER_ARGS.strip())
-                if settings.MCP_SERVER_ARGS.strip()
-                else []
-            ),
-        }
-        stdio_cwd = settings.MCP_SERVER_CWD.strip()
-        if stdio_cwd:
-            stdio_connection["cwd"] = stdio_cwd
-
-        logger.info(
-            "[mcp] Connecting to MCP server via stdio command: %s", stdio_command
+    transport_pref = settings.MCP_TRANSPORT.strip().lower()
+    if transport_pref and transport_pref not in ("http", "auto"):
+        logger.warning(
+            "[mcp] MCP_TRANSPORT=%s requested, but direct MCP client uses streamable-http.",
+            transport_pref,
         )
-        try:
-            connections: Any = {"research_tools": stdio_connection}
-            client = MultiServerMCPClient(connections=connections)  # type: ignore[arg-type]
-            tools = await client.get_tools()
-            _cached_tools = tools
-            logger.info(
-                "[mcp] Loaded %d tools from MCP server (transport=stdio)", len(tools)
-            )
-            return tools
-        except Exception as exc:
-            errors.append(f"stdio ({stdio_command}): {exc}")
 
-    for candidate_url in urls_to_try:
-        for variant in connection_variants:
-            transport = variant["transport"]
-            logger.info(
-                "[mcp] Connecting to MCP server at %s (transport=%s)",
-                candidate_url,
-                transport,
-            )
-            try:
-                connections: Any = {
-                    "research_tools": {
-                        "url": candidate_url,
-                        **variant,
-                    }
-                }
-                client = MultiServerMCPClient(connections=connections)  # type: ignore[arg-type]
-                tools = await client.get_tools()
-                _cached_tools = tools
-                logger.info(
-                    "[mcp] Loaded %d tools from MCP server (transport=%s)",
-                    len(tools),
-                    transport,
-                )
-                return tools
-            except Exception as exc:
-                errors.append(f"{candidate_url} ({transport}): {exc}")
+    if _mcp_runtime is None:
+        _mcp_runtime = _MCPRuntime(urls=urls_to_try)
 
-    logger.warning(
-        "[mcp] Failed to load tools from MCP server. Attempts: %s. Proceeding without MCP tools.",
-        " | ".join(errors),
-    )
-    _cached_tools = []
-    return []
+    try:
+        server_tools = await _mcp_runtime.list_tools()
+    except Exception as exc:
+        logger.warning(
+            "[mcp] Failed to load tools from MCP server. Error: %s. Proceeding without MCP tools.",
+            exc,
+        )
+        _mcp_runtime = None
+        return []
+
+    tools: list[BaseTool] = []
+    for tool in server_tools:
+        name = getattr(tool, "name", "")
+        if not name:
+            continue
+
+        tools.append(
+            _DirectMCPTool(
+                runtime=_mcp_runtime,
+                tool_name=name,
+                description=getattr(tool, "description", "") or "",
+                input_schema=getattr(tool, "inputSchema", {}) or {},
+            )
+        )
+
+    _cached_tools = tools
+    return tools
 
 
 def invalidate_tool_cache() -> None:
-    global _cached_tools
+    global _cached_tools, _mcp_runtime
     _cached_tools = None
+
+    runtime = _mcp_runtime
+    _mcp_runtime = None
+    if runtime is None:
+        return
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    loop.create_task(runtime.close())
+
+
+async def shutdown_mcp_runtime() -> None:
+    """Close persistent MCP runtime once during full app shutdown."""
+    global _cached_tools, _mcp_runtime
+
+    runtime = _mcp_runtime
+    _mcp_runtime = None
+    _cached_tools = None
+
+    if runtime is None:
+        return
+
+    await runtime.close()
 
 
 def _parse_raw(output: Any) -> Any:
@@ -180,15 +507,79 @@ def _parse_raw(output: Any) -> Any:
     return output
 
 
+def _normalize_tool_name(tool_name: str) -> str:
+    """Normalize tool names so parser works with namespaced wrappers too."""
+    name = (tool_name or "").strip().lower()
+    if not name:
+        return ""
+
+    if "::" in name:
+        name = name.split("::")[-1]
+    if "/" in name:
+        name = name.split("/")[-1]
+    if "." in name:
+        name = name.split(".")[-1]
+
+    name = re.sub(r"^(research_tools_|mcp_|tool_|mcp_server_)", "", name)
+    name = re.sub(r"_mcp$", "", name)
+    return name
+
+
+def _to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value, ensure_ascii=True)
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
+
+
+def _to_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_usage_total(payload: Any) -> int:
+    if not isinstance(payload, dict):
+        return 0
+
+    for total_key in ("total_tokens_used", "total_tokens", "total"):
+        total = _to_int(payload.get(total_key))
+        if total > 0:
+            return total
+
+    for prompt_key, completion_key in (
+        ("prompt_tokens", "completion_tokens"),
+        ("input_tokens", "output_tokens"),
+        ("prompt_eval_count", "eval_count"),
+    ):
+        prompt = _to_int(payload.get(prompt_key))
+        completion = _to_int(payload.get(completion_key))
+        if prompt > 0 or completion > 0:
+            return prompt + completion
+
+    for nested_key in ("usage", "token_usage", "usage_metadata", "metadata"):
+        nested = _extract_usage_total(payload.get(nested_key))
+        if nested > 0:
+            return nested
+
+    return 0
+
+
 def extract_tool_token_count(tool_name: str, output: Any) -> int:
     """
     Extract LLM token count from tools that use Ollama internally.
     Only understand_images_tool and process_docs use an LLM.
     """
+    _ = tool_name
     data = _parse_raw(output)
-    if not isinstance(data, dict):
-        return 0
-    return int(data.get("total_tokens_used", 0))
+    return _extract_usage_total(data)
 
 
 def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
@@ -197,26 +588,25 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
         [{"url": str, "content": str, "title": str, "description": str, "tool": str}, ...]
 
     Each caller (orchestrator1 _persist_step_sources, orchestrator2
-    _build_citations / _schedule_chroma_indexing) iterates this list —
-    no tool-specific branching needed outside this module.
+    _build_citations / _schedule_chroma_indexing) iterates this list.
     """
     data = _parse_raw(output)
-    tool = tool_name
+    raw_tool = tool_name
+    tool = _normalize_tool_name(tool_name)
 
-    # ── web_search / read_webpages / scrape_single_url ──────────────────────
-    # {"results": [{success, url, content, scrape_duration, metadata{title}}]}
+    # web_search / read_webpages / scrape_single_url
     if tool in ("web_search", "read_webpages", "scrape_single_url"):
         if not isinstance(data, dict):
             return []
         items = []
         for r in data.get("results", []):
-            if not isinstance(r, dict) or not r.get("success"):
+            if not isinstance(r, dict):
                 continue
             meta = r.get("metadata", {}) or {}
             items.append(
                 {
                     "url": r.get("url", ""),
-                    "content": r.get("content", ""),
+                    "content": _to_text(r.get("content", "")),
                     "title": meta.get("title", r.get("url", "")),
                     "description": meta.get("description", ""),
                     "tool": tool,
@@ -224,13 +614,21 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
             )
         return items
 
-    # ── youtube_search ───────────────────────────────────────────────────────
-    # {query, total_results, scrape_time, videos:[{title,url,description,...}]}
+    # youtube_search
     if tool == "youtube_search":
-        if not isinstance(data, dict):
+        # Handle cases where the result might be wrapped in a content list or similar
+        videos = []
+        if isinstance(data, dict):
+            videos = data.get("videos", [])
+        elif isinstance(data, list):
+            # Sometimes MCP returns a list of results directly
+            videos = data
+
+        if not isinstance(videos, list):
             return []
+
         items = []
-        for v in data.get("videos", []):
+        for v in videos:
             if not isinstance(v, dict):
                 continue
             content = (
@@ -252,57 +650,84 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
             )
         return items
 
-    # ── image_search_tool ────────────────────────────────────────────────────
-    # {<query>: ["url1", "url2", ...], ...}
-    if tool == "image_search_tool":
+    # image_search_tool
+    if tool in ("image_search_tool", "image_search"):
         if not isinstance(data, dict):
             return []
         items = []
         for query_key, urls in data.items():
-            if not isinstance(urls, list):
-                continue
-            for url in urls:
-                if isinstance(url, str) and url:
-                    items.append(
-                        {
-                            "url": url,
-                            "content": f"Image result for query: {query_key}",
-                            "title": f"Image: {query_key}",
-                            "description": "",
-                            "tool": tool,
-                        }
-                    )
+            # The tool can return a single list of URLs or a dict mapping queries to lists
+            if isinstance(urls, list):
+                for url in urls:
+                    if isinstance(url, str) and url:
+                        items.append(
+                            {
+                                "url": url,
+                                "content": f"Image result for query: {query_key}",
+                                "title": f"Image: {query_key}",
+                                "description": "",
+                                "tool": tool,
+                            }
+                        )
+            elif isinstance(urls, str) and urls:
+                # Fallback for unexpected direct string
+                items.append(
+                    {
+                        "url": urls,
+                        "content": f"Image result for query: {query_key}",
+                        "title": f"Image: {query_key}",
+                        "description": "",
+                        "tool": tool,
+                    }
+                )
         return items
 
-    # ── understand_images_tool ───────────────────────────────────────────────
-    # {total_files, succeed, total_tokens_used, total_time_taken,
-    #  content: {filename: {title, desc, tokens, time, stored_at}}}
+    # understand_images_tool
     if tool in ("understand_images_tool", "understand_images"):
         if not isinstance(data, dict):
             return []
         items = []
-        for filename, info in data.get("content", {}).items():
+        content_map = data.get("content") or {}
+        # The tool might return content directly or wrapped in a 'content' key
+        if not isinstance(content_map, dict):
+            content_map = (
+                data if all(isinstance(v, dict) for v in data.values()) else {}
+            )
+
+        for filename, info in content_map.items():
             if not isinstance(info, dict):
                 continue
+            title = info.get("title") or filename
+            desc = info.get("desc") or ""
             items.append(
                 {
-                    "url": info.get("stored_at", filename),
-                    "content": f"{info.get('title', '')}\n{info.get('desc', '')}",
-                    "title": info.get("title", filename),
-                    "description": info.get("desc", ""),
+                    "url": info.get("stored_at") or filename,
+                    "content": f"{title}\n{desc}",
+                    "title": title,
+                    "description": desc,
                     "tool": tool,
                 }
             )
         return items
 
-    # ── process_docs ─────────────────────────────────────────────────────────
-    # {total_files, succeed, total_tokens_used, total_time_taken,
-    #  content: {filename: "summary string"}}
+    # process_docs
     if tool == "process_docs":
         if not isinstance(data, dict):
             return []
         items = []
-        for filename, summary in data.get("content", {}).items():
+        content_map = data.get("content") or {}
+        # Fallback if content is the root dict
+        if not isinstance(content_map, dict):
+            content_map = data
+
+        for filename, summary in content_map.items():
+            if filename in (
+                "total_files",
+                "succeed",
+                "total_tokens_used",
+                "total_time_taken",
+            ):
+                continue
             items.append(
                 {
                     "url": filename,
@@ -314,9 +739,8 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
             )
         return items
 
-    # ── search_urls_tool ─────────────────────────────────────────────────────
-    # ["url1", "url2", ...]
-    if tool == "search_urls_tool":
+    # search_urls_tool
+    if tool in ("search_urls_tool", "search_urls"):
         if not isinstance(data, list):
             return []
         return [
@@ -325,7 +749,85 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
             if isinstance(url, str) and url
         ]
 
-    # ── fallback ─────────────────────────────────────────────────────────────
+    # generic dict fallback
+    if isinstance(data, dict):
+        results = data.get("results")
+        if isinstance(results, list):
+            items = []
+            for i, r in enumerate(results):
+                if isinstance(r, dict):
+                    url = _to_text(r.get("url") or r.get("link") or "")
+                    content = _to_text(
+                        r.get("content") or r.get("text") or r.get("summary") or r
+                    )
+                    title = _to_text(
+                        r.get("title") or url or f"{raw_tool} result {i + 1}"
+                    )
+                    if content:
+                        items.append(
+                            {
+                                "url": url,
+                                "content": content,
+                                "title": title,
+                                "description": content[:200],
+                                "tool": tool or raw_tool,
+                            }
+                        )
+            if items:
+                return items
+
+        url = _to_text(data.get("url") or data.get("link") or "")
+        content = _to_text(data.get("content") or data.get("text") or data)
+        title = _to_text(data.get("title") or url or raw_tool)
+        if content:
+            return [
+                {
+                    "url": url,
+                    "content": content,
+                    "title": title,
+                    "description": content[:200],
+                    "tool": tool or raw_tool,
+                }
+            ]
+
+    # generic list fallback
+    if isinstance(data, list):
+        items = []
+        for i, entry in enumerate(data):
+            if isinstance(entry, dict):
+                url = _to_text(entry.get("url") or entry.get("link") or "")
+                content = _to_text(entry.get("content") or entry.get("text") or entry)
+                title = _to_text(
+                    entry.get("title") or url or f"{raw_tool} result {i + 1}"
+                )
+            else:
+                url = ""
+                content = _to_text(entry)
+                title = f"{raw_tool} result {i + 1}"
+            if content:
+                items.append(
+                    {
+                        "url": url,
+                        "content": content,
+                        "title": title,
+                        "description": content[:200],
+                        "tool": tool or raw_tool,
+                    }
+                )
+        if items:
+            return items
+
+    if isinstance(data, str) and data.strip():
+        return [
+            {
+                "url": "",
+                "content": data,
+                "title": raw_tool,
+                "description": data[:200],
+                "tool": tool or raw_tool,
+            }
+        ]
+
     return []
 
 
@@ -342,22 +844,25 @@ def summarise_tool_output(tool_name: str, output: Any) -> str:
 
     items = parse_tool_output(tool_name, output)
     if not items:
-        return "No results returned"
+        # If parsing failed or returned nothing, return the raw data as a string
+        # truncated for display safety.
+        raw_text = str(parsed_raw) if parsed_raw is not None else "No results returned"
+        return raw_text[:500] + ("..." if len(raw_text) > 500 else "")
 
-    tool = tool_name
+    tool = _normalize_tool_name(tool_name)
     if tool in ("web_search", "read_webpages", "scrape_single_url"):
         titles = [i["title"] or i["url"] for i in items[:3]]
-        return f"{len(items)} page(s) scraped — {', '.join(titles)}"
+        return f"{len(items)} page(s) scraped - {', '.join(titles)}"
     if tool == "youtube_search":
         titles = [i["title"] for i in items[:3]]
-        return f"{len(items)} video(s) found — {', '.join(titles)}"
+        return f"{len(items)} video(s) found - {', '.join(titles)}"
     if tool == "image_search_tool":
         return f"{len(items)} image URL(s) found"
     if tool == "understand_images_tool":
         titles = [i["title"] for i in items[:3]]
-        return f"{len(items)} image(s) analysed — {', '.join(titles)}"
+        return f"{len(items)} image(s) analysed - {', '.join(titles)}"
     if tool == "process_docs":
-        return f"{len(items)} document(s) processed — {', '.join(i['title'] for i in items[:3])}"
+        return f"{len(items)} document(s) processed - {', '.join(i['title'] for i in items[:3])}"
     if tool == "search_urls_tool":
         return f"{len(items)} URL(s) found"
-    return f"{len(items)} result(s) from {tool_name}"
+    return f"{len(items)} result(s) from {tool or tool_name}"

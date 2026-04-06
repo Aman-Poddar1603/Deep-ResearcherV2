@@ -39,6 +39,17 @@ from research.layer2.tools import get_mcp_tools
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_TOOL_HINTS = [
+    "web_search",
+    "read_webpages",
+    "youtube_search",
+    "image_search_tool",
+    "understand_images_tool",
+    "process_docs",
+    "search_urls_tool",
+    "scrape_single_url",
+]
+
 
 async def run_layer1(
     request: ResearchStartRequest,
@@ -131,6 +142,15 @@ async def run_layer1(
 
     # ── 3. Load MCP tools (used in orchestration stages) ─────────────────────
     mcp_tools = await get_mcp_tools()
+    available_tools = sorted(
+        {
+            getattr(tool, "name", "").strip()
+            for tool in mcp_tools
+            if getattr(tool, "name", "").strip()
+        }
+    )
+    if not available_tools:
+        available_tools = list(_DEFAULT_TOOL_HINTS)
 
     # ── 4. Clarification Q&A loop ─────────────────────────────────────────────
     await update_session_status(research_id, "layer1_qa")
@@ -169,6 +189,7 @@ async def run_layer1(
         qa_history=qa_history,
         sources=request.sources,
         research_template=request.research_template,
+        available_tools=available_tools,
         tracker=groq_tracker,
     )
 
@@ -194,6 +215,7 @@ async def run_layer1(
         qa_history=qa_history,
         sources=request.sources,
         research_template=request.research_template,
+        available_tools=available_tools,
     )
 
     # ── 7. Build context ──────────────────────────────────────────────────────

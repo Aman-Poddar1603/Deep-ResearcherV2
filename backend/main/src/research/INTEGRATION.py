@@ -15,12 +15,16 @@ That's it. The router registers:
 
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma4:e2b
-OLLAMA_EMBED_MODEL=embeddinggemma:latest
 
 GROQ_API_KEY=gsk_...
 GROQ_MODEL=llama-3.3-70b-versatile
 
-MCP_SERVER_URL=http://FRIEND_IP:8002
+GEMINI_API_KEY=...
+GEMINI_EMBED_MODEL=models/text-embedding-004
+
+MCP_SERVER_URL=http://FRIEND_IP:8002/mcp
+MCP_TRANSPORT=http
+MCP_TIMEOUT_SECONDS=86400
 
 CHROMA_PATH=/data/chroma
 

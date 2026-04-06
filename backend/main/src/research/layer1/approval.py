@@ -32,6 +32,7 @@ async def run_approval_loop(
     qa_history: list[QAPair],
     sources: list[str],
     research_template: str,
+    available_tools: list[str],
 ) -> ResearchPlan:
     """
     Returns the approved ResearchPlan (possibly refined).
@@ -70,7 +71,12 @@ async def run_approval_loop(
         if action == "refactor" and attempt < settings.MAX_PLAN_REFACTOR_ROUNDS:
             feedback = msg.get("feedback", "")
             logger.info("[approval] Refactoring plan: %s", feedback[:80])
-            current_plan = await refine_plan(current_plan, feedback, tracker)
+            current_plan = await refine_plan(
+                current_plan,
+                feedback,
+                available_tools,
+                tracker,
+            )
         else:
             # Max refactors reached — accept current plan
             logger.warning(

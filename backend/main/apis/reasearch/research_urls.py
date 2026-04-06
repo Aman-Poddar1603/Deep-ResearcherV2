@@ -418,10 +418,23 @@ async def get_research_status(research_id: str) -> ResearchStatusResponse:
     # First check active sessions
     session = session_store._active_sessions.get(research_id)
     if session:
-        # Session is active but not yet saved to Redis
+        state = await get_session_state(research_id)
         token_totals = ResearchTokenTotals.model_validate(
             await get_token_totals(research_id)
         )
+
+        if state:
+            return ResearchStatusResponse(
+                research_id=research_id,
+                status=str(state.get("status", "running")),
+                current_step=int(state.get("current_step", 0)),
+                total_steps=int(state.get("total_steps", 0)),
+                created_at=state.get("created_at"),
+                updated_at=state.get("updated_at"),
+                token_totals=token_totals,
+            )
+
+        # Session is active but not yet initialized in Redis.
         status_str = "running" if session.get("started") else "ready"
         return ResearchStatusResponse(
             research_id=research_id,

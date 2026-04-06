@@ -143,7 +143,7 @@ async def scrape_single_url(url: str):
 
 def main():
     logger.info("🔥 Starting MCP Tools Server on port 8002")
-    mcp_server.run()
+    mcp_server.run(transport="streamable-http")
 
 
 if __name__ == "__main__":

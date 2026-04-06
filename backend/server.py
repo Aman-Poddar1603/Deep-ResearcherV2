@@ -5,6 +5,7 @@ It is used to start and stop the background workers.
 
 from contextlib import asynccontextmanager
 import json
+import logging
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,11 +17,13 @@ from main.apis.history.history_urls import router as history_router
 import main.apis.reasearch.research_urls as research_urls
 from main.apis.settings.settings_urls import router as settings_router
 from main.apis.workspace.workspace_urls import router as workspace_router
+from main.src.research.layer2.tools import shutdown_mcp_runtime
 from main.src.research.router import router as research_runtime_router
 from main.src.utils.core.task_schedular import scheduler
 from main.sse.event_bus import event_bus
 
 research_router = getattr(research_urls, "router")
+logger = logging.getLogger(__name__)
 
 # Initilize the queue workers: queue system for entire application so add temprory non important task to background processing queue.
 
@@ -37,6 +40,10 @@ async def lifespan(app: FastAPI):
 
     # -------- SERVER SHUTDOWN --------
     await scheduler.shutdown()
+    try:
+        await shutdown_mcp_runtime()
+    except Exception as exc:
+        logger.warning("Failed to close MCP runtime cleanly: %s", exc)
 
 
 app = FastAPI(

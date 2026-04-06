@@ -9,3 +9,6 @@ backend/server.sh
 backend/server.log
 backend/test_mcp_fallback.py
 backend/test_ws.py
+backend/.env.example
+backend/.env.example
+backend/main/src/store/vector/chroma/bd25e6aa-02bf-434f-8882-2b640e781855/data_level0.bin

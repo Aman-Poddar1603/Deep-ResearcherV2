@@ -13,6 +13,7 @@ dependencies = [
     "langchain-chroma>=0.2.6",
     "langchain-community>=0.4.1",
     "langchain-core>=0.3.75",
+    "langchain-google-genai>=4.2.1",
     "langchain-groq>=0.2.1",
     "langchain-mcp-adapters>=0.1.8",
     "langchain-ollama>=0.2.0",

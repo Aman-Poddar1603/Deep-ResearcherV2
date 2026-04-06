@@ -1,5 +1,5 @@
 """
-RAG setup using LangChain's ChromaDB wrapper + OllamaEmbeddings.
+RAG setup using LangChain's ChromaDB wrapper + GoogleGenerativeAIEmbeddings.
 
 Per-research collection: research_{research_id}
 Chunks include metadata: research_id, step_index, source_url, partial
@@ -9,10 +9,11 @@ import logging
 from pathlib import Path
 
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.tools.retriever import create_retriever_tool
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.tools import BaseTool
 
 from research.config import settings
@@ -66,10 +67,16 @@ def _resolve_chroma_path() -> str:
     )
 
 
-def get_embeddings() -> OllamaEmbeddings:
-    return OllamaEmbeddings(
-        model=settings.OLLAMA_EMBED_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
+def get_embeddings() -> Embeddings:
+    api_key = settings.GEMINI_API_KEY.strip()
+    if not api_key:
+        raise ValueError(
+            "GEMINI_API_KEY (or GOOGLE_API_KEY) is required for RAG embeddings."
+        )
+
+    return GoogleGenerativeAIEmbeddings(
+        model=settings.GEMINI_EMBED_MODEL,
+        google_api_key=api_key,
     )
 
 

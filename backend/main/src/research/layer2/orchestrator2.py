@@ -34,11 +34,8 @@ from research.token_tracker import TokenTracker
 from research.layer2.tools import (
     get_mcp_tools,
     extract_tool_token_count,
-    parse_tool_output,
-    summarise_tool_output,
 )
 from research.layer2.rag import (
-    get_retriever_tool,
     retrieve_for_coverage_check,
     chunk_and_index,
 )
@@ -48,8 +45,8 @@ logger = logging.getLogger(__name__)
 _SYNTHESIZER_SYSTEM = """You are a knowledge synthesizer for a deep research project.
 User: {username}. Personality: {ai_personality}.
 
-You have access to all research tools at any time. Use them if you need to verify,
-expand, or clarify any gathered information.
+Use the available MCP tools when you need fresh external evidence.
+Wait for the tool output before proceeding. Do not guess or assume results.
 
 Research topic: {cleaned_prompt}
 
@@ -112,8 +109,7 @@ async def run_orchestrator2(
     }
 
     mcp_tools = await get_mcp_tools()
-    rag_tool = get_retriever_tool(research_id)
-    all_tools = mcp_tools + [rag_tool]
+    all_tools = list(mcp_tools)
 
     tracker = TokenTracker(
         emitter=emitter,
@@ -335,7 +331,11 @@ async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> No
             "data": {
                 "id": str(uuid.uuid4()),
                 "models": json.dumps(
-                    {"ollama": settings.OLLAMA_MODEL, "groq": settings.GROQ_MODEL}
+                    {
+                        "preprocess_ollama": settings.OLLAMA_MODEL,
+                        "reasoner_groq": settings.GROQ_MODEL,
+                        "embedding_gemini": settings.GEMINI_EMBED_MODEL,
+                    }
                 ),
                 "workspace_id": context.workspace_id,
                 "research_id": context.research_id,

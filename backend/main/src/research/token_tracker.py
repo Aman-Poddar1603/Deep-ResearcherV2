@@ -33,12 +33,15 @@ class TokenTracker(AsyncCallbackHandler):
         self.step_index = step_index
         self.model_type = model_type
         self.source = source
+        # Some providers may invoke both chat/llm end callbacks for one run.
+        self._seen_run_ids: set[str] = set()
+        self._seen_run_ids_lock = asyncio.Lock()
 
     async def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        delta = self._extract_delta(response)
-        if delta <= 0:
-            return
-        await self._record(delta)
+        await self._record_if_new_run(response, **kwargs)
+
+    async def on_chat_model_end(self, response: LLMResult, **kwargs: Any) -> None:
+        await self._record_if_new_run(response, **kwargs)
 
     async def record_tool_tokens(self, token_count: int) -> None:
         """Call this after any MCP tool that returns its own token_count."""
@@ -63,17 +66,95 @@ class TokenTracker(AsyncCallbackHandler):
         except Exception as exc:
             logger.warning("[token_tracker] Failed to record tokens: %s", exc)
 
+    async def _record_if_new_run(self, response: LLMResult, **kwargs: Any) -> None:
+        run_id = kwargs.get("run_id")
+        if run_id is not None:
+            run_id_str = str(run_id)
+            async with self._seen_run_ids_lock:
+                if run_id_str in self._seen_run_ids:
+                    return
+                if len(self._seen_run_ids) >= 512:
+                    self._seen_run_ids.clear()
+                self._seen_run_ids.add(run_id_str)
+
+        delta = self._extract_delta(response)
+        if delta > 0:
+            await self._record(delta)
+
     @staticmethod
-    def _extract_delta(response: LLMResult) -> int:
-        # LangChain Groq / Ollama both populate llm_output["token_usage"]
-        usage = (response.llm_output or {}).get("token_usage", {})
-        total = usage.get("total_tokens", 0)
-        if total:
-            return int(total)
-        # Fallback: sum prompt + completion
-        return int(usage.get("prompt_tokens", 0)) + int(
-            usage.get("completion_tokens", 0)
-        )
+    def _to_int(value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _usage_total(cls, payload: Any) -> int:
+        if not isinstance(payload, dict):
+            return 0
+
+        for total_key in ("total_tokens", "total_token_count", "total"):
+            total = cls._to_int(payload.get(total_key))
+            if total > 0:
+                return total
+
+        for prompt_key, completion_key in (
+            ("prompt_tokens", "completion_tokens"),
+            ("input_tokens", "output_tokens"),
+            ("prompt_eval_count", "eval_count"),
+            ("input_token_count", "output_token_count"),
+            ("prompt_tokens", "output_tokens"),
+        ):
+            prompt = cls._to_int(payload.get(prompt_key))
+            completion = cls._to_int(payload.get(completion_key))
+            if prompt > 0 or completion > 0:
+                return prompt + completion
+
+        for single_key in ("completion_tokens", "output_tokens", "eval_count"):
+            value = cls._to_int(payload.get(single_key))
+            if value > 0:
+                return value
+
+        for nested_key in (
+            "token_usage",
+            "usage",
+            "usage_metadata",
+            "usageMetadata",
+            "metadata",
+        ):
+            nested_total = cls._usage_total(payload.get(nested_key))
+            if nested_total > 0:
+                return nested_total
+
+        return 0
+
+    @classmethod
+    def _extract_delta(cls, response: LLMResult) -> int:
+        # Provider-level output (OpenAI/Groq style).
+        total = cls._usage_total(response.llm_output or {})
+        if total > 0:
+            return total
+
+        # Generation-level output (ChatOllama/ChatGroq usage_metadata patterns).
+        for generation_group in response.generations or []:
+            for generation in generation_group:
+                total = cls._usage_total(getattr(generation, "generation_info", None))
+                if total > 0:
+                    return total
+
+                message = getattr(generation, "message", None)
+                if message is None:
+                    continue
+
+                total = cls._usage_total(getattr(message, "usage_metadata", None))
+                if total > 0:
+                    return total
+
+                total = cls._usage_total(getattr(message, "response_metadata", None))
+                if total > 0:
+                    return total
+
+        return 0
 
     def clone(self, step_index: int) -> "TokenTracker":
         """Return a fresh tracker for a new step index."""
