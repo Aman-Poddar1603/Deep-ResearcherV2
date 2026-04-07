@@ -61,7 +61,9 @@ mcp_server = FastMCP(
 
 
 @mcp_server.tool(
-    description="Search the web for a given query, collect relevant URLs using SearXNG, and scrape the pages using crawl4ai. Returns a JSON string containing a dictionary with 'results' key holding a list of dictionaries, each with page details like success status, URL, content, scrape duration, and metadata."
+    name="web_search",
+    title="Searches the web for a query and scrapes relevant pages.",
+    description="Input: string query (e.g., 'latest AI news'). Output: JSON string with {'results': [list of dicts containing page details]}.",
 )
 async def web_search(query: str):
     quickLog(f"Searching web: {query}", "info", module="CRAWLER")
@@ -74,7 +76,9 @@ async def web_search(query: str):
 
 
 @mcp_server.tool(
-    description="Scrape a list of provided URLs directly without searching. Returns a JSON string containing a dictionary with 'results' key holding a list of dictionaries with page details including success, URL, content, scrape duration, and metadata."
+    name="read_webpages",
+    title="Scrapes a list of provided URLs.",
+    description="Input: list[str] urls (e.g., ['https://example.com/page1', 'https://example.com/page2']). Output: JSON string with {'results': [list of dicts containing page details]}.",
 )
 async def read_webpages(urls: list[str]):
     quickLog(f"Reading pages: {len(urls)} URLs", "info", module="CRAWLER")
@@ -83,7 +87,9 @@ async def read_webpages(urls: list[str]):
 
 
 @mcp_server.tool(
-    description="Search YouTube for videos matching the query using yt-dlp. Returns a JSON string containing a dictionary with query, total results, scrape time, and a list of video details including title, URL, description, channel, duration, views, upload date, and thumbnail."
+    name="youtube_search",
+    title="Searches YouTube for videos matching a query.",
+    description="Input: str query (e.g., 'black hole mystery'). Output: JSON string with dict containing query, total_results, scrape_time, and list of video details.",
 )
 async def youtube_search(query: str):
     quickLog(f"YouTube search: {query}", "info", module="AGENTS")
@@ -92,7 +98,9 @@ async def youtube_search(query: str):
 
 
 @mcp_server.tool(
-    description="Search for images related to multiple queries using SearXNG. Takes a list of tuples (query, num_images) and returns a JSON string containing a dictionary mapping each query to a list of image URLs."
+    name="image_search_tool",
+    title="Searches images on internet and give the images in list.",
+    description="Input: list[tuple[str, int]] queries (e.g., [('apple images', 10)]). Output: JSON string with dict mapping query to list of image URLs.",
 )
 async def image_search_tool(queries: list[tuple[str, int]]):
     quickLog(f"Image search: {queries}", "info", module="AGENTS")
@@ -101,7 +109,9 @@ async def image_search_tool(queries: list[tuple[str, int]]):
 
 
 @mcp_server.tool(
-    description="Analyze a list of images (URLs or local paths) using Ollama AI model. Downloads and processes images, then generates titles and descriptions. Returns a JSON string containing a dictionary with total files, success count, tokens used, time taken, and content mapping filenames to analysis results."
+    name="understand_images_tool",
+    title="Analyzes images using AI to generate titles and descriptions.",
+    description="Input: list[str] paths (e.g., ['https://example.com/image.jpg', '/local/path/image.png']). Output: JSON string with dict containing total_files, success_count, tokens_used, time_taken, and content (dict filename to analysis).",
 )
 async def understand_images_tool(paths: list[str]):
     quickLog(f"Understanding {len(paths)} images", "info", module="AI")
@@ -110,7 +120,9 @@ async def understand_images_tool(paths: list[str]):
 
 
 @mcp_server.tool(
-    description="Process a list of document files (PDF, DOCX, PPTX, XLSX, TXT, MD) or URLs. Extracts text, cleans it, and summarizes using Ollama AI. Returns a JSON string containing a dictionary with total files, success count, tokens used, time taken, and content mapping filenames to summaries."
+    name="process_docs",
+    title="Processes documents and summarizes them using AI.",
+    description="Input: list[str] paths (e.g., ['https://example.com/doc.pdf', '/local/path/doc.docx']). Output: JSON string with dict containing total_files, success_count, tokens_used, time_taken, and content (dict filename to summary).",
 )
 async def process_docs(paths: list[str]):
     quickLog(f"Processing docs: {paths}", "info", module="UTILS")
@@ -119,7 +131,9 @@ async def process_docs(paths: list[str]):
 
 
 @mcp_server.tool(
-    description="Search for URLs related to the query using SearXNG without scraping the pages. Returns a JSON string containing a list of unique URLs."
+    name="search_urls_tool",
+    title="Searches for URLs related to a query without scraping.",
+    description="Input: str query (e.g., 'latest AI news'). Output: JSON string list of unique URLs.",
 )
 async def search_urls_tool(query: str):
     quickLog(f"Searching URLs for: {query}", "info", module="CRAWLER")
@@ -128,7 +142,9 @@ async def search_urls_tool(query: str):
 
 
 @mcp_server.tool(
-    description="Scrape a single URL and return its details. Returns a JSON string containing a dictionary with 'results' key holding a list with a single dictionary of success status, URL, content, scrape duration, and metadata."
+    name="scrape_single_url",
+    title="Scrapes a single URL and returns its details.",
+    description="Input: str url (e.g., 'https://example.com/page'). Output: JSON string with {'results': [dict containing page details]}.",
 )
 async def scrape_single_url(url: str):
     quickLog(f"Scraping single URL: {url}", "info", module="CRAWLER")

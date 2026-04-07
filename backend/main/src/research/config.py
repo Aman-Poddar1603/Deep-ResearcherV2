@@ -1,0 +1,49 @@
+import os
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
+
+
+class ResearchSettings(BaseSettings):
+    # Ollama Configuration
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "gemma4:e2b"
+    OLLAMA_EMBED_MODEL: str = "embeddinggemma:latest"
+
+    # Groq Configuration
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
+
+    # Gemini Configuration
+    GEMINI_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
+    GEMINI_EMBED_MODEL: str = "models/text-embedding-004"
+
+    # MCP Configuration
+    MCP_SERVER_URL: str = "http://localhost:8002/mcp"
+    MCP_TRANSPORT: str = "http"
+    MCP_TIMEOUT_SECONDS: int = 86400
+    MCP_SERVER_COMMAND: str = ""
+    MCP_SERVER_ARGS: str = ""
+    MCP_SERVER_CWD: str = ""
+
+    # Storage Configuration
+    CHROMA_PATH: str = "./main/src/store/vector/chroma"
+    REDIS_URL: str = "redis://localhost:6379"
+
+    # Research Loop Configuration
+    MAX_QA_ROUNDS: int = 7
+    MAX_PLAN_REFACTOR_ROUNDS: int = 3
+    CHUNK_SIZE: int = 800
+    CHUNK_OVERLAP: int = 120
+    RAG_TOP_K: int = 6
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+settings = ResearchSettings()
