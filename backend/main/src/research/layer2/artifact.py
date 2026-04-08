@@ -156,6 +156,9 @@ async def _persist_artifact(
 ) -> None:
     from main.src.utils.core.task_schedular import scheduler
     from main.src.store.DBManager import researches_db_manager, history_db_manager
+    from research.session import get_token_totals
+
+    token_totals = await get_token_totals(research_id)
 
     # Update researches table with artifact
     await scheduler.schedule(
@@ -194,7 +197,7 @@ async def _persist_artifact(
                 "research_id": research_id,
                 "workflow": "layer1→orc1→orc2→artifact",
                 "steps": 0,
-                "tokens_used": 0,
+                "tokens_used": int(token_totals.get("grand_total", 0)),
                 "resources_used": 0,
                 "time_taken_sec": 0,
                 "success": True,

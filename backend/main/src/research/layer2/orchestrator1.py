@@ -108,6 +108,23 @@ def _build_system_message(
     )
 
 
+def _compact_tool_payload(parsed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for item in parsed[:8]:
+        if not isinstance(item, dict):
+            continue
+
+        compact_item = {
+            "tool": str(item.get("tool", ""))[:120],
+            "url": str(item.get("url", ""))[:700],
+            "title": str(item.get("title", ""))[:300],
+            "description": str(item.get("description", ""))[:1200],
+            "content": str(item.get("content", ""))[:2000],
+        }
+        compact.append(compact_item)
+    return compact
+
+
 async def run_orchestrator1(
     context: ResearchContext,
     emitter: WSEmitter,
@@ -266,12 +283,15 @@ async def _run_step(
     tool_node = ToolNode(step_tools, handle_tool_errors=True)
 
     agent = create_react_agent(
-        model=llm.with_config({"callbacks": [tracker]}),
+        model=llm,
         tools=tool_node,
         checkpointer=checkpointer,
     )
 
-    step_graph_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    step_graph_config: RunnableConfig = {
+        "configurable": {"thread_id": thread_id},
+        "callbacks": [tracker],
+    }
 
     inputs = {
         "messages": [
@@ -359,6 +379,7 @@ async def _run_step(
                     tool_name=tool_name,
                     result_summary=summary,
                     step_index=step.step_index,
+                    result_payload=_compact_tool_payload(parsed),
                 )
             )
             # await emitter.emit(

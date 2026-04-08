@@ -2,29 +2,26 @@
 FastAPI WebSocket router.
 
 Endpoints:
-  WS  /ws/research/{research_id}   — main bidirectional channel
-  POST /research/start              — kick off a new research session
-  POST /research/{research_id}/stop — request graceful stop
+    WS /ws/research/{research_id} — main bidirectional channel
 
 The WS handler:
   1. Accepts the connection and attaches to the emitter.
-  2. On reconnect → restores state from Redis and resumes pub/sub relay.
-  3. Spawns two concurrent tasks:
+    2. On reconnect → restores state from Redis and replays stream events.
+    3. Starts the background pipeline task on first connection.
+    4. Runs receive loop for user answers/approval messages.
+
+The pipeline task:
        - _run_pipeline()  → Layer 1 → Layer 2 → artifact
-       - _relay_pubsub()  → Redis pub/sub → WS (for reconnect continuity)
-  4. Routes incoming WS messages to the correct asyncio.Queue.
+Routes incoming WS messages to the correct asyncio.Queue.
 """
 
 import asyncio
 import json
 import logging
 import uuid
-from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from research.config import settings
 from research.emitter import WSEmitter
 from research.models import (
     ResearchStartRequest,
@@ -33,12 +30,12 @@ from research.models import (
     SystemConnectedEvent,
 )
 from research.session import (
+    get_latest_event_id,
     get_session_state,
     get_token_totals,
-    load_context,
-    update_session_status,
     is_stop_requested,
-    get_pubsub,
+    replay_events,
+    update_session_status,
 )
 from research.stop_manager import request_stop, flush_partial_research
 from research.layer1.pipeline import run_layer1
@@ -52,60 +49,34 @@ router = APIRouter(tags=["research"])
 from main.src.research import session_store
 
 
-# ─── Start endpoint ───────────────────────────────────────────────────────────
-
-
-@router.post("/start")
-async def start_research(request: ResearchStartRequest):
-    """
-    Allocates a research_id and returns it.
-    The frontend should immediately open WS /ws/research/{research_id}.
-    The pipeline starts automatically once the WS connects.
-    """
-    research_id = str(uuid.uuid4())
-    # Pre-register so WS handler can find it
-    session_store._active_sessions[research_id] = {
-        "emitter": WSEmitter(research_id=research_id),
-        "answer_q": asyncio.Queue(),
-        "approval_q": asyncio.Queue(),
-        "gathered_sources": [],
-        "request": request,
-        "started": False,
-    }
-    logger.info("[router] New research allocated: %s", research_id)
-    return JSONResponse({"research_id": research_id, "status": "ready"})
-
-
-# ─── Stop endpoint ────────────────────────────────────────────────────────────
-
-
-@router.post("/{research_id}/stop")
-async def stop_research(research_id: str):
-    session = session_store._active_sessions.get(research_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Research session not found")
-    emitter: WSEmitter = session["emitter"]
-    await request_stop(research_id, emitter)
-    return JSONResponse({"status": "stop_requested"})
-
-
 # ─── WebSocket handler ────────────────────────────────────────────────────────
+
+
+def _parse_replay_limit(raw_value: str | None) -> int:
+    try:
+        value = int(raw_value or "300")
+    except (TypeError, ValueError):
+        return 300
+    return max(1, min(value, 2000))
 
 
 @router.websocket("/ws/{research_id}")
 async def research_websocket(websocket: WebSocket, research_id: str):
     await websocket.accept()
+    requested_last_event_id = websocket.query_params.get("last_event_id")
+    replay_limit = _parse_replay_limit(websocket.query_params.get("replay_limit"))
+
     logger.info("[ws] Client connected: %s", research_id)
     logger.info("[ws] Active sessions: %s", list(session_store._active_sessions.keys()))
 
     # ── Session lookup / reconnect ────────────────────────────────────────────
     session = session_store._active_sessions.get(research_id)
     is_reconnect = False
+    state = await get_session_state(research_id)
 
     if session is None:
         logger.warning("[ws] Session not found in active sessions for %s", research_id)
-        # Client reconnecting after server restart — try Redis restore
-        state = await get_session_state(research_id)
+        # Try Redis restore for reconnect/read-only replay sessions.
         if state:
             is_reconnect = True
             session = {
@@ -131,20 +102,36 @@ async def research_websocket(websocket: WebSocket, research_id: str):
             await websocket.close()
             return
 
-    emitter: WSEmitter = session["emitter"]
-    emitter.attach(websocket)
+    # If client doesn't send cursor on reconnect, default to latest to avoid
+    # replaying the full history and duplicating already-rendered UI timelines.
+    if requested_last_event_id is None and session.get("started"):
+        last_event_id = (await get_latest_event_id(research_id)) or "0-0"
+    else:
+        last_event_id = (requested_last_event_id or "0-0").strip()
 
-    # Send connected event
-    await emitter.emit(
-        SystemConnectedEvent(research_id=research_id, status="connected")
-    )
+    emitter: WSEmitter = session["emitter"]
+    # We relay events to this websocket from Redis stream only.
+    # Keep emitter detached to avoid replay/live double-send races.
+    emitter.detach()
 
     answer_q: asyncio.Queue = session["answer_q"]
     approval_q: asyncio.Queue = session["approval_q"]
 
-    # ── Reconnect restore ─────────────────────────────────────────────────────
-    if is_reconnect:
-        state = await get_session_state(research_id)
+    relay_task = asyncio.create_task(
+        _relay_stream_events(
+            research_id=research_id,
+            websocket=websocket,
+            start_event_id=last_event_id or "0-0",
+            replay_limit=replay_limit,
+        ),
+        name=f"stream_relay_{research_id}",
+    )
+
+    await emitter.emit(
+        SystemConnectedEvent(research_id=research_id, status="connected")
+    )
+
+    if is_reconnect and state:
         token_totals = await get_token_totals(research_id)
         await emitter.emit(
             SystemReconnectedEvent(
@@ -154,17 +141,26 @@ async def research_websocket(websocket: WebSocket, research_id: str):
                 token_totals=token_totals,
             )
         )
-        # Just relay pub/sub — pipeline is still running in background
-        await _relay_pubsub(research_id, websocket, answer_q, approval_q)
-        return
 
     # ── First connection — start pipeline ─────────────────────────────────────
     if not session.get("started"):
+        request = session.get("request")
+        if request is None:
+            await emitter.emit(
+                SystemErrorEvent(
+                    research_id=research_id,
+                    message="Research request payload unavailable; cannot start pipeline.",
+                    recoverable=False,
+                )
+            )
+            await websocket.close()
+            return
+
         session["started"] = True
         pipeline_task = asyncio.create_task(
             _run_pipeline(
                 research_id=research_id,
-                request=session["request"],
+                request=request,
                 emitter=emitter,
                 answer_q=answer_q,
                 approval_q=approval_q,
@@ -174,17 +170,11 @@ async def research_websocket(websocket: WebSocket, research_id: str):
         )
         session["pipeline_task"] = pipeline_task
 
-    # ── Concurrent: relay pub/sub + read incoming WS messages ─────────────────
-    relay_task = asyncio.create_task(
-        _relay_pubsub(research_id, websocket, answer_q, approval_q),
-        name=f"relay_{research_id}",
-    )
-    recv_task = asyncio.create_task(
-        _recv_loop(websocket, answer_q, approval_q, research_id, emitter),
-        name=f"recv_{research_id}",
-    )
-
     try:
+        recv_task = asyncio.create_task(
+            _recv_loop(websocket, answer_q, approval_q, research_id, emitter),
+            name=f"recv_{research_id}",
+        )
         done, pending = await asyncio.wait(
             [relay_task, recv_task],
             return_when=asyncio.FIRST_COMPLETED,
@@ -193,9 +183,8 @@ async def research_websocket(websocket: WebSocket, research_id: str):
             task.cancel()
     except WebSocketDisconnect:
         logger.info("[ws] Client disconnected: %s", research_id)
-        relay_task.cancel()
-        recv_task.cancel()
     finally:
+        relay_task.cancel()
         emitter.detach()
         logger.info(
             "[ws] Emitter detached for %s (pipeline continues in background)",
@@ -336,7 +325,7 @@ async def _recv_loop(
 
             elif msg_type == "stop.request":
                 await request_stop(research_id, emitter)
-                session = _active_sessions.get(research_id)
+                session = session_store._active_sessions.get(research_id)
                 if session:
                     await flush_partial_research(
                         research_id,
@@ -353,32 +342,38 @@ async def _recv_loop(
         pass
 
 
-# ─── Redis pub/sub relay ──────────────────────────────────────────────────────
-
-
-async def _relay_pubsub(
+async def _relay_stream_events(
     research_id: str,
     websocket: WebSocket,
-    answer_q: asyncio.Queue,
-    approval_q: asyncio.Queue,
+    start_event_id: str,
+    replay_limit: int,
 ) -> None:
     """
-    Subscribes to Redis pub/sub channel and relays events to the WS.
-    This keeps the reconnected client in sync even if they missed events.
+    Stream events to websocket from the Redis event stream using an event cursor.
+    This single path handles both replay and live delivery without duplicate races.
     """
-    pubsub = await get_pubsub(research_id)
+    cursor = start_event_id or "0-0"
     try:
-        async for message in pubsub.listen():
-            if message["type"] == "message":
+        while True:
+            replay_rows = await replay_events(
+                research_id=research_id,
+                from_event_id=cursor,
+                limit=replay_limit,
+            )
+            if not replay_rows:
+                await asyncio.sleep(0.25)
+                continue
+
+            for row in replay_rows:
+                payload = dict(row.get("payload") or {})
+                payload.setdefault("event_id", row.get("id"))
                 try:
-                    await websocket.send_text(message["data"])
+                    await websocket.send_text(json.dumps(payload))
                 except Exception:
-                    break
+                    return
+                cursor = row.get("id") or cursor
     except asyncio.CancelledError:
         pass
-    finally:
-        await pubsub.unsubscribe()
-        await pubsub.aclose()
 
 
 # ─── Cleanup ──────────────────────────────────────────────────────────────────
@@ -386,5 +381,5 @@ async def _relay_pubsub(
 
 def _cleanup_session(research_id: str) -> None:
     """Remove from active sessions map. Redis state persists for reconnects."""
-    _active_sessions.pop(research_id, None)
+    session_store._active_sessions.pop(research_id, None)
     logger.info("[router] Session cleaned up: %s", research_id)

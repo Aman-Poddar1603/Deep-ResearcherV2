@@ -46,17 +46,36 @@ class TokenTracker(AsyncCallbackHandler):
     async def record_tool_tokens(self, token_count: int) -> None:
         """Call this after any MCP tool that returns its own token_count."""
         if token_count > 0:
-            await self._record(token_count)
+            await self._record(token_count, input_delta=0, output_delta=token_count)
 
-    async def _record(self, delta: int) -> None:
+    async def _record(
+        self,
+        delta: int,
+        input_delta: int | None = None,
+        output_delta: int | None = None,
+    ) -> None:
         try:
             totals = await increment_tokens(
-                self.research_id, delta, self.model_type, self.step_index
+                self.research_id,
+                delta,
+                self.model_type,
+                self.step_index,
+                input_delta=input_delta,
+                output_delta=output_delta,
             )
             event = TokensUpdateEvent(
                 research_id=self.research_id,
                 delta=delta,
+                input_delta=(input_delta if input_delta is not None else 0),
+                output_delta=(
+                    output_delta
+                    if output_delta is not None
+                    else max(0, delta - int(input_delta or 0))
+                ),
                 grand_total=totals["grand_total"],
+                by_direction=totals.get(
+                    "by_direction", {"input": 0, "output": totals["grand_total"]}
+                ),
                 by_model=totals["by_model"],
                 by_step=totals["by_step"],
                 source=self.source,
@@ -77,9 +96,13 @@ class TokenTracker(AsyncCallbackHandler):
                     self._seen_run_ids.clear()
                 self._seen_run_ids.add(run_id_str)
 
-        delta = self._extract_delta(response)
+        delta, input_delta, output_delta = self._extract_usage(response)
         if delta > 0:
-            await self._record(delta)
+            await self._record(
+                delta,
+                input_delta=input_delta,
+                output_delta=output_delta,
+            )
 
     @staticmethod
     def _to_int(value: Any) -> int:
@@ -129,32 +152,93 @@ class TokenTracker(AsyncCallbackHandler):
         return 0
 
     @classmethod
-    def _extract_delta(cls, response: LLMResult) -> int:
+    def _usage_breakdown(cls, payload: Any) -> tuple[int, int, int]:
+        if not isinstance(payload, dict):
+            return (0, 0, 0)
+
+        input_tokens = 0
+        output_tokens = 0
+
+        for key in (
+            "prompt_tokens",
+            "input_tokens",
+            "prompt_eval_count",
+            "input_token_count",
+        ):
+            value = cls._to_int(payload.get(key))
+            if value > 0:
+                input_tokens = max(input_tokens, value)
+
+        for key in (
+            "completion_tokens",
+            "output_tokens",
+            "eval_count",
+            "output_token_count",
+        ):
+            value = cls._to_int(payload.get(key))
+            if value > 0:
+                output_tokens = max(output_tokens, value)
+
+        total_tokens = 0
+        for key in ("total_tokens", "total_token_count", "total"):
+            value = cls._to_int(payload.get(key))
+            if value > 0:
+                total_tokens = max(total_tokens, value)
+
+        if total_tokens == 0 and (input_tokens > 0 or output_tokens > 0):
+            total_tokens = input_tokens + output_tokens
+
+        # If only total is known, allocate to output bucket for accounting visibility.
+        if total_tokens > 0 and input_tokens == 0 and output_tokens == 0:
+            output_tokens = total_tokens
+
+        if total_tokens > 0:
+            return (total_tokens, input_tokens, output_tokens)
+
+        for nested_key in (
+            "token_usage",
+            "usage",
+            "usage_metadata",
+            "usageMetadata",
+            "metadata",
+        ):
+            nested = cls._usage_breakdown(payload.get(nested_key))
+            if nested[0] > 0:
+                return nested
+
+        return (0, 0, 0)
+
+    @classmethod
+    def _extract_usage(cls, response: LLMResult) -> tuple[int, int, int]:
         # Provider-level output (OpenAI/Groq style).
-        total = cls._usage_total(response.llm_output or {})
-        if total > 0:
-            return total
+        usage = cls._usage_breakdown(response.llm_output or {})
+        if usage[0] > 0:
+            return usage
 
         # Generation-level output (ChatOllama/ChatGroq usage_metadata patterns).
         for generation_group in response.generations or []:
             for generation in generation_group:
-                total = cls._usage_total(getattr(generation, "generation_info", None))
-                if total > 0:
-                    return total
+                usage = cls._usage_breakdown(
+                    getattr(generation, "generation_info", None)
+                )
+                if usage[0] > 0:
+                    return usage
 
                 message = getattr(generation, "message", None)
                 if message is None:
                     continue
 
-                total = cls._usage_total(getattr(message, "usage_metadata", None))
-                if total > 0:
-                    return total
+                usage = cls._usage_breakdown(getattr(message, "usage_metadata", None))
+                if usage[0] > 0:
+                    return usage
 
-                total = cls._usage_total(getattr(message, "response_metadata", None))
-                if total > 0:
-                    return total
+                usage = cls._usage_breakdown(
+                    getattr(message, "response_metadata", None)
+                )
+                if usage[0] > 0:
+                    return usage
 
-        return 0
+        return (0, 0, 0)
 
     def clone(self, step_index: int) -> "TokenTracker":
         """Return a fresh tracker for a new step index."""

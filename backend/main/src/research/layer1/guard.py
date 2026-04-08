@@ -62,14 +62,14 @@ def _rule_check(text: str) -> GuardResult | None:
     return None
 
 
-def build_guard_chain(tracker):
+def build_guard_chain():
     llm = ChatOllama(
         model=settings.OLLAMA_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0,
         reasoning=False,
         keep_alive=True,
-    ).with_config({"callbacks": [tracker]})
+    )
 
     structured_llm = llm.with_structured_output(GuardResult)
     prompt = ChatPromptTemplate.from_template(_GUARD_PROMPT)
@@ -84,8 +84,11 @@ async def run_guard(prompt_text: str, tracker) -> GuardResult:
         return rule_result
 
     # Stage 2 — LLM classifier
-    chain = build_guard_chain(tracker)
-    result = await chain.ainvoke({"prompt": prompt_text})
+    chain = build_guard_chain()
+    result = await chain.ainvoke(
+        {"prompt": prompt_text},
+        config={"callbacks": [tracker]},
+    )
     if not result.safe:
         logger.warning("[guard] LLM blocked prompt: %s", result.reason)
     return result

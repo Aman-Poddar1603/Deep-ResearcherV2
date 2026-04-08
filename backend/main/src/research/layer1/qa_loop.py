@@ -21,6 +21,12 @@ from research.models import (
     QAPair,
     NextQuestion,
     InputQAQuestionEvent,
+    SystemErrorEvent,
+)
+from research.session import (
+    clear_pending_input,
+    is_stop_requested,
+    save_pending_input,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,12 +49,12 @@ Do NOT answer the question yourself. Only ask.
 Respond ONLY with the JSON — no markdown, no extra text."""
 
 
-def _build_qa_llm(tracker) -> ChatGroq:
+def _build_qa_llm() -> ChatGroq:
     return ChatGroq(
         model=settings.GROQ_MODEL,
         temperature=0.3,
         api_key=settings.GROQ_API_KEY,
-    ).with_config({"callbacks": [tracker]})
+    )
 
 
 def _preferred_structured_method() -> str:
@@ -140,6 +146,7 @@ def _parse_next_question_response(response: Any) -> NextQuestion:
 async def _invoke_next_question_with_fallback(
     llm: ChatGroq,
     messages: list,
+    tracker,
 ) -> NextQuestion:
     errors: list[str] = []
 
@@ -150,7 +157,10 @@ async def _invoke_next_question_with_fallback(
             include_raw=True,
         )
         try:
-            response = await llm_with_structure.ainvoke(messages)
+            response = await llm_with_structure.ainvoke(
+                messages,
+                config={"callbacks": [tracker]},
+            )
             result = _parse_next_question_response(response)
             logger.info("[qa_loop] Structured-output method succeeded: %s", method)
             return result
@@ -182,7 +192,7 @@ async def run_qa_loop(
     """
     _ = mcp_tools
 
-    llm = _build_qa_llm(tracker)
+    llm = _build_qa_llm()
 
     history: list[QAPair] = []
     messages = [
@@ -204,7 +214,11 @@ async def run_qa_loop(
             )
         )
 
-        result = await _invoke_next_question_with_fallback(llm, messages)
+        result = await _invoke_next_question_with_fallback(
+            llm,
+            messages,
+            tracker,
+        )
 
         if result.done or not (result.question or "").strip():
             logger.info("[qa_loop] Done after %d rounds", round_idx)
@@ -218,12 +232,68 @@ async def run_qa_loop(
                 question_index=round_idx,
             )
         )
+        await save_pending_input(
+            research_id,
+            input_type="qa_question",
+            payload={
+                "question": result.question,
+                "question_index": round_idx,
+            },
+        )
 
-        # Await user answer from WS queue until user responds.
-        user_answer: str = await answer_queue.get()
+        # Await user answer from WS queue (no hard timeout), still stop-aware.
+        user_answer = await _wait_for_user_answer(
+            answer_queue=answer_queue,
+            research_id=research_id,
+            timeout_seconds=None,
+        )
+        if user_answer is None:
+            if not await is_stop_requested(research_id):
+                await emitter.emit(
+                    SystemErrorEvent(
+                        research_id=research_id,
+                        message="Waiting for answer was interrupted. Resume and continue if needed.",
+                        recoverable=True,
+                    )
+                )
+            break
+
+        await clear_pending_input(research_id)
 
         history.append(QAPair(question=result.question, answer=user_answer))
         messages.append(AIMessage(content=f"Question: {result.question}"))
         messages.append(HumanMessage(content=f"Answer: {user_answer}"))
 
+    await clear_pending_input(research_id)
     return history
+
+
+async def _wait_for_user_answer(
+    answer_queue: asyncio.Queue,
+    research_id: str,
+    timeout_seconds: int | None,
+    poll_interval_seconds: float = 1.0,
+) -> str | None:
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
+
+    while True:
+        if await is_stop_requested(research_id):
+            return None
+
+        if timeout_seconds is None:
+            wait_timeout = poll_interval_seconds
+        else:
+            elapsed = loop.time() - started_at
+            remaining = timeout_seconds - elapsed
+            if remaining <= 0:
+                return None
+            wait_timeout = min(poll_interval_seconds, remaining)
+
+        try:
+            return await asyncio.wait_for(
+                answer_queue.get(),
+                timeout=wait_timeout,
+            )
+        except asyncio.TimeoutError:
+            continue

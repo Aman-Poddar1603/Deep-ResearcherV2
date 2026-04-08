@@ -8,13 +8,16 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal, NoReturn
 
-from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from main.apis.models.research import (
     ResearchCreate,
     ResearchListResponse,
     ResearchPatch,
+    ResearchReplayEvent,
+    ResearchReplayResponse,
     ResearchRecord,
+    ResearchResumeResponse,
     ResearchSourceCreate,
     ResearchSourceListResponse,
     ResearchSourcePatch,
@@ -26,9 +29,19 @@ from main.apis.models.research import (
     StopResearchResponse,
 )
 from main.src.research import session_store
-from main.src.research import router as research_runtime_router
 from main.src.research.emitter import WSEmitter
-from main.src.research.session import get_session_state, get_token_totals
+from main.src.research.session import (
+    init_session,
+    get_latest_event_id,
+    get_session_state,
+    get_streaming_snapshot,
+    get_token_totals,
+    load_context,
+    load_pending_input,
+    load_plan,
+    replay_events,
+    update_session_status,
+)
 from main.src.research.stop_manager import request_stop
 from main.src.store.DBManager import researches_db_manager
 
@@ -382,22 +395,89 @@ def _register_runtime_session(research_id: str, payload: ResearchStartRequest) -
     )
 
 
+def _runtime_urls(request: Request, research_id: str) -> dict[str, str]:
+    http_base = str(request.base_url).rstrip("/")
+    if http_base.startswith("https://"):
+        ws_base = "wss://" + http_base[len("https://") :]
+    elif http_base.startswith("http://"):
+        ws_base = "ws://" + http_base[len("http://") :]
+    else:
+        ws_base = http_base
+
+    return {
+        "status_url": f"{http_base}/research/{research_id}/status",
+        "replay_url": f"{http_base}/research/{research_id}/events/replay",
+        "resume_url": f"{http_base}/research/{research_id}/resume",
+        "websocket_url": f"{ws_base}/research/ws/{research_id}",
+    }
+
+
 @router.post("/start", response_model=ResearchStartResponse)
 async def start_research_session(
+    request: Request,
     payload: ResearchStartRequest,
 ) -> ResearchStartResponse:
     research_id = str(uuid.uuid4())
     _register_runtime_session(research_id, payload)
-    return ResearchStartResponse(research_id=research_id, status="ready")
+
+    try:
+        await init_session(research_id, payload.workspace_id, total_steps=0)
+        await update_session_status(
+            research_id,
+            status="ready",
+            current_step=0,
+            total_steps=0,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[research_urls] Failed to pre-persist session state for %s: %s",
+            research_id,
+            exc,
+        )
+
+    urls = _runtime_urls(request, research_id)
+    return ResearchStartResponse(
+        research_id=research_id,
+        status="ready",
+        status_url=urls["status_url"],
+        replay_url=urls["replay_url"],
+        resume_url=urls["resume_url"],
+        websocket_url=urls["websocket_url"],
+    )
 
 
 @router.post("/{research_id}/start", response_model=ResearchStartResponse)
 async def start_research_runtime(
     research_id: str,
+    request: Request,
     payload: ResearchStartRequest,
 ) -> ResearchStartResponse:
     _register_runtime_session(research_id, payload)
-    return ResearchStartResponse(research_id=research_id, status="ready")
+
+    try:
+        await init_session(research_id, payload.workspace_id, total_steps=0)
+        await update_session_status(
+            research_id,
+            status="ready",
+            current_step=0,
+            total_steps=0,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[research_urls] Failed to pre-persist session state for %s: %s",
+            research_id,
+            exc,
+        )
+
+    urls = _runtime_urls(request, research_id)
+    return ResearchStartResponse(
+        research_id=research_id,
+        status="ready",
+        status_url=urls["status_url"],
+        replay_url=urls["replay_url"],
+        resume_url=urls["resume_url"],
+        websocket_url=urls["websocket_url"],
+    )
 
 
 @router.post("/{research_id}/stop", response_model=StopResearchResponse)
@@ -415,6 +495,9 @@ async def stop_research_runtime(research_id: str) -> StopResearchResponse:
 
 @router.get("/{research_id}/status", response_model=ResearchStatusResponse)
 async def get_research_status(research_id: str) -> ResearchStatusResponse:
+    latest_event_id = await get_latest_event_id(research_id)
+    pending_input = await load_pending_input(research_id)
+
     # First check active sessions
     session = session_store._active_sessions.get(research_id)
     if session:
@@ -432,6 +515,8 @@ async def get_research_status(research_id: str) -> ResearchStatusResponse:
                 created_at=state.get("created_at"),
                 updated_at=state.get("updated_at"),
                 token_totals=token_totals,
+                latest_event_id=latest_event_id,
+                pending_input=pending_input,
             )
 
         # Session is active but not yet initialized in Redis.
@@ -444,6 +529,8 @@ async def get_research_status(research_id: str) -> ResearchStatusResponse:
             created_at=None,
             updated_at=None,
             token_totals=token_totals,
+            latest_event_id=latest_event_id,
+            pending_input=pending_input,
         )
 
     # Check persisted state
@@ -464,6 +551,131 @@ async def get_research_status(research_id: str) -> ResearchStatusResponse:
         created_at=state.get("created_at"),
         updated_at=state.get("updated_at"),
         token_totals=token_totals,
+        latest_event_id=latest_event_id,
+        pending_input=pending_input,
+    )
+
+
+@router.get("/{research_id}/events/replay", response_model=ResearchReplayResponse)
+async def replay_research_events(
+    research_id: str,
+    from_event_id: str = Query(default="0-0", alias="fromEventId"),
+    limit: int = Query(default=200, ge=1, le=2000),
+) -> ResearchReplayResponse:
+    state = await get_session_state(research_id)
+    if state is None and research_id not in session_store._active_sessions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Research session not found. The id may be stale or never started.",
+        )
+
+    replay_rows = await replay_events(
+        research_id=research_id,
+        from_event_id=from_event_id,
+        limit=limit,
+    )
+    events = [ResearchReplayEvent.model_validate(row) for row in replay_rows]
+    next_event_id = events[-1].id if events else from_event_id
+    return ResearchReplayResponse(
+        research_id=research_id,
+        from_event_id=from_event_id,
+        replay_count=len(events),
+        next_event_id=next_event_id,
+        events=events,
+    )
+
+
+@router.get("/{research_id}/resume", response_model=ResearchResumeResponse)
+async def get_research_resume(
+    research_id: str,
+    request: Request,
+    from_event_id: str = Query(default="0-0", alias="fromEventId"),
+    timeline_limit: int = Query(default=1000, ge=1, le=2000, alias="timelineLimit"),
+    include_timeline: bool = Query(default=True, alias="includeTimeline"),
+    snapshot_tail: int = Query(default=600, ge=50, le=4000, alias="snapshotTail"),
+) -> ResearchResumeResponse:
+    state = await get_session_state(research_id)
+    active_session = session_store._active_sessions.get(research_id)
+
+    if state is None and active_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Research session not found. The id may be stale or never started.",
+        )
+
+    token_totals = ResearchTokenTotals.model_validate(
+        await get_token_totals(research_id)
+    )
+    latest_event_id = await get_latest_event_id(research_id)
+    pending_input = await load_pending_input(research_id)
+    context = await load_context(research_id)
+    plan = await load_plan(research_id) or []
+    urls = _runtime_urls(request, research_id)
+
+    replay_rows: list[dict[str, Any]] = []
+    if include_timeline:
+        replay_rows = await replay_events(
+            research_id=research_id,
+            from_event_id=from_event_id,
+            limit=timeline_limit,
+        )
+    timeline_events = [ResearchReplayEvent.model_validate(row) for row in replay_rows]
+    timeline_next_event_id = (
+        timeline_events[-1].id if timeline_events else latest_event_id or from_event_id
+    )
+    streaming_snapshot = await get_streaming_snapshot(
+        research_id,
+        tail_limit=snapshot_tail,
+    )
+
+    if state is None:
+        status_str = (
+            "running" if active_session and active_session.get("started") else "ready"
+        )
+        return ResearchResumeResponse(
+            research_id=research_id,
+            status=status_str,
+            current_step=0,
+            total_steps=0,
+            created_at=None,
+            updated_at=None,
+            token_totals=token_totals,
+            latest_event_id=latest_event_id,
+            pending_input=pending_input,
+            context=context,
+            plan=plan,
+            status_url=urls["status_url"],
+            replay_url=urls["replay_url"],
+            resume_url=urls["resume_url"],
+            websocket_url=urls["websocket_url"],
+            timeline_from_event_id=from_event_id,
+            timeline_next_event_id=timeline_next_event_id,
+            timeline_replay_count=len(timeline_events),
+            timeline_events=timeline_events,
+            streaming_snapshot=streaming_snapshot,
+        )
+
+    return ResearchResumeResponse(
+        research_id=research_id,
+        status=str(state.get("status", "unknown")),
+        current_step=int(state.get("current_step", 0)),
+        total_steps=int(state.get("total_steps", 0)),
+        created_at=state.get("created_at"),
+        updated_at=state.get("updated_at"),
+        token_totals=token_totals,
+        latest_event_id=latest_event_id,
+        pending_input=pending_input,
+        context=context,
+        plan=plan,
+        status_url=urls["status_url"],
+        replay_url=urls["replay_url"],
+        resume_url=urls["resume_url"],
+        websocket_url=urls["websocket_url"],
+        timeline_from_event_id=from_event_id,
+        timeline_next_event_id=timeline_next_event_id,
+        timeline_replay_count=len(timeline_events),
+        timeline_events=timeline_events,
+        streaming_snapshot=streaming_snapshot,
     )
 
 

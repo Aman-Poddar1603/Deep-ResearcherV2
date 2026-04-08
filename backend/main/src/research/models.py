@@ -40,8 +40,8 @@ class ResearchPlan(BaseModel):
 
 class CleanedInput(BaseModel):
     cleaned_prompt: str
-    title: str
-    description: str
+    title: str = ""
+    description: str = ""
 
 
 # ─── Guard output ─────────────────────────────────────────────────────────────
@@ -167,6 +167,7 @@ class ToolResultEvent(WSEvent):
     tool_name: str
     result_summary: str
     step_index: int
+    result_payload: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ToolErrorEvent(WSEvent):
@@ -200,7 +201,12 @@ class ArtifactDoneEvent(WSEvent):
 class TokensUpdateEvent(WSEvent):
     event: str = "tokens.update"
     delta: int
+    input_delta: int = 0
+    output_delta: int = 0
     grand_total: int
+    by_direction: dict[str, int] = Field(
+        default_factory=lambda: {"input": 0, "output": 0}
+    )
     by_model: dict[str, int]
     by_step: dict[str, int]
     source: str

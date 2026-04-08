@@ -105,7 +105,8 @@ async def run_orchestrator2(
     checkpointer = AsyncRedisSaver(redis_client=redis_conn)
     await checkpointer.setup()
     graph_config: RunnableConfig = {
-        "configurable": {"thread_id": f"orc2_{research_id}_{uuid.uuid4().hex[:8]}"}
+        "configurable": {"thread_id": f"orc2_{research_id}_{uuid.uuid4().hex[:8]}"},
+        "callbacks": [],
     }
 
     mcp_tools = await get_mcp_tools()
@@ -128,10 +129,12 @@ async def run_orchestrator2(
     tool_node = ToolNode(all_tools, handle_tool_errors=True)
 
     agent = create_react_agent(
-        model=llm.with_config({"callbacks": [tracker]}),
+        model=llm,
         tools=tool_node,
         checkpointer=checkpointer,
     )
+
+    graph_config["callbacks"] = [tracker]
 
     plan_steps_str = "\n".join(
         f"- Step {s.step_index + 1}: {s.step_title}" for s in context.plan
@@ -311,6 +314,7 @@ async def _schedule_chroma_indexing(research_id: str, sources: list[dict]) -> No
 async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> None:
     from main.src.utils.core.task_schedular import scheduler
     from main.src.store.DBManager import researches_db_manager
+    from research.session import get_token_totals
 
     website_tools = {
         "web_search",
@@ -323,6 +327,7 @@ async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> No
 
     website_sources = [s for s in sources if s.get("tool") in website_tools]
     file_sources = [s for s in sources if s.get("tool") in file_tools]
+    token_totals = await get_token_totals(context.research_id)
 
     await scheduler.schedule(
         researches_db_manager.insert,
@@ -334,14 +339,19 @@ async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> No
                     {
                         "preprocess_ollama": settings.OLLAMA_MODEL,
                         "reasoner_groq": settings.GROQ_MODEL,
-                        "embedding_gemini": settings.GEMINI_EMBED_MODEL,
+                        "embedding_primary_ollama": settings.OLLAMA_EMBED_MODEL,
+                        "embedding_fallback_gemini": (
+                            settings.GEMINI_EMBED_MODEL
+                            if settings.GEMINI_API_KEY.strip()
+                            else ""
+                        ),
                     }
                 ),
                 "workspace_id": context.workspace_id,
                 "research_id": context.research_id,
                 "connected_bucket": "",
                 "time_taken_sec": 0,
-                "token_count": 0,
+                "token_count": int(token_totals.get("grand_total", 0)),
                 "num_api_calls": len(sources),
                 "source_count": len(sources),
                 "websites_count": len(website_sources),

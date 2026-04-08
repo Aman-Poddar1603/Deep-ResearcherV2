@@ -38,14 +38,62 @@ Respond ONLY with a JSON object — no markdown, no explanation:
 }}"""
 
 
-def build_cleaner_chain(tracker):
+def _fallback_title(raw_prompt: str, provided_title: str) -> str:
+    if (provided_title or "").strip():
+        return provided_title.strip()
+
+    words = [w.strip(" ,.;:!?") for w in (raw_prompt or "").split()]
+    words = [w for w in words if w]
+    if not words:
+        return "Research Analysis"
+
+    return " ".join(words[:8])[:80]
+
+
+def _fallback_description(
+    cleaned_prompt: str,
+    provided_description: str,
+) -> str:
+    if (provided_description or "").strip():
+        return provided_description.strip()
+
+    base = (cleaned_prompt or "").strip()
+    if not base:
+        return "Research requested by the user."
+
+    if len(base) > 220:
+        base = base[:217].rstrip() + "..."
+    return f"This research covers: {base}"
+
+
+def _normalize_cleaned_input(
+    result: CleanedInput,
+    raw_prompt: str,
+    provided_title: str,
+    provided_description: str,
+) -> CleanedInput:
+    cleaned_prompt = (result.cleaned_prompt or raw_prompt or "").strip()
+    title = (result.title or "").strip() or _fallback_title(raw_prompt, provided_title)
+    description = (result.description or "").strip() or _fallback_description(
+        cleaned_prompt,
+        provided_description,
+    )
+
+    return CleanedInput(
+        cleaned_prompt=cleaned_prompt,
+        title=title,
+        description=description,
+    )
+
+
+def build_cleaner_chain():
     llm = ChatOllama(
         model=settings.OLLAMA_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
         temperature=0,
         reasoning=False,
         keep_alive=True,
-    ).with_config({"callbacks": [tracker]})
+    )
 
     structured_llm = llm.with_structured_output(CleanedInput)
 
@@ -59,13 +107,33 @@ async def run_cleaner(
     provided_description: str,
     tracker,
 ) -> CleanedInput:
-    chain = build_cleaner_chain(tracker)
-    result = await chain.ainvoke(
-        {
-            "raw_prompt": raw_prompt,
-            "provided_title": provided_title or "",
-            "provided_description": provided_description or "",
-        }
+    chain = build_cleaner_chain()
+    try:
+        result = await chain.ainvoke(
+            {
+                "raw_prompt": raw_prompt,
+                "provided_title": provided_title or "",
+                "provided_description": provided_description or "",
+            },
+            config={"callbacks": [tracker]},
+        )
+    except Exception as exc:
+        logger.warning(
+            "[cleaner] Structured parse failed, using deterministic fallback: %s",
+            exc,
+        )
+        fallback_prompt = (raw_prompt or "").strip()
+        return CleanedInput(
+            cleaned_prompt=fallback_prompt,
+            title=_fallback_title(raw_prompt, provided_title),
+            description=_fallback_description(fallback_prompt, provided_description),
+        )
+
+    normalized = _normalize_cleaned_input(
+        result=result,
+        raw_prompt=raw_prompt,
+        provided_title=provided_title,
+        provided_description=provided_description,
     )
-    logger.info("[cleaner] Cleaned prompt: %s", result.cleaned_prompt[:80])
-    return result
+    logger.info("[cleaner] Cleaned prompt: %s", normalized.cleaned_prompt[:80])
+    return normalized

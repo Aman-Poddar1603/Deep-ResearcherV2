@@ -58,6 +58,8 @@ The backend exposes the research workflow through:
 2. `WS /research/ws/{research_id}` to stream interactive research events.
 3. `POST /research/{research_id}/stop` for a graceful shutdown.
 4. `GET /research/{research_id}/status` for polling session state.
+5. `GET /research/{research_id}/events/replay` to replay missed events.
+6. `GET /research/{research_id}/resume` to restore a reconnect bundle.
 """,
     lifespan=lifespan,
     docs_url="/docs",
@@ -70,6 +72,7 @@ allowed_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    "http://0.0.0.0:5173",
 ]
 
 # Register CORS middleware
@@ -128,6 +131,10 @@ async def research_ws_protocol() -> dict[str, object]:
     return {
         "direction": "frontend -> backend",
         "format": "JSON text frame over WebSocket",
+        "reconnect_query": {
+            "last_event_id": "Optional. Replay events after this id before live stream",
+            "replay_limit": "Optional integer 1-2000, defaults to 300",
+        },
         "messages": {
             "user.answer": {
                 "type": "user.answer",

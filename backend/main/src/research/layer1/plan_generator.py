@@ -172,12 +172,12 @@ def _parse_research_plan_response(response: Any) -> ResearchPlan:
     return ResearchPlan.model_validate(payload)
 
 
-def _build_plan_llm(tracker) -> ChatGroq:
+def _build_plan_llm() -> ChatGroq:
     return ChatGroq(
         model=settings.GROQ_MODEL,
         temperature=0,
         api_key=settings.GROQ_API_KEY,
-    ).with_config({"callbacks": [tracker]})
+    )
 
 
 def _preferred_structured_method() -> str:
@@ -195,6 +195,7 @@ async def _invoke_plan_with_fallback(
     llm: ChatGroq,
     prompt: ChatPromptTemplate,
     payload: dict[str, Any],
+    tracker,
 ) -> ResearchPlan:
     errors: list[str] = []
 
@@ -207,7 +208,10 @@ async def _invoke_plan_with_fallback(
         chain = prompt | structured_llm
 
         try:
-            response = await chain.ainvoke(payload)
+            response = await chain.ainvoke(
+                payload,
+                config={"callbacks": [tracker]},
+            )
             result = _parse_research_plan_response(response)
             logger.info("[plan_gen] Structured-output method succeeded: %s", method)
             return result
@@ -233,7 +237,7 @@ async def generate_plan(
     available_tools: list[str],
     tracker,
 ) -> ResearchPlan:
-    llm = _build_plan_llm(tracker)
+    llm = _build_plan_llm()
     prompt = ChatPromptTemplate.from_template(_PLAN_PROMPT)
 
     qa_context = (
@@ -258,6 +262,7 @@ async def generate_plan(
                 else "No MCP tools detected"
             ),
         },
+        tracker=tracker,
     )
 
     logger.info("[plan_gen] Generated %d steps", len(result.steps))
@@ -270,7 +275,7 @@ async def refine_plan(
     available_tools: list[str],
     tracker,
 ) -> ResearchPlan:
-    llm = _build_plan_llm(tracker)
+    llm = _build_plan_llm()
     prompt = ChatPromptTemplate.from_template(_REFINE_PROMPT)
     result = await _invoke_plan_with_fallback(
         llm=llm,
@@ -287,6 +292,7 @@ async def refine_plan(
                 else "No MCP tools detected"
             ),
         },
+        tracker=tracker,
     )
 
     logger.info("[plan_gen] Refined to %d steps", len(result.steps))

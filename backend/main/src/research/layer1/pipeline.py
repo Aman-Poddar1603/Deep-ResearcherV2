@@ -25,6 +25,7 @@ from research.models import (
 )
 from research.session import (
     init_session,
+    set_total_steps,
     update_session_status,
     save_context,
     save_plan,
@@ -217,6 +218,7 @@ async def run_layer1(
         research_template=request.research_template,
         available_tools=available_tools,
     )
+    await set_total_steps(research_id, len(approved_plan.steps))
 
     # ── 7. Build context ──────────────────────────────────────────────────────
     context = ResearchContext(
@@ -274,7 +276,12 @@ async def run_layer1(
         },
     )
 
-    await update_session_status(research_id, "layer1_done", current_step=0)
+    await update_session_status(
+        research_id,
+        "layer1_done",
+        current_step=0,
+        total_steps=len(approved_plan.steps),
+    )
     await emitter.emit(
         SystemProgressEvent(
             research_id=research_id,

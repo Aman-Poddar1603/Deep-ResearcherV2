@@ -15,6 +15,12 @@ from research.models import (
     QAPair,
     InputPlanReadyEvent,
     InputApprovedEvent,
+    SystemErrorEvent,
+)
+from research.session import (
+    clear_pending_input,
+    is_stop_requested,
+    save_pending_input,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,9 +58,40 @@ async def run_approval_loop(
                 plan=[step.model_dump() for step in current_plan.steps],
             )
         )
+        await save_pending_input(
+            research_id,
+            input_type="plan_approval",
+            payload={
+                "attempt": attempt,
+                "max_attempts": settings.MAX_PLAN_REFACTOR_ROUNDS,
+                "plan": [step.model_dump() for step in current_plan.steps],
+            },
+        )
 
-        # Await approval or refactor until user responds.
-        msg: dict = await approval_queue.get()
+        # Await approval/refactor with no hard timeout, still stop-aware.
+        msg = await _wait_for_user_approval(
+            approval_queue=approval_queue,
+            research_id=research_id,
+            timeout_seconds=None,
+        )
+        if msg is None:
+            if not await is_stop_requested(research_id):
+                await emitter.emit(
+                    SystemErrorEvent(
+                        research_id=research_id,
+                        message="Waiting for plan approval was interrupted.",
+                        recoverable=True,
+                    )
+                )
+            await emitter.emit(
+                InputApprovedEvent(
+                    research_id=research_id,
+                    confirmed=False,
+                )
+            )
+            break
+
+        await clear_pending_input(research_id)
 
         action = msg.get("action", "approve")
 
@@ -90,4 +127,40 @@ async def run_approval_loop(
             )
             break
 
+    await clear_pending_input(research_id)
     return current_plan
+
+
+async def _wait_for_user_approval(
+    approval_queue: asyncio.Queue,
+    research_id: str,
+    timeout_seconds: int | None,
+    poll_interval_seconds: float = 1.0,
+) -> dict | None:
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
+
+    while True:
+        if await is_stop_requested(research_id):
+            return None
+
+        if timeout_seconds is None:
+            wait_timeout = poll_interval_seconds
+        else:
+            elapsed = loop.time() - started_at
+            remaining = timeout_seconds - elapsed
+            if remaining <= 0:
+                return None
+            wait_timeout = min(poll_interval_seconds, remaining)
+
+        try:
+            msg = await asyncio.wait_for(
+                approval_queue.get(),
+                timeout=wait_timeout,
+            )
+        except asyncio.TimeoutError:
+            continue
+
+        if isinstance(msg, dict):
+            return msg
+        return {"action": "approve"}

@@ -1,5 +1,6 @@
 """
-RAG setup using LangChain's ChromaDB wrapper + GoogleGenerativeAIEmbeddings.
+RAG setup using LangChain's ChromaDB wrapper with Ollama embeddings as
+the primary backend and Gemini embeddings as an optional fallback.
 
 Per-research collection: research_{research_id}
 Chunks include metadata: research_id, step_index, source_url, partial
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.tools.retriever import create_retriever_tool
 from langchain_core.documents import Document
@@ -21,6 +23,7 @@ from research.config import settings
 logger = logging.getLogger(__name__)
 
 _resolved_chroma_path: str | None = None
+_embeddings_instance: Embeddings | None = None
 
 
 def _ensure_writable_directory(path: Path) -> bool:
@@ -67,17 +70,75 @@ def _resolve_chroma_path() -> str:
     )
 
 
-def get_embeddings() -> Embeddings:
+class _FallbackEmbeddings(Embeddings):
+    def __init__(self, primary: Embeddings, fallback: Embeddings | None = None):
+        self._primary = primary
+        self._fallback = fallback
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        try:
+            return self._primary.embed_documents(texts)
+        except Exception as primary_exc:
+            if self._fallback is None:
+                raise
+            logger.warning(
+                "[rag] Primary embeddings backend failed for documents; falling back. error=%s",
+                primary_exc,
+            )
+            return self._fallback.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        try:
+            return self._primary.embed_query(text)
+        except Exception as primary_exc:
+            if self._fallback is None:
+                raise
+            logger.warning(
+                "[rag] Primary embeddings backend failed for query; falling back. error=%s",
+                primary_exc,
+            )
+            return self._fallback.embed_query(text)
+
+
+def _build_ollama_embeddings() -> Embeddings:
+    return OllamaEmbeddings(
+        model=settings.OLLAMA_EMBED_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
+    )
+
+
+def _build_gemini_embeddings_or_none() -> Embeddings | None:
     api_key = settings.GEMINI_API_KEY.strip()
     if not api_key:
-        raise ValueError(
-            "GEMINI_API_KEY (or GOOGLE_API_KEY) is required for RAG embeddings."
-        )
-
+        return None
     return GoogleGenerativeAIEmbeddings(
         model=settings.GEMINI_EMBED_MODEL,
         google_api_key=api_key,
     )
+
+
+def get_embeddings() -> Embeddings:
+    global _embeddings_instance
+    if _embeddings_instance is not None:
+        return _embeddings_instance
+
+    primary = _build_ollama_embeddings()
+    fallback = _build_gemini_embeddings_or_none()
+
+    if fallback is None:
+        logger.info(
+            "[rag] Using Ollama embeddings only (model=%s)",
+            settings.OLLAMA_EMBED_MODEL,
+        )
+    else:
+        logger.info(
+            "[rag] Using Ollama embeddings primary (model=%s) with Gemini fallback (model=%s)",
+            settings.OLLAMA_EMBED_MODEL,
+            settings.GEMINI_EMBED_MODEL,
+        )
+
+    _embeddings_instance = _FallbackEmbeddings(primary=primary, fallback=fallback)
+    return _embeddings_instance
 
 
 def get_vectorstore(research_id: str, read_only: bool = False) -> Chroma:

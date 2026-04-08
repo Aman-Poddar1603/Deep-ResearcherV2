@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -327,6 +328,10 @@ class ResearchStartRequest(BaseModel):
 class ResearchStartResponse(BaseModel):
     research_id: str
     status: str
+    status_url: str | None = None
+    replay_url: str | None = None
+    resume_url: str | None = None
+    websocket_url: str | None = None
 
 
 class StopResearchResponse(BaseModel):
@@ -336,8 +341,12 @@ class StopResearchResponse(BaseModel):
 
 class ResearchTokenTotals(BaseModel):
     grand_total: int = 0
+    by_direction: dict[str, int] = Field(
+        default_factory=lambda: {"input": 0, "output": 0}
+    )
     by_model: dict[str, int] = Field(default_factory=lambda: {"ollama": 0, "groq": 0})
     by_step: dict[str, int] = Field(default_factory=dict)
+    by_step_direction: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 class ResearchStatusResponse(BaseModel):
@@ -348,6 +357,44 @@ class ResearchStatusResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     token_totals: ResearchTokenTotals = Field(default_factory=ResearchTokenTotals)
+    latest_event_id: str | None = None
+    pending_input: dict[str, Any] | None = None
+
+
+class ResearchReplayEvent(BaseModel):
+    id: str
+    payload: dict[str, Any]
+
+
+class ResearchReplayResponse(BaseModel):
+    research_id: str
+    from_event_id: str
+    replay_count: int = 0
+    next_event_id: str | None = None
+    events: list[ResearchReplayEvent] = Field(default_factory=list)
+
+
+class ResearchResumeResponse(BaseModel):
+    research_id: str
+    status: str
+    current_step: int = 0
+    total_steps: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    token_totals: ResearchTokenTotals = Field(default_factory=ResearchTokenTotals)
+    latest_event_id: str | None = None
+    pending_input: dict[str, Any] | None = None
+    context: dict[str, Any] | None = None
+    plan: list[dict[str, Any]] = Field(default_factory=list)
+    status_url: str | None = None
+    replay_url: str | None = None
+    resume_url: str | None = None
+    websocket_url: str | None = None
+    timeline_from_event_id: str = "0-0"
+    timeline_next_event_id: str | None = None
+    timeline_replay_count: int = 0
+    timeline_events: list[ResearchReplayEvent] = Field(default_factory=list)
+    streaming_snapshot: dict[str, Any] | None = None
 
 
 # Optional compatibility aliases

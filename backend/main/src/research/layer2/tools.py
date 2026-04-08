@@ -18,9 +18,10 @@ from contextlib import AsyncExitStack
 from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
 
+import httpx
 from langchain_core.tools import BaseTool
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
 from main.src.research.config import settings
@@ -183,15 +184,12 @@ def _normalize_tool_result_content(result: Any) -> Any:
 
 
 class _MCPRuntime:
-    """Direct MCP runtime using a persistent streamable-http session."""
+    """Direct MCP runtime using short-lived sessions per operation."""
 
     def __init__(self, urls: list[str]):
         self._urls = urls
         self._lock = asyncio.Lock()
         self._connected_url: str | None = None
-        self._stack: AsyncExitStack | None = None
-        self._session: ClientSession | None = None
-        self._session_id: str | None = None
         self._tools: list[Any] = []
 
     def _ordered_urls(self) -> list[str]:
@@ -203,100 +201,49 @@ class _MCPRuntime:
                 urls.append(url)
         return urls
 
-    @staticmethod
-    def _read_session_id(get_session_id: Any) -> str | None:
-        if not callable(get_session_id):
-            return None
-        try:
-            value = get_session_id()
-        except Exception:
-            return None
-        if value is None:
-            return None
-        return str(value)
-
-    async def _list_tools_once(self, url: str) -> list[Any]:
-        """Probe tool metadata with a short-lived connection."""
+    async def _run_with_session(
+        self, url: str, operation: str, tool_name: str = ""
+    ) -> Any:
         async with AsyncExitStack() as stack:
-            read, write, _ = await stack.enter_async_context(
-                streamablehttp_client(
+            # Disable all HTTP/SSE read time limits so long-running MCP tools can complete.
+            http_client = await stack.enter_async_context(
+                httpx.AsyncClient(follow_redirects=True, timeout=None)
+            )
+            read, write, get_session_id = await stack.enter_async_context(
+                streamable_http_client(
                     url,
-                    timeout=cast(Any, None),
-                    sse_read_timeout=cast(Any, None),
+                    http_client=http_client,
                     terminate_on_close=False,
                 )
             )
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
-            response = await session.list_tools()
-            return list(getattr(response, "tools", []) or [])
 
-    async def _connect_locked(self) -> None:
-        if self._session is not None:
-            return
+            session_id: str | None = None
+            if callable(get_session_id):
+                try:
+                    value = get_session_id()
+                    session_id = str(value) if value is not None else None
+                except Exception:
+                    session_id = None
 
-        errors: list[str] = []
-        for url in self._ordered_urls():
-            stack = AsyncExitStack()
-            try:
-                read, write, get_session_id = await stack.enter_async_context(
-                    streamablehttp_client(
-                        url,
-                        timeout=cast(Any, None),
-                        sse_read_timeout=cast(Any, None),
-                        terminate_on_close=False,
-                    )
-                )
-                session = await stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
-                session_id = self._read_session_id(get_session_id)
-
-                self._stack = stack
-                self._session = session
-                self._connected_url = url
-                self._session_id = session_id
-
-                logger.info(
-                    "[mcp] session_opened session_id=%s url=%s",
-                    session_id or "unknown",
-                    url,
-                )
-                return
-            except Exception as exc:
-                errors.append(f"{url}: {exc}")
-                await stack.aclose()
-
-        raise RuntimeError(
-            "Failed to connect to MCP server via streamable-http. Attempts: "
-            + " | ".join(errors)
-        )
-
-    async def _disconnect_locked(self) -> None:
-        stack = self._stack
-
-        session_id = self._session_id or "unknown"
-        url = self._connected_url or "unknown"
-
-        self._stack = None
-        self._session = None
-        self._session_id = None
-        self._connected_url = None
-        self._tools = []
-
-        if stack is None:
-            return
-
-        try:
-            await stack.aclose()
-            logger.info("[mcp] session_closed session_id=%s url=%s", session_id, url)
-        except RuntimeError as exc:
-            # streamable_http_client can raise if closed from a different task.
-            logger.warning(
-                "[mcp] session_close_skipped session_id=%s url=%s reason=%s",
-                session_id,
+            logger.info(
+                "[mcp] session_opened session_id=%s url=%s op=%s tool=%s",
+                session_id or "unknown",
                 url,
-                exc,
+                operation,
+                tool_name or "-",
             )
+
+            if operation == "list_tools":
+                response = await session.list_tools()
+                self._connected_url = url
+                return list(getattr(response, "tools", []) or [])
+
+            if operation == "call_tool":
+                raise RuntimeError("Missing tool execution callback")
+
+            raise RuntimeError(f"Unsupported MCP operation: {operation}")
 
     async def list_tools(self) -> list[Any]:
         async with self._lock:
@@ -304,13 +251,16 @@ class _MCPRuntime:
                 errors: list[str] = []
                 for url in self._ordered_urls():
                     try:
-                        logger.info("[mcp] Probing MCP tools at %s", url)
-                        self._tools = await self._list_tools_once(url)
-                        self._connected_url = url
                         logger.info(
-                            "[mcp] Loaded %d tool(s) from %s",
+                            "[mcp] Connecting directly to MCP server at %s", url
+                        )
+                        self._tools = await self._run_with_session(
+                            url, operation="list_tools"
+                        )
+                        logger.info(
+                            "[mcp] Connected to %s with %d tool(s)",
+                            self._connected_url,
                             len(self._tools),
-                            url,
                         )
                         break
                     except Exception as exc:
@@ -328,37 +278,57 @@ class _MCPRuntime:
         self, name: str, arguments: dict[str, Any] | None = None
     ) -> Any:
         payload = arguments or {}
+        errors: list[str] = []
 
         async with self._lock:
-            if self._session is None:
-                await self._connect_locked()
+            for url in self._ordered_urls():
+                try:
+                    logger.info("[mcp] Connecting directly to MCP server at %s", url)
+                    async with AsyncExitStack() as stack:
+                        http_client = await stack.enter_async_context(
+                            httpx.AsyncClient(follow_redirects=True, timeout=None)
+                        )
+                        read, write, get_session_id = await stack.enter_async_context(
+                            streamable_http_client(
+                                url,
+                                http_client=http_client,
+                                terminate_on_close=False,
+                            )
+                        )
+                        session = await stack.enter_async_context(
+                            ClientSession(read, write)
+                        )
+                        await session.initialize()
 
-            assert self._session is not None
-            try:
-                print(f"DEBUG: MCP Tool Call In: {name} | Arguments: {payload}")
-                result = await self._session.call_tool(name, arguments=payload)
-                # return _normalize_tool_result_content(result)
-                print(f"DEBUG: MCP Tool Call Out: {result}")
+                        session_id: str | None = None
+                        if callable(get_session_id):
+                            try:
+                                value = get_session_id()
+                                session_id = str(value) if value is not None else None
+                            except Exception:
+                                session_id = None
 
-                # Returning raw result as string for UI debugging
-                return str(result)
-            except Exception as first_error:
-                logger.warning(
-                    "[mcp] tool_call_failed tool=%s session_id=%s url=%s error=%s",
-                    name,
-                    self._session_id or "unknown",
-                    self._connected_url or "unknown",
-                    first_error,
-                )
-                await self._disconnect_locked()
-                await self._connect_locked()
-                assert self._session is not None
-                result = await self._session.call_tool(name, arguments=payload)
-                return _normalize_tool_result_content(result)
+                        logger.info(
+                            "[mcp] session_opened session_id=%s url=%s op=call_tool tool=%s",
+                            session_id or "unknown",
+                            url,
+                            name,
+                        )
+
+                        result = await session.call_tool(name, arguments=payload)
+
+                    self._connected_url = url
+                    return _normalize_tool_result_content(result)
+                except Exception as exc:
+                    errors.append(f"{url}: {exc}")
+
+        raise RuntimeError(
+            f"MCP tool call failed for {name}. Attempts: " + " | ".join(errors)
+        )
 
     async def close(self) -> None:
-        async with self._lock:
-            await self._disconnect_locked()
+        # Runtime uses short-lived sessions; nothing persistent to close.
+        return
 
 
 class _DirectMCPTool(BaseTool):
@@ -520,8 +490,7 @@ def _normalize_tool_name(tool_name: str) -> str:
     if "." in name:
         name = name.split(".")[-1]
 
-    name = re.sub(r"^(research_tools_|mcp_|tool_|mcp_server_)", "", name)
-    name = re.sub(r"_mcp$", "", name)
+    name = re.sub(r"^(research_tools_|mcp_|tool_)", "", name)
     return name
 
 
@@ -616,19 +585,10 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
 
     # youtube_search
     if tool == "youtube_search":
-        # Handle cases where the result might be wrapped in a content list or similar
-        videos = []
-        if isinstance(data, dict):
-            videos = data.get("videos", [])
-        elif isinstance(data, list):
-            # Sometimes MCP returns a list of results directly
-            videos = data
-
-        if not isinstance(videos, list):
+        if not isinstance(data, dict):
             return []
-
         items = []
-        for v in videos:
+        for v in data.get("videos", []):
             if not isinstance(v, dict):
                 continue
             content = (
@@ -656,30 +616,19 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
             return []
         items = []
         for query_key, urls in data.items():
-            # The tool can return a single list of URLs or a dict mapping queries to lists
-            if isinstance(urls, list):
-                for url in urls:
-                    if isinstance(url, str) and url:
-                        items.append(
-                            {
-                                "url": url,
-                                "content": f"Image result for query: {query_key}",
-                                "title": f"Image: {query_key}",
-                                "description": "",
-                                "tool": tool,
-                            }
-                        )
-            elif isinstance(urls, str) and urls:
-                # Fallback for unexpected direct string
-                items.append(
-                    {
-                        "url": urls,
-                        "content": f"Image result for query: {query_key}",
-                        "title": f"Image: {query_key}",
-                        "description": "",
-                        "tool": tool,
-                    }
-                )
+            if not isinstance(urls, list):
+                continue
+            for url in urls:
+                if isinstance(url, str) and url:
+                    items.append(
+                        {
+                            "url": url,
+                            "content": f"Image result for query: {query_key}",
+                            "title": f"Image: {query_key}",
+                            "description": "",
+                            "tool": tool,
+                        }
+                    )
         return items
 
     # understand_images_tool
@@ -687,24 +636,15 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
         if not isinstance(data, dict):
             return []
         items = []
-        content_map = data.get("content") or {}
-        # The tool might return content directly or wrapped in a 'content' key
-        if not isinstance(content_map, dict):
-            content_map = (
-                data if all(isinstance(v, dict) for v in data.values()) else {}
-            )
-
-        for filename, info in content_map.items():
+        for filename, info in data.get("content", {}).items():
             if not isinstance(info, dict):
                 continue
-            title = info.get("title") or filename
-            desc = info.get("desc") or ""
             items.append(
                 {
-                    "url": info.get("stored_at") or filename,
-                    "content": f"{title}\n{desc}",
-                    "title": title,
-                    "description": desc,
+                    "url": info.get("stored_at", filename),
+                    "content": f"{info.get('title', '')}\n{info.get('desc', '')}",
+                    "title": info.get("title", filename),
+                    "description": info.get("desc", ""),
                     "tool": tool,
                 }
             )
@@ -715,19 +655,7 @@ def parse_tool_output(tool_name: str, output: Any) -> list[dict]:
         if not isinstance(data, dict):
             return []
         items = []
-        content_map = data.get("content") or {}
-        # Fallback if content is the root dict
-        if not isinstance(content_map, dict):
-            content_map = data
-
-        for filename, summary in content_map.items():
-            if filename in (
-                "total_files",
-                "succeed",
-                "total_tokens_used",
-                "total_time_taken",
-            ):
-                continue
+        for filename, summary in data.get("content", {}).items():
             items.append(
                 {
                     "url": filename,
@@ -842,12 +770,13 @@ def summarise_tool_output(tool_name: str, output: Any) -> str:
         if raw_text.lower().startswith("error"):
             return raw_text.splitlines()[0][:280]
 
+    print(
+        f"Debug: summarise_tool_output for tool '{tool_name}' with raw output: {output[:50]}"
+    )
+
     items = parse_tool_output(tool_name, output)
     if not items:
-        # If parsing failed or returned nothing, return the raw data as a string
-        # truncated for display safety.
-        raw_text = str(parsed_raw) if parsed_raw is not None else "No results returned"
-        return raw_text[:500] + ("..." if len(raw_text) > 500 else "")
+        return "No results returned"
 
     tool = _normalize_tool_name(tool_name)
     if tool in ("web_search", "read_webpages", "scrape_single_url"):
