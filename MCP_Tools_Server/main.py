@@ -51,7 +51,7 @@ async def lifespan(app: FastMCP):
 mcp_server = FastMCP(
     name="Deep Researcher v2 Agent MCP Tools",
     host="0.0.0.0",
-    port=8002,
+    port=8001,
     lifespan=lifespan,
 )
 
@@ -158,7 +158,7 @@ async def scrape_single_url(url: str):
 
 
 def main():
-    logger.info("🔥 Starting MCP Tools Server on port 8002")
+    logger.info("🔥 Starting MCP Tools Server on port 8001")
     mcp_server.run(transport="streamable-http")
 
 

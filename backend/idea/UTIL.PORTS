@@ -1,3 +1,6 @@
 8000: BACKEND Server
-8001: Agents
+8001: MCP Server Tools
 6379: REDIS Server
+11434: Ollama
+3000: Application
+5174/5173: App Testings
