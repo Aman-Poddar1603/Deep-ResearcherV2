@@ -58,6 +58,7 @@ class SettingsRecord(BaseModel):
     stream_response: bool = True
     show_citations: bool = True
     thinking_in_chats: bool = True
+    extended_mode: bool = False
     keep_backup: bool = True
     temperory_data_retention: int = Field(default=30, ge=0)
 
@@ -82,6 +83,7 @@ class SettingsPatch(BaseModel):
     stream_response: bool | None = None
     show_citations: bool | None = None
     thinking_in_chats: bool | None = None
+    extended_mode: bool | None = None
     keep_backup: bool | None = None
     temperory_data_retention: int | None = Field(default=None, ge=0)
 

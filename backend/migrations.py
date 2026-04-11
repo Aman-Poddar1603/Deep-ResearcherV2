@@ -533,6 +533,8 @@ def create_research_tables() -> None:
                 "source_content": "TEXT",
                 "source_citations": "TEXT",
                 "source_vector_id": "TEXT",
+                "step_index": "INTEGER DEFAULT -1",
+                "temp_file_path": "TEXT",
                 "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                 "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             },
@@ -546,6 +548,32 @@ def create_research_tables() -> None:
             urgency="critical",
         )
         logger.error("Failed to create research tables: %s", e, stack_info=True)
+
+
+def ensure_research_source_tracking_columns() -> None:
+    """Backfill schema changes for existing research_sources tables."""
+    try:
+        with researches_db_manager._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(research_sources)")
+            columns = {str(row[1]) for row in cur.fetchall()}
+
+            if "step_index" not in columns:
+                cur.execute(
+                    "ALTER TABLE research_sources ADD COLUMN step_index INTEGER DEFAULT -1"
+                )
+            if "temp_file_path" not in columns:
+                cur.execute(
+                    "ALTER TABLE research_sources ADD COLUMN temp_file_path TEXT"
+                )
+
+            conn.commit()
+    except (ValueError, sqlite3.Error, OSError) as e:
+        logger.error(
+            "Failed ensuring research_sources tracking columns: %s",
+            e,
+            stack_info=True,
+        )
 
 
 # FILE MANAGEMENT
@@ -666,6 +694,7 @@ def create_settings_table() -> None:
                 "stream_response": "BOOLEAN DEFAULT TRUE",
                 "show_citations": "BOOLEAN DEFAULT TRUE",
                 "thinking_in_chats": "BOOLEAN DEFAULT TRUE",
+                "extended_mode": "BOOLEAN DEFAULT FALSE",
                 # Data Settings:
                 "keep_backup": "BOOLEAN DEFAULT TRUE",
                 "temperory_data_retention": "INTEGER DEFAULT 30",
@@ -819,6 +848,7 @@ def create_search_tables() -> None:
                 "ai_citations": "TEXT",
                 "total_results": "INTEGER DEFAULT 0",
                 "results": "TEXT NOT NULL",
+                "status": "TEXT DEFAULT 'done'",
                 "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                 "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             },
@@ -986,7 +1016,7 @@ def create_foreign_key_relationships() -> None:
                 {
                     "column": "connected_bucket_id",
                     "references_table": "workspaces",
-                    "references_column": "connected_bucket_id",
+                    "references_column": "id",
                     "on_delete": "SET NULL",
                     "on_update": "NO ACTION",
                 },
@@ -1076,6 +1106,17 @@ def create_foreign_key_relationships() -> None:
         # ──────────────────────────────────────────────────────
         # RESEARCHES DATABASE (researches_db_manager)
         # ──────────────────────────────────────────────────────
+
+        # Normalize legacy empty-string template IDs to NULL before FK rebuild.
+        with researches_db_manager._get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE researches SET research_template_id = NULL WHERE TRIM(COALESCE(research_template_id, '')) = ''"
+            )
+            cur.execute(
+                "UPDATE research_plans SET research_template_id = NULL WHERE TRIM(COALESCE(research_template_id, '')) = ''"
+            )
+            conn.commit()
 
         # researches.research_template_id → research_templates.id
         logger.info("Adding FK: researches → research_templates")
@@ -1221,6 +1262,7 @@ if __name__ == "__main__":
     create_history_tables()
     create_chat_tables()
     create_research_tables()
+    ensure_research_source_tracking_columns()
     create_bucket_tables()
     create_settings_table()
     create_scrapes_database()

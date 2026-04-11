@@ -4,6 +4,7 @@ This module provides the DRLogger class and a singleton instance for logging mes
 into the logs database using the DBManager module.
 """
 
+from typing import Optional
 import datetime
 import sys
 import uuid
@@ -84,12 +85,12 @@ class DRLogger:
             if str(src_dir) not in sys.path:
                 sys.path.append(str(src_dir))
 
-            from store.DBManager import SQLiteManager
-
             store_dir = src_dir / "store"
             db_dir = store_dir / "database"
             db_dir.mkdir(parents=True, exist_ok=True)
             logs_db_path = db_dir / "logs.db.sqlite3"
+
+            from main.src.store.DBManager import SQLiteManager
 
             self.logs_db_manager = SQLiteManager(logs_db_path)
             self._ensure_tables()
@@ -200,3 +201,76 @@ class DRLogger:
 
 # Singleton instance to be exported for usage SDK style
 dr_logger = DRLogger()
+
+def quickLog(
+    message: str,
+    level: Literal["success", "error", "warning", "info"] = "info",
+    urgency: Literal["none", "moderate", "critical"] = "none",
+    module: Optional[
+        Union[str, List[Literal["UTILS", "DB", "AGENTS", "CRAWLER", "AI"]]]
+    ] = None,
+) -> None:
+    """
+    ## Description
+
+    metadata. Ensures all secret-related operations are tracked with appropriate
+    Internal utility function for logging secret management events with structured
+    urgency levels and log sources.
+
+    ## Parameters
+
+    - `level` (`Literal["success", "error", "warning", "info"]`)
+      - Description: Log severity level indicating the nature of the event.
+      - Constraints: Must be one of: "success", "error", "warning", "info".
+      - Example: "error"
+
+    - `message` (`str`)
+      - Description: Human-readable description of the secret event.
+      - Constraints: Must be non-empty. Should not contain sensitive data (API keys, tokens).
+      - Example: ".env file not found at /path/to/.env"
+
+    - `urgency` (`Literal["none", "moderate", "critical"]`, optional)
+      - Description: Priority indicator for the logged event.
+      - Constraints: Must be one of: "none", "moderate", "critical".
+      - Default: "none"
+      - Example: "critical"
+
+    ## Returns
+
+    `None`
+
+    ## Side Effects
+
+    - Writes log entry to the DRLogger system.
+    - Includes application version in all log entries.
+    - Tags all events with "SECRETS_MANAGEMENT" for filtering.
+
+    ## Debug Notes
+
+    - Ensure messages do NOT contain sensitive information (API keys, tokens).
+    - Use appropriate urgency levels: "critical" for missing keys, "moderate" for fallbacks.
+    - Check logger output in application logs directory.
+
+    ## Customization
+
+    To change log source or tags globally, modify the module-level constants:
+    - `LOG_SOURCE`: Change from "system" to custom value
+    """
+    # 1. Handle the Optional/Default logic
+    # 2. Force the type to List[str] to satisfy the invariant 'log' parameter
+    if module is None:
+        target_module: Union[str, List[str]] = ["UTILS"]
+    elif isinstance(module, list):
+        # We cast or explicitly type to widen from Literal back to base str
+        target_module = list(module)
+    else:
+        target_module = module
+
+    dr_logger.log(
+        log_type=level,
+        message=message,
+        origin="system",
+        urgency=urgency,
+        module=target_module,
+        app_version="1.0.0",
+    )

@@ -57,6 +57,11 @@ from research.layer2.tools import (
     parse_tool_output,
     summarise_tool_output,
 )
+from research.layer2.temp_files import (
+    ensure_temp_research_dir,
+    append_step_findings,
+    step_findings_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,19 +113,60 @@ def _build_system_message(
     )
 
 
-def _compact_tool_payload(parsed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _compact_tool_payload(
+    parsed: list[dict[str, Any]],
+    extended_mode: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    ## Description
+
+    Compact parsed tool output for WS event payloads.
+    In normal mode, limits items and truncates fields.
+    In extended mode, passes everything through without truncation.
+
+    ## Parameters
+
+    - `parsed` (`list[dict[str, Any]]`)
+      - Description: Parsed source dicts from `parse_tool_output`.
+      - Constraints: Each dict should have tool/url/title/description/content keys.
+
+    - `extended_mode` (`bool`)
+      - Description: When True, removes all item caps and content truncation.
+      - Constraints: Must be a boolean.
+      - Example: True
+
+    ## Returns
+
+    `list[dict[str, Any]]`
+
+    Structure:
+
+    ```json
+    [{"tool": "str", "url": "str", "title": "str", "description": "str", "content": "str"}]
+    ```
+    """
+    items_to_process = parsed if extended_mode else parsed[:8]
     compact: list[dict[str, Any]] = []
-    for item in parsed[:8]:
+    for item in items_to_process:
         if not isinstance(item, dict):
             continue
 
-        compact_item = {
-            "tool": str(item.get("tool", ""))[:120],
-            "url": str(item.get("url", ""))[:700],
-            "title": str(item.get("title", ""))[:300],
-            "description": str(item.get("description", ""))[:1200],
-            "content": str(item.get("content", ""))[:2000],
-        }
+        if extended_mode:
+            compact_item = {
+                "tool": str(item.get("tool", "")),
+                "url": str(item.get("url", "")),
+                "title": str(item.get("title", "")),
+                "description": str(item.get("description", "")),
+                "content": str(item.get("content", "")),
+            }
+        else:
+            compact_item = {
+                "tool": str(item.get("tool", ""))[:120],
+                "url": str(item.get("url", ""))[:700],
+                "title": str(item.get("title", ""))[:300],
+                "description": str(item.get("description", ""))[:1200],
+                "content": str(item.get("content", ""))[:2000],
+            }
         compact.append(compact_item)
     return compact
 
@@ -136,6 +182,8 @@ async def run_orchestrator1(
     """
     research_id = context.research_id
     total_steps = len(context.plan)
+    temp_dir = ensure_temp_research_dir(research_id, context.temp_dir)
+    context.temp_dir = temp_dir
 
     # ── LangGraph checkpointer (Redis) ────────────────────────────────────────
     redis_conn = await get_redis()
@@ -206,13 +254,33 @@ async def run_orchestrator1(
                 emitter=emitter,
                 tracker=current_tracker,
                 research_id=research_id,
+                extended_mode=context.extended_mode,
             )
+
+            try:
+                append_step_findings(
+                    temp_dir=temp_dir,
+                    step_index=step_idx,
+                    sources=step_sources,
+                    extended_mode=context.extended_mode,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[orc1] Failed writing step findings markdown for step %s: %s",
+                    step_idx,
+                    exc,
+                )
 
             gathered_sources.extend(step_sources)
 
             # Persist sources via BG worker
             await _persist_step_sources(
-                research_id, context.workspace_id, step_idx, step_sources
+                research_id,
+                context.workspace_id,
+                step_idx,
+                step_sources,
+                temp_dir,
+                extended_mode=context.extended_mode,
             )
 
             summary = (
@@ -271,6 +339,7 @@ async def _run_step(
     emitter: WSEmitter,
     tracker: TokenTracker,
     research_id: str,
+    extended_mode: bool = False,
 ) -> list[dict]:
     """Run a single ReAct step. Returns list of source dicts collected."""
     system_msg = _build_system_message(
@@ -379,7 +448,7 @@ async def _run_step(
                     tool_name=tool_name,
                     result_summary=summary,
                     step_index=step.step_index,
-                    result_payload=_compact_tool_payload(parsed),
+                    result_payload=_compact_tool_payload(parsed, extended_mode=extended_mode),
                 )
             )
             # await emitter.emit(
@@ -587,10 +656,53 @@ async def _persist_step_sources(
     workspace_id: str,
     step_index: int,
     sources: list[dict],
+    temp_dir: str,
+    extended_mode: bool = False,
 ) -> None:
-    """Offload all source persistence to BG workers. Sources are already normalised dicts."""
+    """
+    ## Description
+
+    Offload all source persistence to BG workers.
+    Sources are already normalised dicts.
+    In extended mode, stores full content without truncation.
+
+    ## Parameters
+
+    - `research_id` (`str`)
+      - Description: Unique research session identifier.
+      - Constraints: Must be non-empty.
+
+    - `workspace_id` (`str`)
+      - Description: Workspace identifier.
+      - Constraints: Must be non-empty.
+
+    - `step_index` (`int`)
+      - Description: Current plan step index.
+      - Constraints: Must be >= 0.
+
+    - `sources` (`list[dict]`)
+      - Description: Normalised source dicts from tool parsing.
+      - Constraints: Each dict should have tool/url/content keys.
+
+    - `temp_dir` (`str`)
+      - Description: Path to temp research directory.
+      - Constraints: Must be a valid directory path.
+
+    - `extended_mode` (`bool`)
+      - Description: When True, stores full content without the 4000 char limit.
+      - Constraints: Must be a boolean.
+
+    ## Returns
+
+    `None`
+
+    ## Side Effects
+
+    - Schedules background tasks to insert rows into research_sources table.
+    """
     from main.src.utils.core.task_schedular import scheduler
-    from main.src.store.DBManager import researches_db_manager
+
+    step_file_path = step_findings_path(temp_dir, step_index)
 
     for source in sources:
         tool = source.get("tool", "")
@@ -599,18 +711,67 @@ async def _persist_step_sources(
         if not content and not url:
             continue
 
+        persisted_content = content if extended_mode else content[:4000]
+
         await scheduler.schedule(
-            researches_db_manager.insert,
+            _insert_research_source_row,
             params={
-                "table_name": "research_sources",
-                "data": {
-                    "id": str(uuid.uuid4()),
-                    "research_id": research_id,
-                    "source_type": tool,
-                    "source_url": url,
-                    "source_content": content[:4000],
-                    "source_citations": "",
-                    "source_vector_id": "",
-                },
+                "research_id": research_id,
+                "source_type": tool,
+                "source_url": url,
+                "source_content": persisted_content,
+                "step_index": step_index,
+                "step_file_path": step_file_path,
             },
         )
+
+
+def _insert_research_source_row(
+    research_id: str,
+    source_type: str,
+    source_url: str,
+    source_content: str,
+    step_index: int,
+    step_file_path: str,
+) -> None:
+    """Insert source row with graceful fallback for older DB schemas."""
+    from main.src.store.DBManager import researches_db_manager
+
+    full_data = {
+        "id": str(uuid.uuid4()),
+        "research_id": research_id,
+        "source_type": source_type,
+        "source_url": source_url,
+        "source_content": source_content,
+        "source_citations": "",
+        "source_vector_id": "",
+        "step_index": step_index,
+        "temp_file_path": step_file_path,
+    }
+
+    result = researches_db_manager.insert("research_sources", full_data)
+    if result.get("success"):
+        return
+
+    # Older DBs may not yet have tracking columns; retry without them.
+    message = str(result.get("message", ""))
+    if "no column named" in message and (
+        "step_index" in message or "temp_file_path" in message
+    ):
+        legacy_data = {
+            "id": full_data["id"],
+            "research_id": research_id,
+            "source_type": source_type,
+            "source_url": source_url,
+            "source_content": source_content,
+            "source_citations": "",
+            "source_vector_id": "",
+        }
+        legacy_result = researches_db_manager.insert("research_sources", legacy_data)
+        if legacy_result.get("success"):
+            logger.warning(
+                "[orc1] Inserted research source without tracking columns (legacy schema)."
+            )
+            return
+
+    logger.warning("[orc1] Failed to persist research source: %s", message)

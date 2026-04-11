@@ -1475,6 +1475,487 @@ class SQLiteManager:
             )
             return {"success": False, "message": str(e), "data": None}
 
+    # ── FTS5 Full-Text Search ──────────────────────────────────────────────
+
+    def create_fts5_table(
+        self,
+        fts_table_name: str,
+        columns: List[str],
+        content_table: str = "",
+        content_rowid: str = "",
+        tokenize: str = "unicode61",
+    ) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Creates an FTS5 virtual table for blazing-fast full-text search.
+        Can be standalone or a content-synced shadow of an existing table.
+
+        ## Parameters
+
+        - `fts_table_name` (`str`)
+          - Description: Name for the FTS5 virtual table.
+          - Constraints: Must pass identifier validation.
+          - Example: `"searches_fts"`
+
+        - `columns` (`list[str]`)
+          - Description: Column names to index for full-text search.
+          - Constraints: Each must pass identifier validation. At least one required.
+          - Example: `["query", "ai_summary", "results"]`
+
+        - `content_table` (`str`)
+          - Description: If set, creates a content-synced FTS table backed by this source table.
+          - Constraints: Must pass identifier validation if non-empty.
+          - Example: `"searches"`
+
+        - `content_rowid` (`str`)
+          - Description: The rowid column of the content table. Required when `content_table` is set.
+          - Constraints: Must pass identifier validation if non-empty.
+          - Example: `"rowid"`
+
+        - `tokenize` (`str`)
+          - Description: FTS5 tokenizer to use.
+          - Constraints: Must be a valid FTS5 tokenizer string.
+          - Example: `"unicode61"` or `"porter unicode61"`
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "FTS5 table 'searches_fts' created",
+            "data": null
+        }
+        ```
+
+        ## Raises
+
+        - `ValueError`
+          - When identifiers fail validation or columns list is empty.
+
+        ## Side Effects
+
+        - Creates an FTS5 virtual table in the database.
+
+        ## Debug Notes
+
+        - FTS5 must be compiled into the SQLite build. Most modern builds include it.
+        - Content-synced tables require manual rebuild after source table mutations.
+        """
+        if not columns:
+            return {
+                "success": False,
+                "message": "At least one column is required for FTS5 table",
+                "data": None,
+            }
+
+        try:
+            valid_fts = self._validate_identifier(fts_table_name)
+            valid_cols = [self._validate_identifier(c) for c in columns]
+
+            parts = list(valid_cols)
+            if content_table:
+                valid_ct = self._validate_identifier(content_table)
+                parts.append(f"content='{valid_ct}'")
+                if content_rowid:
+                    valid_cr = self._validate_identifier(content_rowid)
+                    parts.append(f"content_rowid='{valid_cr}'")
+            parts.append(f"tokenize='{tokenize}'")
+
+            cols_spec = ", ".join(parts)
+            query = (
+                f"CREATE VIRTUAL TABLE IF NOT EXISTS "
+                f"{valid_fts} USING fts5({cols_spec})"
+            )
+
+            with self._get_connection() as conn:
+                conn.execute(query)
+                conn.commit()
+
+            _log_db_event(
+                f"FTS5 table '{valid_fts}' created.", "info", urgency="none"
+            )
+            return {
+                "success": True,
+                "message": f"FTS5 table '{valid_fts}' created",
+                "data": None,
+            }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error creating FTS5 table {fts_table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def rebuild_fts5(self, fts_table_name: str) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Rebuilds (re-indexes) an existing FTS5 virtual table.
+        Call this after bulk inserts or when using content-synced FTS tables.
+
+        ## Parameters
+
+        - `fts_table_name` (`str`)
+          - Description: Name of the FTS5 virtual table to rebuild.
+          - Constraints: Must pass identifier validation.
+          - Example: `"searches_fts"`
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "FTS5 table 'searches_fts' rebuilt",
+            "data": null
+        }
+        ```
+
+        ## Side Effects
+
+        - Completely rebuilds the FTS5 index from the content table.
+        - May take time on large datasets.
+        """
+        try:
+            valid_fts = self._validate_identifier(fts_table_name)
+            with self._get_connection() as conn:
+                conn.execute(
+                    f"INSERT INTO {valid_fts}({valid_fts}) VALUES('rebuild')"
+                )
+                conn.commit()
+
+            return {
+                "success": True,
+                "message": f"FTS5 table '{valid_fts}' rebuilt",
+                "data": None,
+            }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error rebuilding FTS5 table {fts_table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def fts5_search(
+        self,
+        fts_table_name: str,
+        query: str,
+        columns: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Performs a blazing-fast full-text search using FTS5 MATCH with BM25
+        ranking. Results are returned ordered by relevance (most relevant first).
+
+        ## Parameters
+
+        - `fts_table_name` (`str`)
+          - Description: Name of the FTS5 virtual table to search.
+          - Constraints: Must pass identifier validation.
+          - Example: `"searches_fts"`
+
+        - `query` (`str`)
+          - Description: The search query string. Supports FTS5 syntax:
+            prefix matching (`term*`), boolean operators (`AND`, `OR`, `NOT`),
+            phrase matching (`"exact phrase"`), column filters (`col:term`).
+          - Constraints: Must be non-empty.
+          - Example: `"deep learning"` or `"AI AND healthcare"` or `"neural*"`
+
+        - `columns` (`Optional[list[str]]`)
+          - Description: Specific columns to return. If None, returns all columns.
+          - Constraints: Each must pass identifier validation.
+          - Example: `["query", "ai_summary"]`
+
+        - `limit` (`int`)
+          - Description: Maximum number of results to return.
+          - Constraints: Must be >= 1.
+          - Example: `10`
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "Found 3 result(s)",
+            "data": [
+                {
+                    "query": "...",
+                    "ai_summary": "...",
+                    "rank": -1.234
+                }
+            ]
+        }
+        ```
+
+        ## Debug Notes
+
+        - BM25 rank values are negative; lower (more negative) = more relevant.
+          Results are sorted ascending so the most relevant comes first.
+        - Empty query string triggers a ValueError.
+        - If the FTS5 table does not exist, returns an error.
+        """
+        if not query or not query.strip():
+            return {
+                "success": False,
+                "message": "Search query must be non-empty",
+                "data": None,
+            }
+
+        try:
+            valid_fts = self._validate_identifier(fts_table_name)
+            limit = max(1, int(limit))
+
+            if columns:
+                valid_cols = [self._validate_identifier(c) for c in columns]
+                select_expr = ", ".join(valid_cols)
+            else:
+                select_expr = "*"
+
+            sql = (
+                f"SELECT {select_expr}, bm25({valid_fts}) AS rank "
+                f"FROM {valid_fts} "
+                f"WHERE {valid_fts} MATCH ? "
+                f"ORDER BY rank "
+                f"LIMIT ?"
+            )
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, (query.strip(), limit))
+                rows = cursor.fetchall()
+                data_list = [dict(row) for row in rows]
+
+            return {
+                "success": True,
+                "message": f"Found {len(data_list)} result(s)",
+                "data": data_list,
+            }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error in FTS5 search on {fts_table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    # ── Generic LIKE Search with Pagination ────────────────────────────
+
+    def search(
+        self,
+        table_name: str,
+        query: str,
+        num_results: int = 10,
+        page: int = 1,
+        search_columns: Optional[List[str]] = None,
+        return_columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        ## Description
+
+        Performs a paginated text search across specified columns using
+        SQL LIKE with wildcard matching. Returns results ranked by match
+        quality: exact matches first, then starts-with, then contains.
+
+        ## Parameters
+
+        - `table_name` (`str`)
+          - Description: The table to search in.
+          - Constraints: Must pass identifier validation.
+          - Example: `"workspaces"`
+
+        - `query` (`str`)
+          - Description: The raw search query string from the user.
+          - Constraints: Must be non-empty.
+          - Example: `"deep learning"`
+
+        - `num_results` (`int`)
+          - Description: Maximum number of results per page.
+          - Constraints: Must be >= 1. Defaults to 10.
+          - Example: `10`
+
+        - `page` (`int`)
+          - Description: 1-based page number for pagination.
+          - Constraints: Must be >= 1. Defaults to 1.
+          - Example: `3`
+
+        - `search_columns` (`Optional[list[str]]`)
+          - Description: Columns to search IN via LIKE. If None, searches
+            all TEXT columns in the table.
+          - Constraints: Each must pass identifier validation.
+          - Example: `["name", "desc"]`
+
+        - `return_columns` (`Optional[list[str]]`)
+          - Description: Columns to return in results. If None, returns all.
+          - Constraints: Each must pass identifier validation.
+          - Example: `["id", "name", "desc"]`
+
+        ## Returns
+
+        `dict`
+
+        Structure:
+
+        ```json
+        {
+            "success": true,
+            "message": "Found 42 result(s)",
+            "data": {
+                "total_count": 42,
+                "page": 1,
+                "num_results": 10,
+                "items": [
+                    {"id": "...", "name": "..."}
+                ]
+            }
+        }
+        ```
+
+        ## Raises
+
+        - `ValueError`
+          - When identifiers fail validation or query is empty.
+
+        ## Side Effects
+
+        - Performs read-only queries against the database.
+
+        ## Debug Notes
+
+        - Uses `LOWER()` for case-insensitive matching.
+        - Results are ordered: exact match → starts-with → contains.
+        - Empty query returns an error, not all rows.
+        """
+        if not query or not query.strip():
+            return {
+                "success": False,
+                "message": "Search query must be non-empty",
+                "data": None,
+            }
+
+        try:
+            valid_table = self._validate_identifier(table_name)
+            page = max(1, int(page))
+            num_results = max(1, int(num_results))
+            offset = (page - 1) * num_results
+            safe_query = query.strip()
+            lower_query = safe_query.lower()
+
+            # Determine columns to search
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                if search_columns:
+                    valid_search_cols = [
+                        self._validate_identifier(c) for c in search_columns
+                    ]
+                else:
+                    cursor.execute(f"PRAGMA table_info({valid_table})")
+                    cols_info = cursor.fetchall()
+                    valid_search_cols = [
+                        col["name"]
+                        for col in cols_info
+                        if col["type"].upper() in ("TEXT", "VARCHAR(255)", "")
+                    ]
+
+                if not valid_search_cols:
+                    return {
+                        "success": False,
+                        "message": "No searchable TEXT columns found",
+                        "data": None,
+                    }
+
+                # Build SELECT columns
+                if return_columns:
+                    valid_ret_cols = [
+                        self._validate_identifier(c) for c in return_columns
+                    ]
+                    select_expr = ", ".join(valid_ret_cols)
+                else:
+                    select_expr = "*"
+
+                # Build WHERE clause: col1 LIKE ? OR col2 LIKE ? ...
+                like_conditions = [
+                    f"LOWER({col}) LIKE ?" for col in valid_search_cols
+                ]
+                where_clause = " OR ".join(like_conditions)
+                like_param = f"%{lower_query}%"
+                params: list = [like_param] * len(valid_search_cols)
+
+                # Build ORDER BY for relevance ranking:
+                # Priority 1: exact match in any column
+                # Priority 2: starts-with in any column
+                # Priority 3: contains (default)
+                exact_cases = [
+                    f"LOWER({col}) = ?" for col in valid_search_cols
+                ]
+                starts_cases = [
+                    f"LOWER({col}) LIKE ?" for col in valid_search_cols
+                ]
+                order_expr = (
+                    f"CASE WHEN {' OR '.join(exact_cases)} THEN 0 "
+                    f"WHEN {' OR '.join(starts_cases)} THEN 1 "
+                    f"ELSE 2 END"
+                )
+                order_params = (
+                    [lower_query] * len(valid_search_cols)
+                    + [f"{lower_query}%"] * len(valid_search_cols)
+                )
+
+                # Count total matches
+                count_sql = (
+                    f"SELECT COUNT(*) as cnt FROM {valid_table} "
+                    f"WHERE {where_clause}"
+                )
+                cursor.execute(count_sql, params)
+                total_count = cursor.fetchone()["cnt"]
+
+                # Fetch paginated results
+                data_sql = (
+                    f"SELECT {select_expr} FROM {valid_table} "
+                    f"WHERE {where_clause} "
+                    f"ORDER BY {order_expr} "
+                    f"LIMIT ? OFFSET ?"
+                )
+                all_params = params + order_params + [num_results, offset]
+                cursor.execute(data_sql, all_params)
+                rows = cursor.fetchall()
+                items = [dict(row) for row in rows]
+
+            return {
+                "success": True,
+                "message": f"Found {total_count} result(s)",
+                "data": {
+                    "total_count": total_count,
+                    "page": page,
+                    "num_results": num_results,
+                    "items": items,
+                },
+            }
+
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error searching {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
 
 def _initialize_store():
     """

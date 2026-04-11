@@ -28,6 +28,7 @@ from research.models import (
     SystemReconnectedEvent,
     SystemErrorEvent,
     SystemConnectedEvent,
+    SystemProgressEvent,
 )
 from research.session import (
     get_latest_event_id,
@@ -262,6 +263,13 @@ async def _run_pipeline(
         )
 
         await update_session_status(research_id, "completed")
+        await emitter.emit(
+            SystemProgressEvent(
+                research_id=research_id,
+                message="Research complete. Final artifact is ready.",
+                percent=100,
+            )
+        )
         logger.info("[pipeline] Research %s completed successfully", research_id)
 
     except asyncio.CancelledError:

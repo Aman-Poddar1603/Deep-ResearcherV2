@@ -35,6 +35,7 @@ class ResearchSettings(BaseSettings):
     # Storage Configuration
     CHROMA_PATH: str = "./main/src/store/vector/chroma"
     REDIS_URL: str = "redis://localhost:6379"
+    TEMP_RESEARCH_BASE_DIR: str = ".temp"
 
     # Research Loop Configuration
     MAX_QA_ROUNDS: int = 7
@@ -42,6 +43,8 @@ class ResearchSettings(BaseSettings):
     CHUNK_SIZE: int = 800
     CHUNK_OVERLAP: int = 120
     RAG_TOP_K: int = 6
+    SYNTHESIS_UPDATE_INTERVAL: int = 5
+    SYNTHESIS_PREVIEW_CHARS: int = 320
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

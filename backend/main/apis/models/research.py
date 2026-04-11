@@ -323,6 +323,7 @@ class ResearchStartRequest(BaseModel):
     research_template: str = ""
     ai_personality: str = "professional research analyst"
     username: str
+    extended_mode: bool = False
 
 
 class ResearchStartResponse(BaseModel):

@@ -58,7 +58,7 @@ from typing import (
 import json
 from pathlib import Path
 from main.src.utils.version_constants import get_raw_version
-from main.src.llms.prompts.getSchema import (
+from main.src.utils.llms.prompts.getSchema import (
     getImageUnderstandingSchema,
     getOllamaImageUnderstandingSchema,
 )

@@ -18,6 +18,7 @@ class ResearchStartRequest(BaseModel):
     research_template: str = ""
     ai_personality: str = "professional research analyst"
     username: str
+    extended_mode: bool = False
 
 
 # ─── Plan ─────────────────────────────────────────────────────────────────────
@@ -82,6 +83,8 @@ class ResearchContext(BaseModel):
     research_template: str = ""
     ai_personality: str = "professional research analyst"
     username: str
+    temp_dir: str = ""
+    extended_mode: bool = False
 
 
 # ─── Token tracking ───────────────────────────────────────────────────────────
@@ -268,3 +271,17 @@ class ReactObserveEvent(WSEvent):
     event: str = "react.observe"
     step_index: int
     observation_summary: str
+
+
+class SynthesisAnalysisStartedEvent(WSEvent):
+    event: str = "synthesis.analysis_started"
+    total_sources: int
+    message: str = "Analyzing gathered sources and creating context..."
+
+
+class SynthesisAnalysisProgressEvent(WSEvent):
+    event: str = "synthesis.analysis_progress"
+    sources_analyzed: int
+    total_sources: int
+    percent: int
+    synthesis_preview: str = ""

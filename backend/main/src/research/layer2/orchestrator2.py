@@ -24,6 +24,8 @@ from research.emitter import WSEmitter
 from research.models import (
     ResearchContext,
     SystemProgressEvent,
+    SynthesisAnalysisStartedEvent,
+    SynthesisAnalysisProgressEvent,
 )
 from research.session import (
     update_session_status,
@@ -38,6 +40,14 @@ from research.layer2.tools import (
 from research.layer2.rag import (
     retrieve_for_coverage_check,
     chunk_and_index,
+)
+from research.layer2.temp_files import (
+    ensure_temp_research_dir,
+    init_synthesis_file,
+    append_synthesis_entry,
+    read_synthesis_md,
+    write_citations_md,
+    read_citations_md,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,6 +99,53 @@ async def run_orchestrator2(
     unique_sources = _dedup_sources(gathered_sources)
     logger.info("[orc2] Unique sources after dedup: %d", len(unique_sources))
 
+    temp_dir = ensure_temp_research_dir(research_id, context.temp_dir)
+    context.temp_dir = temp_dir
+
+    total_sources = len(unique_sources)
+    await emitter.emit(
+        SynthesisAnalysisStartedEvent(
+            research_id=research_id,
+            total_sources=total_sources,
+        )
+    )
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Analyzing gathered sources and creating context...",
+            percent=87,
+        )
+    )
+
+    init_synthesis_file(temp_dir=temp_dir, total_sources=total_sources)
+    if total_sources > 0:
+        for idx, source in enumerate(unique_sources, start=1):
+            append_synthesis_entry(
+                temp_dir=temp_dir,
+                source=source,
+                analyzed_count=idx,
+                total_sources=total_sources,
+                extended_mode=context.extended_mode,
+            )
+
+            should_emit_progress = (
+                idx % max(1, settings.SYNTHESIS_UPDATE_INTERVAL) == 0
+                or idx == total_sources
+            )
+            if should_emit_progress:
+                progress_pct = 87 + int((idx / total_sources) * 3)
+                await emitter.emit(
+                    SynthesisAnalysisProgressEvent(
+                        research_id=research_id,
+                        sources_analyzed=idx,
+                        total_sources=total_sources,
+                        percent=min(progress_pct, 90),
+                        synthesis_preview=read_synthesis_md(temp_dir)[
+                            -settings.SYNTHESIS_PREVIEW_CHARS :
+                        ],
+                    )
+                )
+
     # ── Index to ChromaDB via BG worker ───────────────────────────────────────
     await _schedule_chroma_indexing(research_id, unique_sources)
 
@@ -139,14 +196,19 @@ async def run_orchestrator2(
     plan_steps_str = "\n".join(
         f"- Step {s.step_index + 1}: {s.step_title}" for s in context.plan
     )
-    knowledge_summary = _build_knowledge_summary(unique_sources)
+    knowledge_summary = _build_knowledge_summary(
+        unique_sources, extended_mode=context.extended_mode
+    )
 
     system_msg = _SYNTHESIZER_SYSTEM.format(
         username=context.username,
         ai_personality=context.ai_personality,
         cleaned_prompt=context.cleaned_prompt,
         plan_steps=plan_steps_str,
-        knowledge_summary=knowledge_summary[:6000],
+        knowledge_summary=(
+            knowledge_summary if context.extended_mode
+            else knowledge_summary[:6000]
+        ),
     )
 
     inputs = {
@@ -194,6 +256,9 @@ async def run_orchestrator2(
 
     # ── Build cited sources ───────────────────────────────────────────────────
     cited_sources = _build_citations(unique_sources)
+    write_citations_md(temp_dir=temp_dir, citations=cited_sources)
+    synthesis_md = read_synthesis_md(temp_dir)
+    citations_md = read_citations_md(temp_dir)
 
     await emitter.emit(
         SystemProgressEvent(
@@ -214,10 +279,14 @@ async def run_orchestrator2(
         "research_template": context.research_template,
         "cleaned_prompt": context.cleaned_prompt,
         "cited_sources": cited_sources,
+        "synthesis_md": synthesis_md,
+        "citations_md": citations_md,
+        "temp_dir": temp_dir,
         "knowledge_summary": synthesis_text or knowledge_summary,
         "coverage_notes": "\n".join(coverage_notes),
         "title": context.title,
         "description": context.description,
+        "extended_mode": context.extended_mode,
     }
 
 
@@ -244,15 +313,43 @@ def _dedup_sources(sources: list[dict]) -> list[dict]:
     return unique
 
 
-def _build_knowledge_summary(sources: list[dict]) -> str:
+def _build_knowledge_summary(
+    sources: list[dict],
+    extended_mode: bool = False,
+) -> str:
+    """
+    ## Description
+
+    Build a textual knowledge summary from gathered sources.
+    In normal mode, limits to 30 sources and 400 chars per content snippet.
+    In extended mode, includes all sources with full content.
+
+    ## Parameters
+
+    - `sources` (`list[dict]`)
+      - Description: Deduplicated source dicts.
+      - Constraints: Each dict should have tool/title/content/description/url keys.
+
+    - `extended_mode` (`bool`)
+      - Description: When True, removes all source count and content length limits.
+      - Constraints: Must be a boolean.
+
+    ## Returns
+
+    `str` — Concatenated knowledge summary text.
+    """
     parts = []
-    for i, s in enumerate(sources[:30]):
+    source_list = sources if extended_mode else sources[:30]
+    for i, s in enumerate(source_list):
         tool = s.get("tool", "")
         if tool in ("agent_summary",):
             continue
         title = s.get("title", "")
         content = s.get("content", "")
-        snippet = content[:400] if content else s.get("description", "")[:400]
+        if extended_mode:
+            snippet = content if content else s.get("description", "")
+        else:
+            snippet = content[:400] if content else s.get("description", "")[:400]
         if snippet:
             label = title or s.get("url", f"source {i+1}")
             parts.append(f"[Source {i+1}] {label}\n{snippet}")

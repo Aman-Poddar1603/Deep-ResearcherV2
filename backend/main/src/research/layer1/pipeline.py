@@ -235,33 +235,42 @@ async def run_layer1(
         research_template=request.research_template,
         ai_personality=request.ai_personality,
         username=request.username,
+        extended_mode=request.extended_mode,
     )
 
     # Save to Redis as reconnect restore point
     await save_context(research_id, context.model_dump())
     await save_plan(research_id, [s.model_dump() for s in approved_plan.steps])
 
-    # Save plan + research record to DB via BG worker
+    # Save parent records synchronously to avoid FK race with research_sources inserts.
     from main.src.utils.core.task_schedular import scheduler
     from main.src.store.DBManager import researches_db_manager
 
-    await scheduler.schedule(
-        researches_db_manager.insert,
-        params={
-            "table_name": "researches",
-            "data": {
-                "id": research_id,
-                "title": cleaned.title,
-                "desc": cleaned.description,
-                "prompt": cleaned.cleaned_prompt,
-                "sources": ",".join(request.sources),
-                "workspace_id": request.workspace_id,
-                "research_template_id": "",
-                "custom_instructions": request.custom_prompt,
-                "prompt_order": "",
-            },
+    research_row = researches_db_manager.insert(
+        table_name="researches",
+        data={
+            "id": research_id,
+            "title": cleaned.title,
+            "desc": cleaned.description,
+            "prompt": cleaned.cleaned_prompt,
+            "sources": ",".join(request.sources),
+            "workspace_id": request.workspace_id,
+            "research_template_id": None,
+            "custom_instructions": request.custom_prompt,
+            "prompt_order": "",
         },
     )
+    if not research_row.get("success"):
+        await emitter.emit(
+            SystemErrorEvent(
+                research_id=research_id,
+                message=f"Failed to persist research row: {research_row.get('message', 'unknown error')}",
+                recoverable=False,
+            )
+        )
+        await update_session_status(research_id, "error")
+        return None
+
     await scheduler.schedule(
         researches_db_manager.insert,
         params={
@@ -270,7 +279,7 @@ async def run_layer1(
                 "id": str(uuid.uuid4()),
                 "plan": str([s.model_dump() for s in approved_plan.steps]),
                 "workspace_id": request.workspace_id,
-                "research_template_id": "",
+                "research_template_id": None,
                 "prompt_order": "",
             },
         },

@@ -44,20 +44,74 @@ that isn't supported by the gathered research.
 
 Research topic: {cleaned_prompt}
 
+Synthesis document:
+{synthesis_md}
+
 Gathered research knowledge:
 {knowledge_summary}
 
 Source list for citations:
 {cited_sources}
 
+Citations document:
+{citations_md}
+
 Write the complete research artifact now."""
 
 
 def _build_artifact_prompt_values(artifact_context: dict) -> dict:
-    citations_text = "\n".join(
+    """
+    ## Description
+
+    Assemble prompt template values for artifact generation.
+    In normal mode, truncates large text fields to 12000 chars.
+    In extended mode, passes full text without truncation.
+
+    ## Parameters
+
+    - `artifact_context` (`dict`)
+      - Description: Context dict returned by orchestrator2 with all synthesis data.
+      - Constraints: Must contain keys like synthesis_md, knowledge_summary, cited_sources, etc.
+
+    ## Returns
+
+    `dict`
+
+    Structure:
+
+    ```json
+    {
+        "system_prompt": "str",
+        "ai_personality": "str",
+        "username": "str",
+        "custom_prompt": "str",
+        "research_template": "str",
+        "cleaned_prompt": "str",
+        "synthesis_md": "str",
+        "knowledge_summary": "str",
+        "cited_sources": "str",
+        "citations_md": "str"
+    }
+    ```
+    """
+    extended_mode = artifact_context.get("extended_mode", False)
+    citations_md = (artifact_context.get("citations_md") or "").strip()
+    citations_text = citations_md or "\n".join(
         f"[Source {c['index']}] {c['title']} — {c['url']}"
         for c in artifact_context.get("cited_sources", [])
     )
+    synthesis_md = (artifact_context.get("synthesis_md") or "").strip()
+    knowledge_summary = artifact_context.get("knowledge_summary", "")
+
+    if extended_mode:
+        trimmed_synthesis = synthesis_md
+        trimmed_knowledge = knowledge_summary
+        trimmed_citations = citations_md
+    else:
+        trimmed_synthesis = synthesis_md[:12000]
+        trimmed_knowledge = knowledge_summary[:12000]
+        trimmed_citations = citations_md[:12000]
+
     return {
         "system_prompt": artifact_context.get("system_prompt")
         or "You are a professional research assistant.",
@@ -69,8 +123,10 @@ def _build_artifact_prompt_values(artifact_context: dict) -> dict:
         "research_template": artifact_context.get("research_template")
         or "Use well-structured headings and sections.",
         "cleaned_prompt": artifact_context.get("cleaned_prompt", ""),
-        "knowledge_summary": artifact_context.get("knowledge_summary", "")[:12000],
+        "synthesis_md": trimmed_synthesis,
+        "knowledge_summary": trimmed_knowledge,
         "cited_sources": citations_text or "No external sources.",
+        "citations_md": trimmed_citations,
     }
 
 
@@ -125,25 +181,25 @@ async def run_artifact_generation(
                 )
             )
 
+    await emitter.emit(
+        SystemProgressEvent(
+            research_id=research_id,
+            message="Finalizing and saving artifact...",
+            percent=99,
+        )
+    )
+
+    # Persist via BG worker
+    await _persist_artifact(research_id, workspace_id, artifact_context, full_artifact)
+
     # Approximate token count from artifact length
     artifact_token_estimate = len(full_artifact.split())
-
     await emitter.emit(
         ArtifactDoneEvent(
             research_id=research_id,
             total_tokens_in_artifact=artifact_token_estimate,
         )
     )
-    await emitter.emit(
-        SystemProgressEvent(
-            research_id=research_id,
-            message="Artifact complete.",
-            percent=100,
-        )
-    )
-
-    # Persist via BG worker
-    await _persist_artifact(research_id, workspace_id, artifact_context, full_artifact)
 
     return full_artifact
 
