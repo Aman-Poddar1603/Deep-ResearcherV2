@@ -25,7 +25,7 @@ class ResearchSettings(BaseSettings):
     GEMINI_EMBED_MODEL: str = "models/text-embedding-004"
 
     # MCP Configuration
-    MCP_SERVER_URL: str = "http://localhost:8002/mcp"
+    MCP_SERVER_URL: str = "http://localhost:8001/mcp"
     MCP_TRANSPORT: str = "http"
     MCP_TIMEOUT_SECONDS: int = 86400
     MCP_SERVER_COMMAND: str = ""

@@ -6,7 +6,8 @@ from .external_services import ExternalServices
 from .planner import ResearchPlanner
 from .artifact_generator import ArtifactGenerator
 from .question_asker import QuestionAsker
-from .db_queue import db_queue
+from main.src.utils.core.task_schedular import scheduler
+from .persistence import persist_research_event, persist_research_findings, persist_research_artifact
 from .models import JobStatus, ResearchStage, RedisEvent
 
 class ResearchOrchestrator:
@@ -27,8 +28,8 @@ class ResearchOrchestrator:
             data=data
         )
         await self.redis.emit_event(event)
-        # Push to DB queue for persistence
-        db_queue.push("save_event", job_id, event.dict())
+        # Push to DB persistence via scheduler
+        await scheduler.schedule(persist_research_event, job_id=job_id, event_dict=event.dict())
 
     async def execute(self, job_id: str, input_data: dict):
         try:
@@ -85,15 +86,15 @@ class ResearchOrchestrator:
                 await self.redis.update_job_state(job_id, {"plan": plan.dict(), "findings": findings, "videos": videos, "images": images})
                 await self.emit(job_id, ResearchStage.SUMMARIZING, f"Completed step: {step.description}")
                 
-                # Background save findings
-                db_queue.push("save_findings", job_id, step_findings)
+                # Background save findings natively
+                await scheduler.schedule(persist_research_findings, job_id=job_id, step_findings=step_findings)
 
             # 4. Artifact Generation
             await self.emit(job_id, ResearchStage.ARTIFACT_GEN, "Compiling research data and structuring markdown artifact...")
             artifact = await self.artifact_gen.generate(prompt, findings, videos, images)
             
-            # Background save artifact
-            db_queue.push("save_artifact", job_id, artifact.dict())
+            # Background save artifact natively
+            await scheduler.schedule(persist_research_artifact, job_id=job_id, artifact_dict=artifact.dict())
 
             # 5. Finalize
             await self.emit(job_id, ResearchStage.FINALIZING, "Finalizing research output.", status=JobStatus.COMPLETED, data={"artifact": artifact.dict()})

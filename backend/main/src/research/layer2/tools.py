@@ -469,6 +469,11 @@ async def shutdown_mcp_runtime() -> None:
 
 def _parse_raw(output: Any) -> Any:
     """If the MCP tool returned a JSON string, parse it first."""
+    if hasattr(output, "artifact") and getattr(output, "artifact") is not None:
+        output = getattr(output, "artifact")
+    elif hasattr(output, "content") and not isinstance(output, type):
+        output = getattr(output, "content")
+
     if isinstance(output, str):
         try:
             return json.loads(output)
@@ -771,7 +776,7 @@ def summarise_tool_output(tool_name: str, output: Any) -> str:
             return raw_text.splitlines()[0][:280]
 
     print(
-        f"Debug: summarise_tool_output for tool '{tool_name}' with raw output: {output[:50]}"
+        f"Debug: summarise_tool_output for tool '{tool_name}' with raw output: {str(output)[:50]}"
     )
 
     items = parse_tool_output(tool_name, output)
