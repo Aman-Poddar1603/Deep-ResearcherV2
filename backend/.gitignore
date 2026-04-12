@@ -23,3 +23,4 @@ database/
 main/src/store/bucket/
 
 /main/src/store/vector/chroma/*
+main/src/.temp
