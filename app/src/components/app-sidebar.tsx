@@ -59,7 +59,7 @@ const data = {
             items: [
                 {
                     title: "Start new Research",
-                    url: "/researches/new",
+                    url: "/researches/create",
                 },
                 {
                     title: "View All Researches",

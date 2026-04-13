@@ -193,10 +193,17 @@ export function useChatSimulator() {
         setIsLoading(false);
     }, []);
 
+    const replaceMessages = useCallback((next: ChatMessage[]) => {
+        stopStreamingRef.current = true;
+        setIsLoading(false);
+        setMessages(next);
+    }, []);
+
     return {
         messages,
         isLoading,
         sendMessage,
         stopStreaming,
+        replaceMessages,
     };
 }

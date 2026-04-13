@@ -36,8 +36,8 @@ function App() {
                     <Route path="/workspaces/edit/:id" element={<CreateEditWorkspace />} />
                     <Route path="/workspaces/view/:id" element={<ViewWorkspace />} />
 
-                    {/* Research Routes - TODO: Create these pages */}
-                    <Route path="/researches/new" element={<NewResearch />} />
+                    {/* Research: /researches/create = form; /researches/new = thread launcher (then replaces URL with real id) */}
+                    <Route path="/researches/create" element={<NewResearch />} />
                     <Route path="/researches/all" element={<AllResearches />} />
                     <Route path="/researches/:id" element={<ResearchThread />} />
                     <Route path="/researches/:id/chat" element={<ResearchChat />} />

@@ -102,6 +102,9 @@ export interface PaginationResponse<T> {
   offset: number;
 }
 
+/** Alias matching API docs (`PaginatedResponse`). */
+export type PaginatedResponse<T> = PaginationResponse<T>;
+
 export interface HealthResponse {
   status: "ok";
 }
@@ -1263,6 +1266,85 @@ export const deleteBucketItem = async (itemId: string): Promise<void> => {
   await requestVoid(api.delete(`/bucket/items/${encodeURIComponent(itemId)}`));
 };
 
+export const listBucketItemsForBucket = async (
+  bucketId: string,
+  query?: Omit<BucketItemListQuery, "bucketId">,
+): Promise<BucketItemListResponse> => {
+  return listBucketItems({ ...query, bucketId });
+};
+
+// Search API (universal)
+export interface SearchResultItem {
+  type?: string;
+  id?: string;
+  title?: string;
+  description?: string;
+  snippet?: string;
+  url?: string;
+  relevance?: number;
+  [key: string]: unknown;
+}
+
+export interface SearchUniversalResponse {
+  search_id: string;
+  query: string;
+  results: {
+    total_count: number;
+    page: number;
+    size: number;
+    items: SearchResultItem[];
+  };
+  ai_mode: {
+    status: string;
+    ai_summary: string | null;
+  };
+}
+
+export interface SearchUniversalQuery {
+  q: string;
+  page?: number;
+  size?: number;
+  aiMode?: boolean;
+  /** Backend query name: typeFilter */
+  typeFilter?: string;
+  /** Convenience alias for typeFilter (e.g. guide `domain`). */
+  domain?: string;
+}
+
+export const searchUniversal = async (
+  query: SearchUniversalQuery,
+): Promise<SearchUniversalResponse> => {
+  const typeFilter = query.typeFilter ?? query.domain;
+  return requestData(
+    api.get<SearchUniversalResponse>(
+      withQuery("/search/", {
+        q: query.q,
+        page: query.page,
+        size: query.size,
+        ai_mode: query.aiMode,
+        typeFilter,
+      }),
+    ),
+  );
+};
+
+export interface SearchAiStatusResponse {
+  search_id: string;
+  status: string;
+  ai_summary: string | null;
+  ai_citations?: string | null;
+}
+
+export const getSearchAiStatus = async (
+  searchId: string,
+): Promise<SearchAiStatusResponse> => {
+  return requestData(
+    api.get<SearchAiStatusResponse>(
+      `/search/${encodeURIComponent(searchId)}/ai`,
+    ),
+  );
+};
+
 // Settings API
 export type ThemeMode = "system" | "light" | "dark";
 export type ColorMode = "default" | "coffee" | "fresh" | "nerd" | "smooth";
@@ -1296,6 +1378,7 @@ export interface SettingsRecord {
   stream_response: boolean;
   show_citations: boolean;
   thinking_in_chats: boolean;
+  extended_mode: boolean;
   keep_backup: boolean;
   temperory_data_retention: number | null;
 }
@@ -1326,6 +1409,236 @@ export const patchSettings = async (
 
 export const deleteSettings = async (): Promise<void> => {
   await requestVoid(api.delete("/settings/"));
+};
+
+// Research static API (read / delete; creation via research engine)
+export interface ResearchStaticRecord {
+  id: string;
+  title?: string | null;
+  desc?: string | null;
+  prompt?: string | null;
+  sources?: string | null;
+  workspace_id?: string | null;
+  artifacts?: string | null;
+  chat_access?: boolean | null;
+  background_processing?: boolean | null;
+  research_template_id?: string | null;
+  custom_instructions?: string | null;
+  prompt_order?: string | null;
+}
+
+export type ResearchStaticListResponse = PaginationResponse<ResearchStaticRecord>;
+
+export interface ResearchPlanRecordStatic {
+  id: string;
+  title?: string | null;
+  desc?: string | null;
+  plan?: string | null;
+  workflow?: string | null;
+  workspace_id?: string | null;
+  research_template_id?: string | null;
+  prompt_order?: string | null;
+}
+
+export type ResearchPlanListResponseStatic =
+  PaginationResponse<ResearchPlanRecordStatic>;
+
+export interface ResearchSourceStaticRecord {
+  id: string;
+  research_id?: string | null;
+  source_type?: string | null;
+  source_url?: string | null;
+  source_content?: string | null;
+  source_citations?: string | null;
+  source_vector_id?: string | null;
+  step_index?: number | null;
+  temp_file_path?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type ResearchSourceStaticListResponse =
+  PaginationResponse<ResearchSourceStaticRecord>;
+
+export interface ResearchTemplateRecordStatic {
+  id: string;
+  title?: string | null;
+  desc?: string | null;
+  template?: string | null;
+  total_researches?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type ResearchTemplateListResponseStatic =
+  PaginationResponse<ResearchTemplateRecordStatic>;
+
+export interface ResearchMetadataRecordStatic {
+  id: string;
+  models?: string | null;
+  workspace_id?: string | null;
+  research_id?: string | null;
+  connected_bucket?: string | null;
+  time_taken_sec?: number | null;
+  token_count?: number | null;
+  num_api_calls?: number | null;
+  source_count?: number | null;
+  websites_count?: number | null;
+  file_count?: number | null;
+  citations?: string | null;
+  exported?: string | null;
+  status?: unknown;
+  chats_referenced?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ResearchStaticListQuery {
+  page?: number;
+  size?: number;
+  workspaceId?: string;
+  sortBy?: "title" | "created_at";
+  sortOrder?: SortOrder;
+}
+
+export const listResearchStatic = async (
+  query?: ResearchStaticListQuery,
+): Promise<ResearchStaticListResponse> => {
+  return requestData(
+    api.get<ResearchStaticListResponse>(
+      withQuery("/research-static/", {
+        page: query?.page,
+        size: query?.size,
+        workspaceId: query?.workspaceId,
+        sortBy: query?.sortBy,
+        sortOrder: query?.sortOrder,
+      }),
+    ),
+  );
+};
+
+export const getResearchStatic = async (
+  researchId: string,
+): Promise<ResearchStaticRecord> => {
+  return requestData(
+    api.get<ResearchStaticRecord>(
+      `/research-static/${encodeURIComponent(researchId)}`,
+    ),
+  );
+};
+
+export const deleteResearchStatic = async (researchId: string): Promise<void> => {
+  await requestVoid(
+    api.delete(`/research-static/${encodeURIComponent(researchId)}`),
+  );
+};
+
+export interface ResearchStaticPlansListQuery {
+  page?: number;
+  size?: number;
+  workspaceId?: string;
+}
+
+export const listResearchStaticPlans = async (
+  query?: ResearchStaticPlansListQuery,
+): Promise<ResearchPlanListResponseStatic> => {
+  return requestData(
+    api.get<ResearchPlanListResponseStatic>(
+      withQuery("/research-static/plans", {
+        page: query?.page,
+        size: query?.size,
+        workspaceId: query?.workspaceId,
+      }),
+    ),
+  );
+};
+
+export const getResearchStaticPlan = async (
+  planId: string,
+): Promise<ResearchPlanRecordStatic> => {
+  return requestData(
+    api.get<ResearchPlanRecordStatic>(
+      `/research-static/plans/${encodeURIComponent(planId)}`,
+    ),
+  );
+};
+
+export interface ResearchStaticTemplatesListQuery {
+  page?: number;
+  size?: number;
+}
+
+export const listResearchStaticTemplates = async (
+  query?: ResearchStaticTemplatesListQuery,
+): Promise<ResearchTemplateListResponseStatic> => {
+  return requestData(
+    api.get<ResearchTemplateListResponseStatic>(
+      withQuery("/research-static/templates", {
+        page: query?.page,
+        size: query?.size,
+      }),
+    ),
+  );
+};
+
+export const getResearchStaticTemplate = async (
+  templateId: string,
+): Promise<ResearchTemplateRecordStatic> => {
+  return requestData(
+    api.get<ResearchTemplateRecordStatic>(
+      `/research-static/templates/${encodeURIComponent(templateId)}`,
+    ),
+  );
+};
+
+export interface ResearchStaticSourcesListQuery {
+  page?: number;
+  size?: number;
+}
+
+export const listResearchStaticSourcesForResearch = async (
+  researchId: string,
+  query?: ResearchStaticSourcesListQuery,
+): Promise<ResearchSourceStaticListResponse> => {
+  return requestData(
+    api.get<ResearchSourceStaticListResponse>(
+      withQuery(
+        `/research-static/${encodeURIComponent(researchId)}/sources`,
+        {
+          page: query?.page,
+          size: query?.size,
+        },
+      ),
+    ),
+  );
+};
+
+export const getResearchStaticSource = async (
+  sourceId: string,
+): Promise<ResearchSourceStaticRecord> => {
+  return requestData(
+    api.get<ResearchSourceStaticRecord>(
+      `/research-static/sources/${encodeURIComponent(sourceId)}`,
+    ),
+  );
+};
+
+export const deleteResearchStaticSource = async (
+  sourceId: string,
+): Promise<void> => {
+  await requestVoid(
+    api.delete(`/research-static/sources/${encodeURIComponent(sourceId)}`),
+  );
+};
+
+export const getResearchStaticMetadata = async (
+  researchId: string,
+): Promise<ResearchMetadataRecordStatic> => {
+  return requestData(
+    api.get<ResearchMetadataRecordStatic>(
+      `/research-static/${encodeURIComponent(researchId)}/metadata`,
+    ),
+  );
 };
 
 // UI compatibility helpers for existing workspace pages

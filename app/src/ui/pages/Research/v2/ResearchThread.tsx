@@ -1,4 +1,4 @@
-import { useEffect, memo, useCallback, useState, useRef } from 'react'
+import { useEffect, memo, useCallback, useState, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message'
@@ -32,15 +32,15 @@ import {
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import {
     Square, FileText, Clock, Zap, Hash, Database,
     CopyIcon, CheckIcon, ChevronLeft, Sparkles, Youtube, Link as LinkIcon,
     CheckCircle2, Circle, Loader2, Download, ExternalLink,
     ChevronDown, MessageSquare, FileJson, FileType, FileOutput, Share2,
-    SendHorizonal, AlertCircle, RotateCcw, Wifi, WifiOff,
+    SendHorizonal, AlertCircle, RotateCcw, Wifi, WifiOff, Briefcase,
 } from 'lucide-react'
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -194,62 +194,158 @@ const StepRenderer = memo(({ step, isLast, isRunning }: { step: LiveStep; isLast
 ))
 StepRenderer.displayName = 'StepRenderer'
 
-// ─── QA Question renderer ─────────────────────────────────────────────────────
-const QARenderer = memo(({ question, onSubmit }: { question: QAQuestion; onSubmit: (answer: string) => void }) => {
+/** Context from navigation state so the user still sees their brief while answering QA. */
+interface QAResearchContext {
+    title: string
+    description: string
+    prompt: string
+    workspaceName: string
+    customInstructions?: string
+}
+
+// ─── QA Question renderer (full-width card; keeps research prompt visible) ───
+const QARenderer = memo(({
+    question,
+    context,
+    onSubmit,
+}: {
+    question: QAQuestion
+    context: QAResearchContext
+    onSubmit: (answer: string) => void
+}) => {
     const [answer, setAnswer] = useState('')
-    const inputRef = useRef<HTMLInputElement>(null)
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
 
     useEffect(() => {
-        inputRef.current?.focus()
+        textareaRef.current?.focus()
     }, [])
 
     const handleSubmit = () => {
         if (!answer.trim()) return
-        onSubmit(answer)
+        onSubmit(answer.trim())
         setAnswer('')
     }
 
+    const hasPrompt = Boolean(context.prompt?.trim())
+    const hasDescription = Boolean(context.description?.trim())
+    const hasCustom = Boolean(context.customInstructions?.trim())
+
     return (
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Confirmation
-                approval={{ id: `qa_${question.index}` }}
-                state="approval-requested"
-            >
-                <ConfirmationTitle>
-                    <div className="flex items-center gap-2 mb-2">
-                        <div className="size-6 rounded-full bg-amber-500/20 flex items-center justify-center">
-                            <MessageSquare className="size-3.5 text-amber-500" />
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 w-full max-w-4xl mx-auto px-1">
+            <Card className="overflow-hidden border-amber-500/35 bg-linear-to-b from-amber-500/[0.07] via-background to-background shadow-lg shadow-amber-500/5">
+                <CardHeader className="space-y-1 pb-2 border-b border-border/50 bg-muted/20">
+                    <div className="flex items-center gap-2">
+                        <div className="size-9 rounded-xl bg-amber-500/15 flex items-center justify-center border border-amber-500/25">
+                            <MessageSquare className="size-4 text-amber-500" />
                         </div>
-                        <span className="font-medium">Question {question.index + 1}</span>
+                        <div>
+                            <CardTitle className="text-lg font-semibold tracking-tight">
+                                Research assistant needs clarification
+                            </CardTitle>
+                            <CardDescription>
+                                Question {question.index + 1} — your original brief stays below for reference
+                            </CardDescription>
+                        </div>
                     </div>
-                    <ConfirmationRequest>
-                        <p className="text-sm text-muted-foreground mt-1">{question.question}</p>
-                    </ConfirmationRequest>
-                </ConfirmationTitle>
-                <ConfirmationActions>
-                    <div className="w-full space-y-3 pt-2">
-                        <div className="flex gap-2">
-                            <Input
-                                ref={inputRef}
-                                value={answer}
-                                onChange={e => setAnswer(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
-                                placeholder="Type your answer…"
-                                className="flex-1"
-                            />
+                </CardHeader>
+                <CardContent className="space-y-5 pt-5">
+                    {/* Locked context from UI / session */}
+                    <div className="rounded-xl border border-border/60 bg-muted/25 p-4 space-y-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                            <FileText className="size-3.5 opacity-80" />
+                            Your research context
+                        </p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                                <Briefcase className="size-3.5 shrink-0 opacity-70" />
+                                {context.workspaceName}
+                            </span>
+                            {context.title ? (
+                                <span className="text-foreground/90 font-medium">{context.title}</span>
+                            ) : null}
+                        </div>
+                        {hasDescription ? (
+                            <p className="text-sm text-muted-foreground leading-relaxed border-l-2 border-primary/30 pl-3">
+                                {context.description}
+                            </p>
+                        ) : null}
+                        <div className="space-y-1.5">
+                            <p className="text-xs font-medium text-muted-foreground">Original prompt</p>
+                            {hasPrompt ? (
+                                <div className="max-h-[min(28vh,220px)] overflow-y-auto rounded-lg border border-border/70 bg-background/90 px-3 py-2.5 text-sm leading-relaxed text-foreground whitespace-pre-wrap shadow-inner">
+                                    {context.prompt}
+                                </div>
+                            ) : (
+                                <p className="text-xs text-muted-foreground italic rounded-lg border border-dashed border-border/60 px-3 py-2">
+                                    Original prompt is not in this browser session (e.g. after refresh). Use the title and workspace above for context.
+                                </p>
+                            )}
+                        </div>
+                        {hasCustom ? (
+                            <details className="text-xs group">
+                                <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">
+                                    Custom instructions
+                                </summary>
+                                <pre className="mt-2 max-h-32 overflow-y-auto rounded-md bg-background/80 border border-border/50 p-2 whitespace-pre-wrap font-sans text-muted-foreground">
+                                    {context.customInstructions}
+                                </pre>
+                            </details>
+                        ) : null}
+                    </div>
+
+                    {/* Current question — primary focus */}
+                    <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                            Question for you
+                        </p>
+                        <p className="text-base sm:text-lg text-foreground leading-relaxed font-medium">
+                            {question.question}
+                        </p>
+                    </div>
+
+                    {/* Answer composer */}
+                    <div className="space-y-2">
+                        <label htmlFor={`qa-answer-${question.index}`} className="text-sm font-medium text-foreground">
+                            Your answer
+                        </label>
+                        <Textarea
+                            id={`qa-answer-${question.index}`}
+                            ref={textareaRef}
+                            value={answer}
+                            onChange={e => setAnswer(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault()
+                                    handleSubmit()
+                                }
+                            }}
+                            placeholder="Write a clear answer… (Shift+Enter for a new line)"
+                            rows={6}
+                            className="min-h-[140px] resize-y text-base leading-relaxed bg-background border-border/80 focus-visible:ring-amber-500/30"
+                        />
+                        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                            <p className="text-xs text-muted-foreground">
+                                <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">Enter</kbd>
+                                {' '}to submit ·{' '}
+                                <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">Shift</kbd>
+                                +
+                                <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[10px] font-mono">Enter</kbd>
+                                {' '}for newline
+                            </p>
                             <Button
-                                size="icon"
+                                type="button"
+                                size="lg"
+                                className="w-full sm:w-auto gap-2 shrink-0 h-11 px-6"
                                 onClick={handleSubmit}
                                 disabled={!answer.trim()}
-                                className="shrink-0"
                             >
                                 <SendHorizonal className="size-4" />
+                                Submit answer
                             </Button>
                         </div>
-                        <p className="text-xs text-muted-foreground">Press Enter to submit</p>
                     </div>
-                </ConfirmationActions>
-            </Confirmation>
+                </CardContent>
+            </Card>
         </div>
     )
 })
@@ -488,11 +584,22 @@ interface ResearchNavigationState {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+const NEW_RESEARCH_ROUTE_ID = 'new'
+const RESEARCH_BRIEF_STORAGE_KEY = 'dr.research.active_brief.v1'
+
 const ResearchThread = () => {
     const location = useLocation()
     const navigate = useNavigate()
-    const { researchId: urlResearchId } = useParams<{ researchId: string }>()
+    const { id: urlResearchId } = useParams<{ id: string }>()
     const state = location.state as ResearchNavigationState | null
+
+    /** `/researches/new` is a launcher route; real IDs resume existing sessions. */
+    const sessionResearchId =
+        urlResearchId &&
+        urlResearchId !== NEW_RESEARCH_ROUTE_ID &&
+        urlResearchId.trim() !== ''
+            ? urlResearchId
+            : undefined
 
     const [copyStatus, setCopyStatus] = useState<'idle' | 'loading' | 'success'>('idle')
     const [artifactOpen, setArtifactOpen] = useState(false)
@@ -500,12 +607,12 @@ const ResearchThread = () => {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     const {
-        status, steps, questions, plan,
+        status, researchId, steps, questions, plan,
         artifact, artifactDone, tokens, error, progress, progressMsg,
-        isRunning, isPendingQuestion, isPendingApproval,
+        isRunning, isPendingQuestion, isPendingApproval, context,
         startResearch, resumeSession, stopResearch, submitAnswer, approvePlan, refactorPlan,
     } = useResearchSession({
-        researchId: urlResearchId,
+        researchId: sessionResearchId,
         onNavigateToSession: (id, replace) => navigate(`/researches/${encodeURIComponent(id)}`, { replace: !!replace }),
     })
 
@@ -519,22 +626,30 @@ const ResearchThread = () => {
         return () => { if (timerRef.current) clearInterval(timerRef.current) }
     }, [isRunning])
 
-    // Auto-start if navigated here with state (from NewResearch)
+    // Auto-start when opened as /researches/new with navigation state (from NewResearch on /researches/create)
     useEffect(() => {
-        if (!urlResearchId && state?.prompt && state?.workspaceId) {
-            void startResearch({
-                prompt: state.prompt,
-                title: state.title || 'Research Task',
-                description: state.description || '',
-                workspace_id: state.workspaceId,
-                sources: state.sources ?? [],
-                system_prompt: '',
-                research_template: resolveResearchTemplate(state.preferences?.template ?? 'comprehensive'),
-                custom_prompt: state.preferences?.customInstructions ?? '',
-                ai_personality: 'professional research analyst',
-                username: 'Pixel',
-            })
-        }
+        const isLauncher =
+            !urlResearchId ||
+            urlResearchId === NEW_RESEARCH_ROUTE_ID ||
+            urlResearchId.trim() === ''
+        if (!isLauncher || !state?.prompt?.trim() || !state?.workspaceId) return
+
+        void startResearch({
+            prompt: state.prompt,
+            title: state.title || 'Research Task',
+            description: state.description || '',
+            workspace_id: state.workspaceId,
+            sources: state.sources ?? [],
+            system_prompt: '',
+            research_template: resolveResearchTemplate(state.preferences?.template ?? 'comprehensive'),
+            custom_prompt: state.preferences?.customInstructions ?? '',
+            ai_personality: 'professional research analyst',
+            username: 'Pixel',
+        }).catch((err: unknown) => {
+            toast.error(
+                err instanceof Error ? err.message : 'Failed to start research. Is the backend running?',
+            )
+        })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -548,11 +663,50 @@ const ResearchThread = () => {
         } catch { setCopyStatus('idle') }
     }, [artifact, steps])
 
-    const researchTitle = state?.title || 'Deep Research'
-    const workspaceName = state?.workspaceName || 'Research Workspace'
-    const userPrompt = state?.prompt || ''
-    const userSources = state?.sources || []
+    const recoveredContext = context || {}
+    const researchTitle = state?.title || recoveredContext.title || 'Deep Research'
+    const workspaceName = state?.workspaceName || recoveredContext.workspace_id || 'Research Workspace'
+    const userPrompt = state?.prompt || recoveredContext.prompt || ''
+    const userSources = state?.sources || recoveredContext.sources || []
     const hasContent = steps.length > 0 || artifact
+
+    // Persist brief for QA UI if user refreshes mid-session
+    useEffect(() => {
+        if (!state?.workspaceId && !state?.prompt?.trim()) return
+        try {
+            sessionStorage.setItem(
+                RESEARCH_BRIEF_STORAGE_KEY,
+                JSON.stringify({
+                    title: state?.title ?? '',
+                    description: state?.description ?? '',
+                    prompt: state?.prompt ?? '',
+                    workspaceName: state?.workspaceName ?? '',
+                    customInstructions: state?.preferences?.customInstructions ?? '',
+                }),
+            )
+        } catch {
+            /* ignore quota */
+        }
+    }, [state])
+
+    const qaContext = useMemo((): QAResearchContext => {
+        let cached: Partial<QAResearchContext> = {}
+        try {
+            const raw = sessionStorage.getItem(RESEARCH_BRIEF_STORAGE_KEY)
+            if (raw) cached = JSON.parse(raw) as Partial<QAResearchContext>
+        } catch {
+            /* ignore */
+        }
+        return {
+            title: state?.title ?? recoveredContext.title ?? cached.title ?? researchTitle,
+            description: state?.description ?? recoveredContext.description ?? cached.description ?? '',
+            prompt: (state?.prompt ?? recoveredContext.prompt ?? cached.prompt ?? userPrompt) || '',
+            workspaceName:
+                state?.workspaceName ?? recoveredContext.workspace_id ?? cached.workspaceName ?? workspaceName,
+            customInstructions:
+                state?.preferences?.customInstructions ?? recoveredContext.custom_prompt ?? cached.customInstructions,
+        }
+    }, [state, researchTitle, workspaceName, userPrompt, recoveredContext])
 
     // All tools flat for sidebar
     const allTools = steps.flatMap(s => s.tools)
@@ -598,8 +752,8 @@ const ResearchThread = () => {
                     <div className="backdrop-blur-xl bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 flex items-center gap-3">
                         <AlertCircle className="size-4 text-destructive shrink-0" />
                         <p className="text-sm text-destructive flex-1">{error}</p>
-                        {urlResearchId && (
-                            <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void resumeSession(urlResearchId)}>
+                        {researchId && (
+                            <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void resumeSession(researchId)}>
                                 <RotateCcw className="size-3.5 mr-1.5" />Retry
                             </Button>
                         )}
@@ -629,12 +783,12 @@ const ResearchThread = () => {
                         </Message>
                     </div>
 
-                    {/* User Prompt */}
-                    {userPrompt && (
+                    {/* User Prompt (use qaContext.prompt so cached brief still shows after refresh) */}
+                    {qaContext.prompt && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 delay-200">
                             <Message from="user" className="pl-12 ml-auto max-w-full">
                                 <MessageContent className="shadow-sm text-foreground">
-                                    <MessageResponse>{userPrompt}</MessageResponse>
+                                    <MessageResponse>{qaContext.prompt}</MessageResponse>
                                     {userSources.length > 0 && (
                                         <div className="mt-3 pt-3 border-t border-border/30 space-y-2">
                                             <span className="text-xs font-medium text-muted-foreground">Attached Sources</span>
@@ -689,7 +843,7 @@ const ResearchThread = () => {
                                 <SourcesTrigger count={allTools.length} />
                                 <SourcesContent>
                                     {allTools.map((tool, i) => (
-                                        <Source key={i} href="#" title={`${tool.tool_name}: ${JSON.stringify(tool.args).slice(0, 60)}`} />
+                                        <Source key={i} href="#" title={`${tool.tool_name}: ${(JSON.stringify(tool.args) || '').slice(0, 60)}`} />
                                     ))}
                                 </SourcesContent>
                             </Sources>
@@ -707,7 +861,12 @@ const ResearchThread = () => {
 
                     {/* QA Questions */}
                     {isPendingQuestion && questions.map(q => (
-                        <QARenderer key={`qa-${q.index}`} question={q} onSubmit={submitAnswer} />
+                        <QARenderer
+                            key={`qa-${q.index}`}
+                            question={q}
+                            context={qaContext}
+                            onSubmit={submitAnswer}
+                        />
                     ))}
 
                     {/* Artifact streaming or done */}

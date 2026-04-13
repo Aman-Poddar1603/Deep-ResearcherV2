@@ -1,7 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { listChatThreads, deleteChatThread, type ChatThreadRecord } from '@/lib/apis'
+import { toast } from '@/components/ui/sonner'
 import {
   Search,
   MessageSquare,
@@ -13,7 +17,9 @@ import {
   ChevronDown,
   LayoutGrid,
   List,
-  LucideIcon
+  LucideIcon,
+  Loader2,
+  Trash2,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -22,103 +28,79 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 
-// Dummy chat data with rich metadata
-const DUMMY_CHATS = [
-  {
-    id: '1',
-    title: 'Cryptocurrency Market Analysis',
-    preview: 'Analyzing the recent trends in Bitcoin and Ethereum markets...',
-    timestamp: new Date('2026-02-03T10:30:00'),
-    messageCount: 24,
-    category: 'Research',
-    isActive: true,
-    tags: ['crypto', 'market', 'analysis']
-  },
-  {
-    id: '2',
-    title: 'AI Model Training Best Practices',
-    preview: 'Discussing optimal strategies for training large language models...',
-    timestamp: new Date('2026-02-02T14:20:00'),
-    messageCount: 18,
-    category: 'Technical',
+interface ChatListItem {
+  id: string
+  title: string
+  preview: string
+  timestamp: Date
+  tokenCount: number
+  category: string
+  isActive: boolean
+  tags: string[]
+}
+
+function mapThread(record: ChatThreadRecord): ChatListItem {
+  const wid = record.workspace_id?.trim()
+  return {
+    id: record.thread_id,
+    title: record.thread_title?.trim() || 'Untitled',
+    preview: wid ? `Workspace ${wid}` : 'Conversation',
+    timestamp: new Date(record.updated_at),
+    tokenCount: record.token_count ?? 0,
+    category: 'Chat',
     isActive: false,
-    tags: ['ai', 'ml', 'training']
-  },
-  {
-    id: '3',
-    title: 'Climate Change Data Visualization',
-    preview: 'Creating interactive visualizations for climate data trends...',
-    timestamp: new Date('2026-02-01T09:15:00'),
-    messageCount: 32,
-    category: 'Research',
-    isActive: false,
-    tags: ['climate', 'data', 'visualization']
-  },
-  {
-    id: '4',
-    title: 'Quantum Computing Fundamentals',
-    preview: 'Exploring the basics of quantum computing and its applications...',
-    timestamp: new Date('2026-01-31T16:45:00'),
-    messageCount: 15,
-    category: 'Learning',
-    isActive: false,
-    tags: ['quantum', 'computing', 'physics']
-  },
-  {
-    id: '5',
-    title: 'Web3 Development Roadmap',
-    preview: 'Planning a comprehensive Web3 development learning path...',
-    timestamp: new Date('2026-01-30T11:30:00'),
-    messageCount: 27,
-    category: 'Development',
-    isActive: false,
-    tags: ['web3', 'blockchain', 'development']
-  },
-  {
-    id: '6',
-    title: 'Machine Learning Pipeline Optimization',
-    preview: 'Optimizing data pipelines for better ML model performance...',
-    timestamp: new Date('2026-01-29T13:20:00'),
-    messageCount: 21,
-    category: 'Technical',
-    isActive: false,
-    tags: ['ml', 'pipeline', 'optimization']
-  },
-  {
-    id: '7',
-    title: 'Natural Language Processing Research',
-    preview: 'Latest advancements in NLP and transformer architectures...',
-    timestamp: new Date('2026-01-28T15:10:00'),
-    messageCount: 19,
-    category: 'Research',
-    isActive: false,
-    tags: ['nlp', 'transformers', 'research']
-  },
-  {
-    id: '8',
-    title: 'Cybersecurity Best Practices 2026',
-    preview: 'Comprehensive guide to modern cybersecurity strategies...',
-    timestamp: new Date('2026-01-27T10:05:00'),
-    messageCount: 29,
-    category: 'Security',
-    isActive: false,
-    tags: ['security', 'cybersecurity', 'best-practices']
+    tags: wid ? [wid.slice(0, 14)] : [],
   }
-]
+}
 
 type SortOption = 'recent' | 'oldest' | 'most-messages' | 'alphabetical'
 type ViewMode = 'grid' | 'list'
 
 const Chats = () => {
+  const navigate = useNavigate()
+  const [threads, setThreads] = useState<ChatListItem[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<SortOption>('recent')
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
 
-  // Filtering and sorting logic
-  const filteredAndSortedChats = useMemo(() => {
-    let filtered = DUMMY_CHATS
+  const loadThreads = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await listChatThreads({
+        page: 1,
+        size: 200,
+        sortBy: 'updated_at',
+        sortOrder: 'desc',
+      })
+      setThreads(res.items.map(mapThread))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to load chats')
+      setThreads([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-    // Filter by search query
+  useEffect(() => {
+    void loadThreads()
+  }, [loadThreads])
+
+  const handleDeleteThread = async (e: React.MouseEvent, threadId: string) => {
+    e.stopPropagation()
+    const previous = threads
+    setThreads(prev => prev.filter(t => t.id !== threadId))
+    try {
+      await deleteChatThread(threadId)
+    } catch (err) {
+      setThreads(previous)
+      toast.error(err instanceof Error ? err.message : 'Failed to delete thread')
+    }
+  }
+
+  const filteredAndSortedChats = useMemo(() => {
+    let filtered = threads
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(
@@ -126,11 +108,10 @@ const Chats = () => {
           chat.title.toLowerCase().includes(query) ||
           chat.preview.toLowerCase().includes(query) ||
           chat.tags.some(tag => tag.toLowerCase().includes(query)) ||
-          chat.category.toLowerCase().includes(query)
+          chat.category.toLowerCase().includes(query),
       )
     }
 
-    // Sort based on selected option
     const sorted = [...filtered].sort((a, b) => {
       switch (sortBy) {
         case 'recent':
@@ -138,7 +119,7 @@ const Chats = () => {
         case 'oldest':
           return a.timestamp.getTime() - b.timestamp.getTime()
         case 'most-messages':
-          return b.messageCount - a.messageCount
+          return b.tokenCount - a.tokenCount
         case 'alphabetical':
           return a.title.localeCompare(b.title)
         default:
@@ -147,7 +128,7 @@ const Chats = () => {
     })
 
     return sorted
-  }, [searchQuery, sortBy])
+  }, [threads, searchQuery, sortBy])
 
   // Format timestamp
   const formatTimestamp = (date: Date) => {
@@ -297,7 +278,11 @@ const Chats = () => {
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-6 py-6 pb-24">
-          {filteredAndSortedChats.length === 0 ? (
+          {loading ? (
+            <div className="flex justify-center py-24">
+              <Loader2 className="size-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredAndSortedChats.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-96 animate-in fade-in zoom-in duration-500">
               <div className="size-24 rounded-3xl bg-linear-to-br from-accent/30 to-transparent border border-border/30 flex items-center justify-center mb-6">
                 <Search className="size-12 text-muted-foreground/50" />
@@ -319,6 +304,13 @@ const Chats = () => {
               {filteredAndSortedChats.map((chat, index) => (
                 <Card
                   key={chat.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/chat/${encodeURIComponent(chat.id)}`)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ')
+                      navigate(`/chat/${encodeURIComponent(chat.id)}`)
+                  }}
                   className={cn(
                     'group cursor-pointer hover:shadow-xl hover:shadow-primary/5 hover:border-primary/30 transition-all duration-300 border-border/40 overflow-hidden relative animate-in fade-in slide-in-from-bottom-4',
                     chat.isActive && 'ring-2 ring-primary/20 border-primary/40',
@@ -328,6 +320,16 @@ const Chats = () => {
                   )}
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 z-20 h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100"
+                    onClick={e => void handleDeleteThread(e, chat.id)}
+                    aria-label="Delete thread"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                   {/* Active indicator glow */}
                   {chat.isActive && (
                     <div className="absolute inset-0 bg-linear-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
@@ -365,7 +367,11 @@ const Chats = () => {
                             <div className="flex items-center justify-between gap-3 w-full">
                               <div className="flex items-center gap-1">
                                 <MessageSquare className="size-3.5" />
-                                <span className="font-medium">{chat.messageCount} messages</span>
+                                <span className="font-medium">
+                                  {chat.tokenCount > 0
+                                    ? `${chat.tokenCount} tokens`
+                                    : '—'}
+                                </span>
                               </div>
                               <div className="flex items-center gap-1">
                                 <Clock className="size-3.5" />
@@ -408,7 +414,9 @@ const Chats = () => {
                           <div className="flex flex-col items-end gap-0.5 text-xs">
                             <div className="flex items-center gap-1.5">
                               <MessageSquare className="size-3" />
-                              <span>{chat.messageCount}</span>
+                              <span>
+                                {chat.tokenCount > 0 ? chat.tokenCount : '—'}
+                              </span>
                             </div>
                             <div className="flex items-center gap-1.5 opacity-70">
                               <Clock className="size-3" />

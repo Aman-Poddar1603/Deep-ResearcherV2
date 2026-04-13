@@ -13,6 +13,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from '@/lib/utils'
+import {
+  searchUniversal,
+  getSearchAiStatus,
+  type SearchResultItem,
+} from '@/lib/apis'
+import { toast } from '@/components/ui/sonner'
 import { Persona, type PersonaState } from '@/components/ai-elements/persona'
 import {
   Search as SearchIcon,
@@ -80,123 +86,118 @@ const RECENT_SEARCHES = [
 ]
 
 // ============================================================================
-// Mock Data Generators
+// API mapping
 // ============================================================================
 
-const generateMockResults = (query: string): SearchResult[] => {
-  if (!query.trim()) return []
+function mapApiTypeToCategory(apiType: string): CategoryId {
+  switch (apiType) {
+    case 'workspace':
+      return 'workspaces'
+    case 'chats':
+      return 'chats'
+    case 'researches':
+      return 'researches'
+    case 'scrapes':
+      return 'databases'
+    case 'assets':
+      return 'assets'
+    case 'history':
+      return 'history'
+    default:
+      return 'researches'
+  }
+}
 
-  const results: SearchResult[] = []
-  const queryLower = query.toLowerCase()
+function categoryIdToTypeFilter(id: CategoryId): string {
+  const map: Record<CategoryId, string> = {
+    workspaces: 'workspace',
+    chats: 'chats',
+    researches: 'researches',
+    databases: 'scrapes',
+    assets: 'assets',
+    history: 'history',
+  }
+  return map[id]
+}
 
-  // Generate research results
-  const researchTopics = ['Quantum Computing', 'Machine Learning', 'Climate Science', 'Blockchain', 'Biotechnology', 'Renewable Energy']
-  researchTopics.forEach((topic, i) => {
-    if (topic.toLowerCase().includes(queryLower) || queryLower.includes(topic.toLowerCase().split(' ')[0])) {
-      results.push({
-        id: `research-${i}`,
-        title: `Research Report: ${topic} Analysis`,
-        description: `Comprehensive analysis of ${topic.toLowerCase()} trends, methodologies, and future implications. Includes data visualization and key findings.`,
-        category: 'researches',
-        timestamp: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000),
-        metadata: `PDF • ${(Math.random() * 5 + 1).toFixed(1)} MB`,
-        url: `/researches/view/${i}`,
-        relevance: 0.9 - i * 0.1
-      })
+function pickDateFromMetadata(meta: unknown): Date {
+  if (!meta || typeof meta !== 'object') return new Date()
+  const m = meta as Record<string, unknown>
+  const raw =
+    m.updated_at ?? m.created_at ?? m.last_seen ?? m.timestamp
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const d = new Date(raw)
+    if (!Number.isNaN(d.getTime())) return d
+  }
+  return new Date()
+}
+
+function buildResultUrl(
+  apiType: string,
+  id: string,
+  meta: unknown,
+): string {
+  const enc = encodeURIComponent(id)
+  switch (apiType) {
+    case 'workspace':
+      return `/workspaces/view/${enc}`
+    case 'chats':
+      return `/chat/${enc}`
+    case 'researches':
+      return `/researches/${enc}`
+    case 'scrapes':
+      return `/search`
+    case 'assets': {
+      if (meta && typeof meta === 'object') {
+        const bid = (meta as { bucket_id?: string }).bucket_id
+        if (bid) return `/data/bucket/${encodeURIComponent(bid)}`
+      }
+      return '/data/bucket'
     }
-  })
+    case 'history':
+      return '/history'
+    default:
+      return '/search'
+  }
+}
 
-  // Generate chat results
-  const chatTopics = ['AI Discussion', 'Project Planning', 'Data Analysis', 'Code Review', 'Research Query']
-  chatTopics.forEach((topic, i) => {
-    if (Math.random() > 0.5 || topic.toLowerCase().includes(queryLower)) {
-      results.push({
-        id: `chat-${i}`,
-        title: `${topic} Session`,
-        description: `Conversation about ${queryLower} with AI assistant. ${Math.floor(Math.random() * 50 + 10)} messages exchanged.`,
-        category: 'chats',
-        timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
-        metadata: `${Math.floor(Math.random() * 50 + 10)} messages`,
-        url: `/chat/${i}`,
-        relevance: 0.85 - i * 0.1
-      })
-    }
-  })
+function formatMetadataLine(apiType: string, meta: unknown): string {
+  if (!meta || typeof meta !== 'object')
+    return apiType
+  const m = meta as Record<string, unknown>
+  const parts: string[] = []
+  if (apiType === 'assets' && m.file_format != null)
+    parts.push(String(m.file_format))
+  if (m.workspace_id != null) parts.push(`ws ${String(m.workspace_id).slice(0, 8)}…`)
+  if (parts.length === 0) return apiType
+  return `${apiType} • ${parts.join(' • ')}`
+}
 
-  // Generate workspace results
-  const workspaceNames = ['Research Hub', 'Data Science', 'Product Development', 'Marketing Analytics', 'Innovation Lab']
-  workspaceNames.forEach((name, i) => {
-    if (Math.random() > 0.6) {
-      results.push({
-        id: `workspace-${i}`,
-        title: name,
-        description: `Workspace containing projects, documents, and resources related to ${name.toLowerCase()}.`,
-        category: 'workspaces',
-        timestamp: new Date(Date.now() - Math.random() * 60 * 24 * 60 * 60 * 1000),
-        metadata: `${Math.floor(Math.random() * 20 + 5)} items`,
-        url: `/workspaces/view/${i}`,
-        relevance: 0.75 - i * 0.05
-      })
-    }
-  })
-
-  // Generate asset results
-  const assetTypes = [
-    { name: 'Chart', type: 'image', icon: 'PNG' },
-    { name: 'Dataset', type: 'file', icon: 'CSV' },
-    { name: 'Recording', type: 'video', icon: 'MP4' },
-    { name: 'Presentation', type: 'file', icon: 'PDF' },
-  ]
-  assetTypes.forEach((asset, i) => {
-    if (Math.random() > 0.4) {
-      results.push({
-        id: `asset-${i}`,
-        title: `${asset.name}_${query.replace(/\s/g, '_')}.${asset.icon.toLowerCase()}`,
-        description: `${asset.type.charAt(0).toUpperCase() + asset.type.slice(1)} asset from research materials.`,
-        category: 'assets',
-        timestamp: new Date(Date.now() - Math.random() * 14 * 24 * 60 * 60 * 1000),
-        metadata: `${asset.icon} • ${(Math.random() * 10 + 0.5).toFixed(1)} MB`,
-        url: `/data/bucket/main/${asset.type}s`,
-        relevance: 0.7 - i * 0.1
-      })
-    }
-  })
-
-  // Generate database results
-  const tableNames = ['users', 'sessions', 'analytics', 'experiments', 'configurations']
-  tableNames.forEach((table, i) => {
-    if (Math.random() > 0.5) {
-      results.push({
-        id: `db-${i}`,
-        title: `Table: ${table}`,
-        description: `Database table containing ${table} data with ${Math.floor(Math.random() * 10000 + 100)} rows.`,
-        category: 'databases',
-        timestamp: new Date(Date.now() - Math.random() * 3 * 24 * 60 * 60 * 1000),
-        metadata: `${Math.floor(Math.random() * 10000 + 100).toLocaleString()} rows`,
-        url: `/data/databases/basic/tables/${table}`,
-        relevance: 0.65 - i * 0.05
-      })
-    }
-  })
-
-  // Generate history results
-  const actions = ['Generated Report', 'Exported Data', 'Created Workspace', 'Started Research', 'Downloaded Asset']
-  actions.forEach((action, i) => {
-    if (Math.random() > 0.5) {
-      results.push({
-        id: `history-${i}`,
-        title: `${action}: "${query}"`,
-        description: `Action performed on ${new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}`,
-        category: 'history',
-        timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000),
-        metadata: 'Activity',
-        url: '/history',
-        relevance: 0.5 - i * 0.05
-      })
-    }
-  })
-
-  return results.sort((a, b) => b.relevance - a.relevance)
+function apiItemToSearchResult(
+  item: SearchResultItem,
+  index: number,
+): SearchResult {
+  const apiType = String(item.type ?? '')
+  const category = mapApiTypeToCategory(apiType)
+  const id = String(item.id ?? `row-${index}`)
+  const title = String(item.title ?? 'Untitled')
+  const description = String(
+    item.description ?? item.snippet ?? '',
+  )
+  const meta = item.metadata
+  const timestamp = pickDateFromMetadata(meta)
+  const relevance =
+    typeof item.relevance === 'number' ? item.relevance : 0.5
+  return {
+    id: `${apiType}-${id}`,
+    title,
+    description,
+    category,
+    timestamp,
+    metadata: formatMetadataLine(apiType, meta),
+    url: buildResultUrl(apiType, id, meta),
+    relevance,
+  }
 }
 
 const generateAISummary = (query: string, results: SearchResult[]): string => {
@@ -564,6 +565,7 @@ const Search = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
+  const aiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // State from URL params
   const initialQuery = useMemo(() => searchParams.get('q') || '', [searchParams])
@@ -576,9 +578,7 @@ const Search = () => {
   // Local state
   const [inputValue, setInputValue] = useState(initialQuery)
   const [isSearching, setIsSearching] = useState(false)
-  const [results, setResults] = useState<SearchResult[]>(() =>
-    initialQuery ? generateMockResults(initialQuery) : []
-  )
+  const [results, setResults] = useState<SearchResult[]>([])
   const [aiSummary, setAiSummary] = useState('')
   const [isAiLoading, setIsAiLoading] = useState(false)
   const [showRecentSearches, setShowRecentSearches] = useState(false)
@@ -596,38 +596,135 @@ const Search = () => {
     setSearchParams(newParams, { replace: true })
   }, [searchParams, setSearchParams])
 
-  // Execute search function
-  const executeSearch = useCallback((q: string, ai: boolean) => {
+  const clearAiPoll = useCallback(() => {
+    if (aiPollRef.current) {
+      clearInterval(aiPollRef.current)
+      aiPollRef.current = null
+    }
+  }, [])
+
+  const runSearch = useCallback(async (
+    q: string,
+    ai: boolean,
+    categoryIds: CategoryId[],
+    options?: { syncUrl?: boolean },
+  ) => {
+    const syncUrl = options?.syncUrl !== false
+    clearAiPoll()
     if (!q.trim()) {
       setResults([])
       setAiSummary('')
-      updateParams({ q: null })
+      setIsAiLoading(false)
+      if (syncUrl) updateParams({ q: null })
       return
     }
 
     setIsSearching(true)
-    updateParams({ q })
+    if (syncUrl) updateParams({ q })
+    try {
+      const typeFilter =
+        categoryIds.length === 1
+          ? categoryIdToTypeFilter(categoryIds[0])
+          : undefined
+      const data = await searchUniversal({
+        q: q.trim(),
+        aiMode: ai,
+        typeFilter,
+        page: 1,
+        size: 50,
+      })
+      const mapped = data.results.items
+        .map(apiItemToSearchResult)
+        .sort((a, b) => b.relevance - a.relevance)
+      setResults(mapped)
 
-    // Simulate search delay
-    const timer = setTimeout(() => {
-      const searchResults = generateMockResults(q)
-      setResults(searchResults)
-      setIsSearching(false)
-
-      // Generate AI summary if enabled
-      if (ai && searchResults.length > 0) {
-        setIsAiLoading(true)
-        setTimeout(() => {
-          setAiSummary(generateAISummary(q, searchResults))
+      if (ai) {
+        if (data.ai_mode.ai_summary) {
+          setAiSummary(data.ai_mode.ai_summary)
           setIsAiLoading(false)
-        }, 800)
+        } else if (
+          data.ai_mode.status === 'processing' &&
+          data.search_id
+        ) {
+          setIsAiLoading(true)
+          setAiSummary('')
+          let attempts = 0
+          aiPollRef.current = setInterval(() => {
+            void (async () => {
+              attempts += 1
+              if (attempts > 45) {
+                clearAiPoll()
+                setIsAiLoading(false)
+                setAiSummary(generateAISummary(q, mapped))
+                return
+              }
+              try {
+                const st = await getSearchAiStatus(data.search_id)
+                if (st.ai_summary) {
+                  clearAiPoll()
+                  setAiSummary(st.ai_summary)
+                  setIsAiLoading(false)
+                } else if (st.status === 'not_found') {
+                  clearAiPoll()
+                  setIsAiLoading(false)
+                  setAiSummary(generateAISummary(q, mapped))
+                }
+              } catch {
+                clearAiPoll()
+                setIsAiLoading(false)
+                setAiSummary(generateAISummary(q, mapped))
+              }
+            })()
+          }, 2000)
+        } else {
+          setIsAiLoading(false)
+          setAiSummary(
+            mapped.length > 0 ? generateAISummary(q, mapped) : '',
+          )
+        }
       } else {
         setAiSummary('')
+        setIsAiLoading(false)
       }
-    }, 400)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Search failed')
+      setResults([])
+      setAiSummary('')
+      setIsAiLoading(false)
+    } finally {
+      setIsSearching(false)
+    }
+  }, [clearAiPoll, updateParams])
 
-    return () => clearTimeout(timer)
-  }, [updateParams])
+  const executeSearch = useCallback((q: string, ai: boolean) => {
+    const cats =
+      (searchParams.get('categories')?.split(',').filter(Boolean) as CategoryId[]) ||
+      []
+    void runSearch(q, ai, cats, { syncUrl: true })
+  }, [runSearch, searchParams])
+
+  useEffect(() => {
+    setInputValue(initialQuery)
+  }, [initialQuery])
+
+  useEffect(() => {
+    return () => clearAiPoll()
+  }, [clearAiPoll])
+
+  const categoriesKey = selectedCategories.join(',')
+
+  useEffect(() => {
+    if (!initialQuery.trim()) {
+      setResults([])
+      setAiSummary('')
+      setIsAiLoading(false)
+      return
+    }
+    const cats =
+      (searchParams.get('categories')?.split(',').filter(Boolean) as CategoryId[]) ||
+      []
+    void runSearch(initialQuery, aiMode, cats, { syncUrl: false })
+  }, [initialQuery, aiMode, categoriesKey, runSearch, searchParams])
 
   // Handle Enter press
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -653,32 +750,6 @@ const Search = () => {
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [])
-
-  // Perform re-search when categories change (if query exists)
-  useEffect(() => {
-    if (initialQuery) {
-      const timer = setTimeout(() => {
-        const searchResults = generateMockResults(initialQuery)
-        setResults(prev => {
-          // Only update if results actually changed to avoid cascading renders
-          if (JSON.stringify(prev) === JSON.stringify(searchResults)) return prev
-          return searchResults
-        })
-
-        if (aiMode && searchResults.length > 0 && !aiSummary && !isAiLoading) {
-          setIsAiLoading(true)
-          setTimeout(() => {
-            setAiSummary(generateAISummary(initialQuery, searchResults))
-            setIsAiLoading(false)
-          }, 800)
-        } else if (!aiMode && aiSummary) {
-          // Clear summary if AI mode is disabled
-          setAiSummary('')
-        }
-      }, 0)
-      return () => clearTimeout(timer)
-    }
-  }, [aiMode, initialQuery, aiSummary, isAiLoading])
 
   // Filter results by selected categories
   const filteredResults = useMemo(() => {

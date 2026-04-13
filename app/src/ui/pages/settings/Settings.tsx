@@ -47,6 +47,71 @@ import {
 import { ResearchTemplateSelector } from '@/ui/components/ResearchTemplateSelector'
 import { cn, getVersion } from '@/lib/utils'
 import { useInternalLogo } from '@/ui/components/GetLogo'
+import {
+    getSettings,
+    patchSettings,
+    type DefaultReportFormat,
+    type DefaultResearchTemplate,
+    type SettingsRecord,
+    type ThemeMode,
+} from '@/lib/apis'
+
+const RESEARCH_TEMPLATE_KEYS: DefaultResearchTemplate[] = [
+    'comprehensive',
+    'quick_summary',
+    'academic',
+    'market_analysis',
+    'technical_insights',
+    'comparative_study',
+    'vacation_planner',
+]
+
+const AI_PERSONALITY_OPTIONS = [
+    'professional',
+    'friendly',
+    'concise',
+    'detailed',
+    'creative',
+] as const
+
+function reportFmtApiToUi(v: string | null | undefined): string {
+    const x = (v ?? 'md') as string
+    if (x === 'md') return 'markdown'
+    if (x === 'pdf') return 'pdf'
+    if (x === 'html') return 'html'
+    return 'markdown'
+}
+
+function reportFmtUiToApi(v: string): DefaultReportFormat {
+    if (v === 'markdown') return 'md'
+    if (v === 'pdf') return 'pdf'
+    if (v === 'html') return 'html'
+    return 'md'
+}
+
+function retentionApiToUi(days: number | null | undefined): string {
+    if (days == null) return '30'
+    if (days >= 36500) return 'forever'
+    const s = String(days)
+    return ['7', '14', '30', '90'].includes(s) ? s : '30'
+}
+
+function retentionUiToApi(v: string): number {
+    if (v === 'forever') return 36500
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) ? n : 30
+}
+
+function templateApiToUi(t: string | null | undefined): string {
+    const v = (t ?? 'comprehensive') as DefaultResearchTemplate
+    return RESEARCH_TEMPLATE_KEYS.includes(v) ? v : 'comprehensive'
+}
+
+function themeFromApi(theme: SettingsRecord['theme']): string {
+    const v = theme ?? 'system'
+    if (v === 'light' || v === 'dark' || v === 'system') return v
+    return 'system'
+}
 
 // Settings Section Component
 interface SettingsSectionProps {
@@ -135,8 +200,107 @@ const Settings = () => {
     const [deleteType, setDeleteType] = useState<'all_data' | 'buckets' | 'reset_app' | null>(null)
     const [confirmCode, setConfirmCode] = useState('')
     const [userCodeInput, setUserCodeInput] = useState('')
+    const [settingsLoaded, setSettingsLoaded] = useState(false)
+    const [settingsSaving, setSettingsSaving] = useState(false)
 
+    const hydrateFromServer = useCallback((s: SettingsRecord) => {
+        setProfileName(s.user_name ?? '')
+        setProfileEmail(s.user_email ?? '')
+        setProfileBio(s.user_bio ?? '')
+        setTheme(themeFromApi(s.theme))
+        setMaxSearchDepth(String(s.max_depth_search ?? 3))
+        setDefaultReportFormat(reportFmtApiToUi(s.default_report_fmt))
+        setResearchComplete(s.notification_on_complete_research)
+        setErrorAlerts(s.show_error_on_alerts)
+        setSoundEnabled(s.sound_effect)
+        setDataRetention(retentionApiToUi(s.temperory_data_retention))
+        const nm = s.ai_name?.trim()
+        setResearcherName(
+            nm || localStorage.getItem('dr_researcher_name') || 'Alfred',
+        )
+        const pers = s.ai_personality?.trim() ?? 'professional'
+        setAiPersonality(
+            AI_PERSONALITY_OPTIONS.includes(
+                pers as (typeof AI_PERSONALITY_OPTIONS)[number],
+            )
+                ? pers
+                : 'professional',
+        )
+        setCustomPrompt(s.ai_custom_prompt ?? '')
+        setResearchTemplate(templateApiToUi(s.default_research_template))
+        setStreamResponse(s.stream_response)
+        setShowSources(s.show_citations)
+    }, [])
 
+    useEffect(() => {
+        let cancelled = false
+        void (async () => {
+            try {
+                const s = await getSettings()
+                if (!cancelled) hydrateFromServer(s)
+            } catch (e) {
+                if (!cancelled) {
+                    toast.error(
+                        e instanceof Error ? e.message : 'Could not load settings',
+                    )
+                }
+            } finally {
+                if (!cancelled) setSettingsLoaded(true)
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [hydrateFromServer])
+
+    const handleSave = useCallback(async () => {
+        setSettingsSaving(true)
+        try {
+            await patchSettings({
+                user_name: profileName.trim() || null,
+                user_email: profileEmail.trim() || null,
+                user_bio: profileBio.trim() || null,
+                theme: theme as ThemeMode,
+                max_depth_search: parseInt(maxSearchDepth, 10) || null,
+                default_report_fmt: reportFmtUiToApi(defaultReportFormat),
+                default_research_template:
+                    researchTemplate as DefaultResearchTemplate,
+                notification_on_complete_research: researchComplete,
+                show_error_on_alerts: errorAlerts,
+                sound_effect: soundEnabled,
+                temperory_data_retention: retentionUiToApi(dataRetention),
+                ai_name: researcherName.trim() || null,
+                ai_personality: aiPersonality,
+                ai_custom_prompt: customPrompt.trim() || null,
+                stream_response: streamResponse,
+                show_citations: showSources,
+            })
+            toast.success('Settings saved')
+        } catch (e) {
+            toast.error(
+                e instanceof Error ? e.message : 'Could not save settings',
+            )
+        } finally {
+            setSettingsSaving(false)
+        }
+    }, [
+        profileName,
+        profileEmail,
+        profileBio,
+        theme,
+        maxSearchDepth,
+        defaultReportFormat,
+        researchTemplate,
+        researchComplete,
+        errorAlerts,
+        soundEnabled,
+        dataRetention,
+        researcherName,
+        aiPersonality,
+        customPrompt,
+        streamResponse,
+        showSources,
+    ])
 
     // Memoize handlers to prevent unnecessary re-renders
     const handleProfileNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -339,9 +503,11 @@ const Settings = () => {
                             <Button
                                 size="sm"
                                 className="gap-2"
+                                disabled={!settingsLoaded || settingsSaving}
+                                onClick={() => void handleSave()}
                             >
                                 <Save className="size-4" />
-                                Save Changes
+                                {settingsSaving ? 'Saving…' : 'Save Changes'}
                             </Button>
                         </div>
                     </div>

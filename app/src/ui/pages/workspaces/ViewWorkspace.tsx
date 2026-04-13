@@ -660,7 +660,7 @@ const ViewWorkspace = () => {
                     variant="secondary"
                     size="sm"
                     className={cn("gap-1 text-xs font-semibold", accent.text)}
-                    onClick={() => navigate('/researches/new')}
+                    onClick={() => navigate('/researches/create')}
                   >
                     <Plus className="w-3 h-3" />
                     New Research

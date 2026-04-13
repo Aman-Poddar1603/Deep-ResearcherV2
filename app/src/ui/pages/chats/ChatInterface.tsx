@@ -1,4 +1,11 @@
-import { useState, useCallback, memo } from 'react'
+import { useState, useCallback, memo, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import {
+  getChatThread,
+  listChatMessages,
+  type ChatMessageRecord,
+} from '@/lib/apis'
+import { toast } from '@/components/ui/sonner'
 import { Message, MessageContent, MessageResponse, MessageAction, MessageActions, MessageToolbar } from '@/components/ai-elements/message'
 import {
   ChainOfThought,
@@ -28,6 +35,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useChatSimulator, type ChatMessage } from './useChatSimulator'
+
+function mapRecordToChatMessage(m: ChatMessageRecord): ChatMessage {
+  const roleRaw = (m.role ?? 'assistant').toLowerCase()
+  const role: 'user' | 'assistant' =
+    roleRaw === 'user' ? 'user' : 'assistant'
+  return {
+    id: m.message_id,
+    role,
+    content: m.content ?? '',
+  }
+}
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { Persona } from '@/components/ai-elements/persona'
 
@@ -187,9 +205,55 @@ const ChatMessageItem = memo(({
 ChatMessageItem.displayName = 'ChatMessageItem'
 
 const ChatInterface = () => {
-  const { messages, isLoading, sendMessage, stopStreaming } = useChatSimulator()
+  const { id: threadId } = useParams<{ id: string }>()
+  const { messages, isLoading, sendMessage, stopStreaming, replaceMessages } =
+    useChatSimulator()
   const [input, setInput] = useState('')
-  const [copyState, setCopyState] = useState<Record<string, 'idle' | 'loading' | 'success'>>({})
+  const [copyState, setCopyState] = useState<
+    Record<string, 'idle' | 'loading' | 'success'>
+  >({})
+  const [headerTitle, setHeaderTitle] = useState('Chat')
+  const [headerSub, setHeaderSub] = useState('')
+
+  useEffect(() => {
+    if (!threadId?.trim()) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [thread, msgRes] = await Promise.all([
+          getChatThread(threadId),
+          listChatMessages({
+            threadId,
+            page: 1,
+            size: 500,
+            sortBy: 'message_seq',
+            sortOrder: 'asc',
+          }),
+        ])
+        if (cancelled) return
+        setHeaderTitle(thread.thread_title?.trim() || 'Chat')
+        const ws = thread.workspace_id?.trim()
+        const updated = new Date(thread.updated_at).toLocaleDateString(
+          'en-US',
+          { month: 'short', day: 'numeric', year: 'numeric' },
+        )
+        setHeaderSub(
+          ws ? `Workspace ${ws} • ${updated}` : updated,
+        )
+        replaceMessages(msgRes.items.map(mapRecordToChatMessage))
+      } catch (e) {
+        if (!cancelled) {
+          toast.error(
+            e instanceof Error ? e.message : 'Failed to load conversation',
+          )
+          replaceMessages([])
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [threadId, replaceMessages])
 
   const handleSend = useCallback((value: string, files?: File[]) => {
     sendMessage(value, files)
@@ -222,12 +286,12 @@ const ChatInterface = () => {
               variant="glint"
             />
           )}
-          <div className="flex flex-col">
-            <h2 className="text-sm font-semibold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-none">
-              Cryptocurrency Market Analysis
+          <div className="flex flex-col min-w-0">
+            <h2 className="text-sm font-semibold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent leading-none truncate max-w-[min(100vw-8rem,28rem)]">
+              {headerTitle}
             </h2>
-            <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
-              My Workspace • Jan 31, 2026
+            <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium truncate max-w-[min(100vw-8rem,28rem)]">
+              {headerSub || (threadId ? `Thread ${threadId}` : 'Conversation')}
             </p>
           </div>
         </div>

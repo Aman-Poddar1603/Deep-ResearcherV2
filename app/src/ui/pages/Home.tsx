@@ -47,7 +47,7 @@ export function Home() {
                 </Link>
                 
                 <Link 
-                    to="/researches/new" 
+                    to="/researches/create" 
                     className="group relative p-6 rounded-2xl bg-white/5 border border-white/10 text-left space-y-2 animate-in fade-in slide-in-from-bottom-4 duration-1000 fill-mode-both hover:bg-white/(7) hover:border-primary/50 transition-all block overflow-hidden" 
                     style={{ animationDelay: '750ms' }}
                 >

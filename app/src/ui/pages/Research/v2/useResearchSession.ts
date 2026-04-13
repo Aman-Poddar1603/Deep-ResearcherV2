@@ -37,10 +37,14 @@ function toSessionStatus(value: unknown, fallback: ResearchSessionStatus): Resea
 }
 
 function parseStepIndex(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value))
+    if (typeof value === 'number' && Number.isFinite(value)) return value >= 0 ? Math.floor(value) : null
     if (typeof value !== 'string') return null
-    const m = value.trim().match(/^(\d+)/)
-    return m ? Number.parseInt(m[1], 10) : null
+    const m = value.trim().match(/[-]?\d+/)
+    if (m) {
+        const num = Number.parseInt(m[0], 10)
+        return num >= 0 ? num : null
+    }
+    return null
 }
 
 function sameToolSig(aName: string, aArgs: unknown, bName: string, bArgs: unknown): boolean {
@@ -67,6 +71,41 @@ function progressLabel(cur: unknown, tot: unknown, fallback: string): string {
 function toPercent(v: unknown): number | null {
     if (typeof v !== 'number' || Number.isNaN(v)) return null
     return v >= 0 && v <= 1 ? Math.round(v * 100) : Math.round(v)
+}
+
+function extractPendingQuestion(pending: PendingInput | null): QAQuestion | null {
+    if (!pending || pending.type !== 'qa_question') return null
+
+    const payload = pending.payload && typeof pending.payload === 'object'
+        ? pending.payload as JO
+        : null
+
+    const question = typeof pending.question === 'string'
+        ? pending.question.trim()
+        : typeof payload?.question === 'string'
+            ? payload.question.trim()
+            : ''
+
+    if (!question) return null
+
+    const index = typeof pending.question_index === 'number'
+        ? pending.question_index
+        : typeof payload?.question_index === 'number'
+            ? payload.question_index
+            : 0
+
+    return { question, index }
+}
+
+function extractPendingPlanText(pending: PendingInput | null, fallbackPlan?: unknown): string {
+    if (pending?.type === 'plan_approval') {
+        const payload = pending.payload && typeof pending.payload === 'object'
+            ? pending.payload as JO
+            : null
+        const fromPending = pending.plan ?? pending.current_plan ?? payload?.plan ?? payload?.current_plan
+        return toPlanText(fromPending ?? fallbackPlan)
+    }
+    return fallbackPlan ? toPlanText(fallbackPlan) : ''
 }
 
 function buildResumeSteps(planSource: unknown, currentStep: unknown, totalSteps: unknown, status: ResearchSessionStatus): LiveStep[] {
@@ -111,6 +150,7 @@ export interface UseResearchSessionReturn {
     isRunning: boolean
     isPendingQuestion: boolean
     isPendingApproval: boolean
+    context: Partial<ResearchStartPayload>
 
     // Actions
     startResearch: (payload: ResearchStartPayload) => Promise<void>
@@ -142,6 +182,7 @@ export function useResearchSession(options?: {
         error: string | null
         progress: number
         progressMsg: string
+        context: Partial<ResearchStartPayload>
     }
 
     const [state, setState] = useState<StepState>({
@@ -149,9 +190,13 @@ export function useResearchSession(options?: {
         steps: [], questions: [], plan: null, planApproved: null,
         artifact: '', artifactDone: false, tokens: normalizeTokenInfo(),
         error: null, progress: 0, progressMsg: '',
+        context: {},
     })
 
     // Refs that don't trigger re-renders
+    const optionsRef = useRef(options)
+    useEffect(() => { optionsRef.current = options }, [options])
+
     const stateRef = useRef(state)
     const cursorRef = useRef<EventCursor>(null)
     const cursorSourceRef = useRef<'timeline' | 'stream' | 'status'>('status')
@@ -161,6 +206,7 @@ export function useResearchSession(options?: {
     const resumeUrlRef = useRef('')
     const websocketUrlRef = useRef('')
     const pendingInputRef = useRef<PendingInput | null>(null)
+    const outboundQueueRef = useRef<unknown[]>([])
     const backendBaseRef = useRef(parseBackendBase(options?.backendBase) ?? readBackendBase())
     const streamManagerRef = useRef<ResearchStreamManager | null>(null)
     const timelineTracker = useRef(createTimelineTracker())
@@ -168,7 +214,54 @@ export function useResearchSession(options?: {
 
     useEffect(() => { stateRef.current = state }, [state])
 
-    const s = (fn: (prev: StepState) => StepState) => setState(fn)
+    const s = useCallback((fn: (prev: StepState) => StepState) => setState(fn), [])
+
+    const applyPendingSnapshot = useCallback((base: StepState, pending: PendingInput | null, planFallback?: unknown): StepState => {
+        const pendingQuestion = extractPendingQuestion(pending)
+        if (pendingQuestion) {
+            return {
+                ...base,
+                status: 'waiting_for_answer',
+                questions: [pendingQuestion],
+            }
+        }
+
+        const pendingPlanText = extractPendingPlanText(pending, planFallback)
+        if (pending?.type === 'plan_approval' && pendingPlanText) {
+            return {
+                ...base,
+                status: 'waiting_for_approval',
+                planApproved: null,
+                plan: { plan: pendingPlanText },
+            }
+        }
+
+        return base
+    }, [])
+
+    const flushOutboundQueue = useCallback(() => {
+        const manager = streamManagerRef.current
+        if (!manager?.isOpen()) return
+        if (outboundQueueRef.current.length === 0) return
+
+        const queued = [...outboundQueueRef.current]
+        outboundQueueRef.current = []
+        for (const payload of queued) manager.send(payload)
+    }, [])
+
+    const sendOrQueue = useCallback((payload: unknown): boolean => {
+        const manager = streamManagerRef.current
+        if (manager?.isOpen()) {
+            manager.send(payload)
+            return true
+        }
+
+        outboundQueueRef.current.push(payload)
+        if (outboundQueueRef.current.length > 20) {
+            outboundQueueRef.current = outboundQueueRef.current.slice(-20)
+        }
+        return false
+    }, [])
 
     // ── Cursor management ────────────────────────────────────────────────────
     const PRIORITY = { timeline: 3, stream: 2, status: 1 } as const
@@ -213,6 +306,7 @@ export function useResearchSession(options?: {
         cursorRef.current = null
         cursorSourceRef.current = 'status'
         pendingInputRef.current = null
+        outboundQueueRef.current = []
         streamManagerRef.current?.updateCursor(null)
         s(prev => ({
             ...prev,
@@ -220,6 +314,7 @@ export function useResearchSession(options?: {
             status, steps: [], questions: [], plan: null, planApproved: null,
             artifact: '', artifactDone: false, progress: 0, progressMsg: '',
             error: null, tokens: normalizeTokenInfo(),
+            context: {},
         }))
     }, [])
 
@@ -428,7 +523,7 @@ export function useResearchSession(options?: {
         })
 
         persist(stateRef.current.researchId)
-    }, [setCursor, persist])
+    }, [setCursor, persist, s])
 
     // ── Open WebSocket ───────────────────────────────────────────────────────
     const openSocket = useCallback((rid: string, options?: { websocketUrl?: string; lastEventId?: EventCursor; replayLimit?: number }) => {
@@ -476,9 +571,15 @@ export function useResearchSession(options?: {
         pendingInputRef.current = bundle.pending_input ?? null
         const planSource = bundle.plan
         const planText = toPlanText(planSource)
-        const ctx = bundle.context && typeof bundle.context === 'object' ? bundle.context as JO : {}
         const tokens = normalizeTokenInfo(bundle.token_totals)
         const snapshotArtifact = snapshot && typeof snapshot.artifact_text === 'string' ? snapshot.artifact_text : ''
+
+        const recoveredContext = (bundle.context && typeof bundle.context === 'object' && !Array.isArray(bundle.context))
+            ? bundle.context as Partial<ResearchStartPayload>
+            : (snapshot?.context && typeof snapshot.context === 'object' && !Array.isArray(snapshot.context))
+                ? snapshot.context as Partial<ResearchStartPayload>
+                : {}
+
         
 
         s(prev => {
@@ -532,13 +633,15 @@ export function useResearchSession(options?: {
                 }
             }
 
-            // Apply pending_input
-            let finalStatus = baseStatus
-            const pending = bundle.pending_input
-            if (pending?.type === 'qa_question') finalStatus = 'waiting_for_answer'
-            else if (pending?.type === 'plan_approval') finalStatus = 'waiting_for_approval'
+            const pending = bundle.pending_input ?? null
 
-            return {
+            const finalStatus = pending?.type === 'qa_question'
+                ? 'waiting_for_answer'
+                : pending?.type === 'plan_approval'
+                    ? 'waiting_for_approval'
+                    : baseStatus
+
+            const base: StepState = {
                 ...prev,
                 researchId: rid,
                 status: finalStatus,
@@ -549,16 +652,16 @@ export function useResearchSession(options?: {
                 plan: planText ? { plan: planText } : prev.plan,
                 artifact: snapshotArtifact ? finalizeText(prev.artifact, snapshotArtifact) : prev.artifact,
                 artifactDone: snapshotArtifact ? isTerminalStatus(baseStatus) : prev.artifactDone,
-                questions: pending?.type === 'qa_question' && typeof pending.question === 'string'
-                    ? [{ question: pending.question, index: pending.question_index as number ?? 0 }]
-                    : prev.questions,
                 planApproved: pending?.type === 'plan_approval' ? null : prev.planApproved,
                 error: null,
+                context: { ...prev.context, ...recoveredContext },
             }
+
+            return applyPendingSnapshot(base, pending, planSource)
         })
 
         persist(rid, { ...urls, last_known_event_id: cursorRef.current, pending_input: pendingInputRef.current })
-    }, [setCursor, persist])
+    }, [setCursor, persist, applyPendingSnapshot])
 
     // ── Replay missed events ─────────────────────────────────────────────────
     const replayMissed = useCallback(async (rid: string, fromCursor: EventCursor) => {
@@ -585,6 +688,7 @@ export function useResearchSession(options?: {
                     const live = ['starting', 'running', 'waiting_for_answer', 'waiting_for_approval', 'stopping'].includes(prev.status)
                     return { ...prev, status: live ? prev.status : 'connected', error: null }
                 })
+                flushOutboundQueue()
             },
             onError: () => s(prev => ({ ...prev, status: 'disconnected', error: 'Connection error' })),
             onClose: () => {
@@ -598,7 +702,7 @@ export function useResearchSession(options?: {
         })
         streamManagerRef.current = manager
         return () => { manualDisconnectRef.current = true; manager.disconnect(true); streamManagerRef.current = null }
-    }, [applyMessage])
+    }, [applyMessage, flushOutboundQueue])
 
     // ── 5-second polling safety-net (spec §14.8) ──────────────────────────
     const POLL_ACTIVE_STATUSES = new Set([
@@ -625,26 +729,30 @@ export function useResearchSession(options?: {
                 const evId = statusResp.latest_event_id ?? null
                 if (evId !== null) setCursor(evId, 'status', currentState.researchId)
 
-                // Update pending_input
-                if (statusResp.pending_input !== undefined) {
-                    pendingInputRef.current = statusResp.pending_input ?? null
-                }
+                const polledPending = statusResp.pending_input !== undefined
+                    ? statusResp.pending_input ?? null
+                    : pendingInputRef.current
+                pendingInputRef.current = polledPending
 
                 // Persist snapshot
                 persist(currentState.researchId, {
                     last_known_event_id: evId ?? cursorRef.current,
                     last_status: statusResp as Record<string, unknown>,
-                    pending_input: statusResp.pending_input ?? null,
+                    pending_input: polledPending,
                 })
 
                 s(prev => {
                     const newStatus = toSessionStatus(statusResp.status, prev.status)
                     const tokens = normalizeTokenInfo(statusResp.token_totals)
-                    return {
+                    const base: StepState = {
                         ...prev,
                         status: newStatus,
+                        progress: progressFromCounts(statusResp.current_step, statusResp.total_steps, prev.progress),
+                        progressMsg: progressLabel(statusResp.current_step, statusResp.total_steps, prev.progressMsg),
                         tokens: (tokens.input_tokens > 0 || tokens.output_tokens > 0) ? tokens : prev.tokens,
                     }
+
+                    return applyPendingSnapshot(base, polledPending)
                 })
 
                 // session-not-found on 404 comes from isSessionNotFoundError thrown before here
@@ -673,15 +781,9 @@ export function useResearchSession(options?: {
     // We intentionally omit fast-changing deps; the ref pattern lets us
     // always read the latest values inside the async closure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [apiService, setCursor, persist])
+    }, [apiService, setCursor, persist, applyPendingSnapshot])
 
-    // ── Auto-resume if researchId was provided ───────────────────────────────
-    useEffect(() => {
-        if (options?.researchId) {
-            void resumeSession(options.researchId)
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
+
 
     // ── Public actions ───────────────────────────────────────────────────────
     const startResearch = useCallback(async (payload: ResearchStartPayload) => {
@@ -702,11 +804,11 @@ export function useResearchSession(options?: {
 
         s(prev => ({ ...prev, researchId: rid, status: toSessionStatus(started.status, 'starting') }))
         persist(rid, { ...urls })
-        options?.onNavigateToSession?.(rid, true)
+        optionsRef.current?.onNavigateToSession?.(rid, true)
         openSocket(rid, { websocketUrl: urls.websocket_url, lastEventId: cursorRef.current })
-    }, [apiService, openSocket, persist, resetRunState, options])
+    }, [apiService, openSocket, persist, resetRunState])
 
-    async function resumeSession(researchIdInput: string) {
+    const resumeSession = useCallback(async (researchIdInput: string) => {
         const rid = researchIdInput.trim()
         if (!rid) { s(prev => ({ ...prev, status: 'failed', error: 'Invalid research ID' })); return }
 
@@ -744,7 +846,7 @@ export function useResearchSession(options?: {
             const tlCount = typeof bundle.timeline_replay_count === 'number' ? bundle.timeline_replay_count : (bundle.timeline_events?.length ?? 0)
             if (tlCount >= 1000 && tlNextCursor != null) await replayMissed(rid, tlNextCursor)
 
-            options?.onNavigateToSession?.(rid, true)
+            optionsRef.current?.onNavigateToSession?.(rid, true)
 
             const bundleStatus = toSessionStatus(bundle.status, 'connected')
             if (!isTerminalStatus(bundleStatus)) {
@@ -759,9 +861,9 @@ export function useResearchSession(options?: {
                 s(prev => ({ ...prev, researchId: rid, status: 'not_found', error: 'This session is no longer available.' }))
                 return
             }
-            s(prev => ({ ...prev, status: 'failed', error: String(err), errorRecoverable: true }))
+            s(prev => ({ ...prev, status: 'failed', error: String(err) }))
         }
-    }
+    }, [apiService, hydrateBundle, applyMessage, replayMissed, openSocket, resetRunState, s, setCursor])
 
     const stopResearch = useCallback(async () => {
         streamManagerRef.current?.send({ type: 'stop.request' })
@@ -772,30 +874,58 @@ export function useResearchSession(options?: {
     const submitAnswer = useCallback((answer: string) => {
         const a = answer.trim()
         if (!a) return
-        streamManagerRef.current?.send({ type: 'user.answer', answer: a })
+        const wasSent = sendOrQueue({ type: 'user.answer', answer: a })
         pendingInputRef.current = null
         s(prev => {
             const remaining = prev.questions.slice(1)
             return { ...prev, questions: remaining, status: remaining.length > 0 ? 'waiting_for_answer' : 'running' }
         })
-    }, [])
+        if (!wasSent) {
+            const rid = stateRef.current.researchId
+            if (rid && !manualDisconnectRef.current && !isTerminalStatus(stateRef.current.status)) {
+                openSocket(rid, { websocketUrl: websocketUrlRef.current, lastEventId: cursorRef.current, replayLimit: DEFAULT_REPLAY_LIMIT })
+            }
+        }
+    }, [openSocket, sendOrQueue])
 
     const approvePlan = useCallback(() => {
-        streamManagerRef.current?.send({ type: 'user.approval', action: 'approve' })
+        const wasSent = sendOrQueue({ type: 'user.approval', action: 'approve' })
         pendingInputRef.current = null
         s(prev => ({ ...prev, status: 'running', planApproved: true }))
-    }, [])
+        if (!wasSent) {
+            const rid = stateRef.current.researchId
+            if (rid && !manualDisconnectRef.current && !isTerminalStatus(stateRef.current.status)) {
+                openSocket(rid, { websocketUrl: websocketUrlRef.current, lastEventId: cursorRef.current, replayLimit: DEFAULT_REPLAY_LIMIT })
+            }
+        }
+    }, [openSocket, sendOrQueue])
 
     const refactorPlan = useCallback((feedback: string) => {
-        streamManagerRef.current?.send({ type: 'user.approval', action: 'refactor', feedback })
+        const wasSent = sendOrQueue({ type: 'user.approval', action: 'refactor', feedback })
+        pendingInputRef.current = { type: 'plan_approval', plan: stateRef.current.plan?.plan }
         s(prev => ({ ...prev, status: 'waiting_for_approval', planApproved: null }))
-    }, [])
+        if (!wasSent) {
+            const rid = stateRef.current.researchId
+            if (rid && !manualDisconnectRef.current && !isTerminalStatus(stateRef.current.status)) {
+                openSocket(rid, { websocketUrl: websocketUrlRef.current, lastEventId: cursorRef.current, replayLimit: DEFAULT_REPLAY_LIMIT })
+            }
+        }
+    }, [openSocket, sendOrQueue])
 
     const disconnect = useCallback(() => {
         manualDisconnectRef.current = true
+        outboundQueueRef.current = []
         streamManagerRef.current?.disconnect(true)
         s(prev => ({ ...prev, status: 'idle' }))
     }, [])
+
+    // ── Auto-resume if researchId was provided ───────────────────────────────
+    useEffect(() => {
+        if (options?.researchId) {
+            void resumeSession(options.researchId)
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [options?.researchId, resumeSession])
 
     const isRunning = state.status === 'running' || state.status === 'starting' || state.status === 'connecting' || state.status === 'stopping'
 

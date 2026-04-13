@@ -319,7 +319,7 @@ const AllResearches = () => {
                                     <List className="size-3.5" />
                                 </Button>
                             </div>
-                            <Button size="sm" className="gap-2" onClick={() => navigate('/researches/new')}>
+                            <Button size="sm" className="gap-2" onClick={() => navigate('/researches/create')}>
                                 <Plus className="size-4" />
                                 New Research
                             </Button>
@@ -441,7 +441,7 @@ const AllResearches = () => {
                                     <X className="size-3.5" />Clear all filters
                                 </Button>
                             ) : (
-                                <Button size="sm" className="gap-2 mt-2" onClick={() => navigate('/researches/new')}>
+                                <Button size="sm" className="gap-2 mt-2" onClick={() => navigate('/researches/create')}>
                                     <Plus className="size-4" />New Research
                                 </Button>
                             )}
