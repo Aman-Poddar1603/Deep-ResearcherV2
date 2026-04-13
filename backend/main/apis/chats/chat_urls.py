@@ -110,9 +110,10 @@ def patch_thread(thread_id: str, payload: ChatThreadPatch) -> ChatThreadRecord:
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_thread(thread_id: str) -> Response:
+async def delete_thread(thread_id: str) -> Response:
     try:
         chat_view.deleteThread(thread_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted chat thread {thread_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_chat_http_error(f"Delete chat thread {thread_id}", exc)
@@ -177,9 +178,10 @@ def patch_message(message_id: str, payload: ChatMessagePatch) -> ChatMessageReco
 
 
 @router.delete("/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_message(message_id: str) -> Response:
+async def delete_message(message_id: str) -> Response:
     try:
         chat_view.deleteMessage(message_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted chat message {message_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_chat_http_error(f"Delete chat message {message_id}", exc)
@@ -250,9 +252,10 @@ def patch_attachment(
 
 
 @router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_attachment(attachment_id: str) -> Response:
+async def delete_attachment(attachment_id: str) -> Response:
     try:
         chat_view.deleteAttachment(attachment_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted chat attachment {attachment_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_chat_http_error(f"Delete chat attachment {attachment_id}", exc)

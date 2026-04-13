@@ -254,9 +254,10 @@ def patch_bucket_item(item_id: str, payload: BucketItemPatch) -> BucketItemRecor
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_bucket_item(item_id: str) -> Response:
+async def delete_bucket_item(item_id: str) -> Response:
     try:
         bucket_view.deleteBucketItem(item_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted bucket item {item_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_bucket_http_error(f"Delete bucket item {item_id}", exc)
@@ -287,9 +288,10 @@ def patch_bucket(bucket_id: str, payload: BucketPatch) -> BucketRecord:
 
 
 @router.delete("/{bucket_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_bucket(bucket_id: str) -> Response:
+async def delete_bucket(bucket_id: str) -> Response:
     try:
         bucket_view.deleteBucket(bucket_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted bucket {bucket_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_bucket_http_error(f"Delete bucket {bucket_id}", exc)

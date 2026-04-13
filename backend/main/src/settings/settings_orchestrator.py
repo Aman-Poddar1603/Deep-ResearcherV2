@@ -3,6 +3,7 @@ from typing import Any
 
 from main.apis.models.settings import SettingsPatch, SettingsRecord
 from main.src.store.DBManager import main_db_manager
+from main.src.utils.DRLogger import quickLog
 
 
 class SettingsOrchestrator:
@@ -33,12 +34,14 @@ class SettingsOrchestrator:
         self._insert_row(payload)
 
     def getSettings(self) -> SettingsRecord:
+        quickLog("Fetching settings", level="info", module="API")
         row = self._get_first_row()
         if row is None:
             return SettingsRecord()
         return SettingsRecord.model_validate(row)
 
     def createSettings(self, payload: SettingsRecord) -> SettingsRecord:
+        quickLog("Creating settings", level="info", module="API")
         row = self._get_first_row()
         if row is not None:
             raise ValueError("Settings row already exists. Use PUT or PATCH to modify.")
@@ -46,11 +49,13 @@ class SettingsOrchestrator:
         return self.getSettings()
 
     def updateSettings(self, payload: SettingsRecord) -> SettingsRecord:
+        quickLog("Updating settings", level="info", module="API")
         data = self._normalize_payload(payload.model_dump(mode="python"))
         self._replace_singleton_row(data)
         return self.getSettings()
 
     def patchSettings(self, payload: SettingsPatch) -> SettingsRecord:
+        quickLog("Patching settings", level="info", module="API")
         current = self._get_first_row()
         patch_data = payload.model_dump(exclude_unset=True, mode="python")
         if not patch_data:
@@ -69,6 +74,7 @@ class SettingsOrchestrator:
         return self.getSettings()
 
     def deleteSettings(self) -> None:
+        quickLog("Deleting settings", level="warning", urgency="moderate", module="API")
         result = main_db_manager.delete_all("settings")
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to delete settings")

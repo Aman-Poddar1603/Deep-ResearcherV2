@@ -21,6 +21,7 @@ from main.apis.models.workspaces import (
     WorkspaceResourceStats,
 )
 from main.src.bucket import bucket_orchestrator as _bucket_orch
+from main.src.utils.core.task_schedular import scheduler
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.versionManagement import get_raw_version
 from main.src.workspace import workspace_orchestrator
@@ -439,12 +440,13 @@ def patch_workspace(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-def delete_workspace(workspace_id: str) -> Response:
+async def delete_workspace(workspace_id: str) -> Response:
     try:
         _log_system_workspace_event(
             f"Deleting workspace {workspace_id} API invoked", level="info"
         )
         workspace_view.deleteWorkspace(workspace_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted workspace {workspace_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_workspace_http_error(f"Delete workspace {workspace_id}", exc)

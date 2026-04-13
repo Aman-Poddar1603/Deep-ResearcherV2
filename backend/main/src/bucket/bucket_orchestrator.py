@@ -15,6 +15,7 @@ from main.apis.models.bucket import (
 )
 from main.src.store.DBManager import buckets_db_manager
 from main.src.bucket.bucket_store import bucket_store
+from main.src.utils.DRLogger import quickLog
 
 
 class BucketOrchestrator:
@@ -112,6 +113,7 @@ class BucketOrchestrator:
         ] = "updated_at",
         sort_order: Literal["asc", "desc"] = "desc",
     ) -> BucketListResponse:
+        quickLog("Listing buckets", level="info", module="API")
         where: dict[str, Any] = {}
         if created_by is not None:
             where["created_by"] = created_by
@@ -168,12 +170,14 @@ class BucketOrchestrator:
         )
 
     def getBucket(self, bucket_id: str) -> BucketRecord:
+        quickLog(f"Fetching bucket {bucket_id}", level="info", module="API")
         row = self._fetch_one(
             self.bucket_table, {"id": bucket_id}, f"Bucket {bucket_id} not found"
         )
         return BucketRecord.model_validate(row)
 
     def createBucket(self, payload: BucketCreate) -> BucketRecord:
+        quickLog("Creating bucket", level="info", module="API")
         record = BucketRecord(**payload.model_dump(mode="python"))
         data = self._db_payload(record.model_dump(mode="python"))
         result = buckets_db_manager.insert(self.bucket_table, data)
@@ -184,6 +188,7 @@ class BucketOrchestrator:
         return self.getBucket(data["id"])
 
     def updateBucket(self, bucket_id: str, payload: BucketCreate) -> BucketRecord:
+        quickLog(f"Updating bucket {bucket_id}", level="info", module="API")
         self.getBucket(bucket_id)
         record = BucketRecord(id=bucket_id, **payload.model_dump(mode="python"))
         data = self._db_payload(record.model_dump(mode="python"))
@@ -196,6 +201,7 @@ class BucketOrchestrator:
         return self.getBucket(bucket_id)
 
     def patchBucket(self, bucket_id: str, payload: BucketPatch) -> BucketRecord:
+        quickLog(f"Patching bucket {bucket_id}", level="info", module="API")
         self.getBucket(bucket_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
@@ -211,6 +217,7 @@ class BucketOrchestrator:
         return self.getBucket(bucket_id)
 
     def deleteBucket(self, bucket_id: str) -> None:
+        quickLog(f"Deleting bucket {bucket_id}", level="warning", urgency="moderate", module="API")
         self.getBucket(bucket_id)
         # Remove all child items from DB first
         buckets_db_manager.delete(self.item_table, where={"bucket_id": bucket_id})
@@ -252,6 +259,7 @@ class BucketOrchestrator:
         if is_deleted is not None:
             where["is_deleted"] = is_deleted
 
+        quickLog("Listing bucket items", level="info", module="API")
         result = buckets_db_manager.fetch_all(self.item_table, where=where)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to list bucket items")
@@ -306,12 +314,14 @@ class BucketOrchestrator:
         )
 
     def getBucketItem(self, item_id: str) -> BucketItemRecord:
+        quickLog(f"Fetching bucket item {item_id}", level="info", module="API")
         row = self._fetch_one(
             self.item_table, {"id": item_id}, f"Bucket item {item_id} not found"
         )
         return BucketItemRecord.model_validate(row)
 
     def createBucketItem(self, payload: BucketItemCreate) -> BucketItemRecord:
+        quickLog("Creating bucket item", level="info", module="API")
         record = BucketItemRecord(**payload.model_dump(mode="python"))
         data = self._db_payload(record.model_dump(mode="python"))
         result = buckets_db_manager.insert(self.item_table, data)
@@ -501,6 +511,7 @@ class BucketOrchestrator:
     def updateBucketItem(
         self, item_id: str, payload: BucketItemCreate
     ) -> BucketItemRecord:
+        quickLog(f"Updating bucket item {item_id}", level="info", module="API")
         self.getBucketItem(item_id)
         record = BucketItemRecord(id=item_id, **payload.model_dump(mode="python"))
         data = self._db_payload(record.model_dump(mode="python"))
@@ -515,6 +526,7 @@ class BucketOrchestrator:
     def patchBucketItem(
         self, item_id: str, payload: BucketItemPatch
     ) -> BucketItemRecord:
+        quickLog(f"Patching bucket item {item_id}", level="info", module="API")
         self.getBucketItem(item_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
@@ -530,6 +542,7 @@ class BucketOrchestrator:
         return self.getBucketItem(item_id)
 
     def deleteBucketItem(self, item_id: str) -> None:
+        quickLog(f"Deleting bucket item {item_id}", level="warning", urgency="moderate", module="API")
         item = self.getBucketItem(item_id)
         result = buckets_db_manager.delete(self.item_table, where={"id": item_id})
         if not result.get("success"):

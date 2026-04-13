@@ -111,9 +111,10 @@ def patch_history_item(history_id: str, payload: HistoryItemPatch) -> HistoryIte
 
 
 @router.delete("/{history_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_history_item(history_id: str) -> Response:
+async def delete_history_item(history_id: str) -> Response:
     try:
         history_view.delete_history_item(history_id)
+        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted history {history_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_history_http_error(f"Delete history item {history_id}", exc)

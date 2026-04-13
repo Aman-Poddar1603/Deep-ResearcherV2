@@ -17,6 +17,7 @@ from main.apis.models.chats import (
     ChatThreadRecord,
 )
 from main.src.store.DBManager import chats_db_manager
+from main.src.utils.DRLogger import quickLog
 
 
 class ChatOrchestrator:
@@ -80,6 +81,7 @@ class ChatOrchestrator:
         ] = "updated_at",
         sort_order: Literal["asc", "desc"] = "desc",
     ) -> ChatThreadListResponse:
+        quickLog("Fetching chat threads", level="info", module="API")
         where: dict[str, Any] = {}
         if workspace_id is not None:
             where["workspace_id"] = workspace_id
@@ -165,6 +167,7 @@ class ChatOrchestrator:
         return self.getThread(thread_id)
 
     def patchThread(self, thread_id: str, payload: ChatThreadPatch) -> ChatThreadRecord:
+        quickLog(f"Patching chat thread {thread_id}", level="info", module="API")
         self.getThread(thread_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
@@ -182,6 +185,7 @@ class ChatOrchestrator:
         return self.getThread(thread_id)
 
     def deleteThread(self, thread_id: str) -> None:
+        quickLog(f"Deleting chat thread {thread_id}", level="warning", urgency="moderate", module="API")
         self.getThread(thread_id)
         result = chats_db_manager.delete(
             self.thread_table, where={"thread_id": thread_id}
@@ -202,6 +206,7 @@ class ChatOrchestrator:
         sort_by: Literal["message_seq", "created_at", "updated_at"] = "message_seq",
         sort_order: Literal["asc", "desc"] = "asc",
     ) -> ChatMessageListResponse:
+        quickLog("Fetching chat messages", level="info", module="API")
         where: dict[str, Any] = {}
         if thread_id is not None:
             where["thread_id"] = thread_id
@@ -299,6 +304,7 @@ class ChatOrchestrator:
         return self.getMessage(message_id)
 
     def deleteMessage(self, message_id: str) -> None:
+        quickLog(f"Deleting chat message {message_id}", level="warning", urgency="moderate", module="API")
         self.getMessage(message_id)
         result = chats_db_manager.delete(
             self.message_table, where={"message_id": message_id}
@@ -318,6 +324,7 @@ class ChatOrchestrator:
         sort_by: Literal["created_at", "updated_at", "attachment_size"] = "created_at",
         sort_order: Literal["asc", "desc"] = "desc",
     ) -> ChatAttachmentListResponse:
+        quickLog("Fetching chat attachments", level="info", module="API")
         where: dict[str, Any] = {}
         if message_id is not None:
             where["message_id"] = message_id
@@ -405,6 +412,7 @@ class ChatOrchestrator:
         return self.getAttachment(attachment_id)
 
     def deleteAttachment(self, attachment_id: str) -> None:
+        quickLog(f"Deleting chat attachment {attachment_id}", level="warning", urgency="moderate", module="API")
         self.getAttachment(attachment_id)
         result = chats_db_manager.delete(
             self.attachment_table,

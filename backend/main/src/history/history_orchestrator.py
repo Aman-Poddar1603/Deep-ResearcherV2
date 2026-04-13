@@ -10,6 +10,7 @@ from main.apis.models.history import (
     HistoryType,
 )
 from main.src.store.DBManager import history_db_manager
+from main.src.utils.DRLogger import quickLog
 
 
 class HistoryOrchestrator:
@@ -59,6 +60,7 @@ class HistoryOrchestrator:
         if user_id is not None:
             where["user_id"] = user_id
 
+        quickLog("Fetching history items", level="info", module="API")
         result = history_db_manager.fetch_all(self.table_name, where=where or None)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to list history items")
@@ -139,6 +141,7 @@ class HistoryOrchestrator:
         )
 
     def get_history_item(self, history_id: str) -> HistoryItem:
+        quickLog(f"Fetching history item {history_id}", level="info", module="API")
         result = history_db_manager.fetch_one(self.table_name, where={"id": history_id})
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to fetch history item")
@@ -149,6 +152,7 @@ class HistoryOrchestrator:
         return HistoryItem.model_validate(row)
 
     def create_history_item(self, payload: HistoryItem) -> HistoryItem:
+        quickLog("Creating new history item", level="info", module="API")
         data = self._db_payload(payload.model_dump(mode="python"))
         result = history_db_manager.insert(self.table_name, data)
         if not result.get("success"):
@@ -156,6 +160,7 @@ class HistoryOrchestrator:
         return self.get_history_item(data["id"])
 
     def update_history_item(self, history_id: str, payload: HistoryItem) -> HistoryItem:
+        quickLog(f"Updating history item {history_id}", level="info", module="API")
         self.get_history_item(history_id)
         data = self._db_payload(payload.model_dump(mode="python"))
         data["id"] = history_id
@@ -169,6 +174,7 @@ class HistoryOrchestrator:
     def patch_history_item(
         self, history_id: str, payload: HistoryItemPatch
     ) -> HistoryItem:
+        quickLog(f"Patching history item {history_id}", level="info", module="API")
         self.get_history_item(history_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
@@ -183,6 +189,7 @@ class HistoryOrchestrator:
         return self.get_history_item(history_id)
 
     def delete_history_item(self, history_id: str) -> None:
+        quickLog(f"Deleting history item {history_id}", level="warning", urgency="moderate", module="API")
         self.get_history_item(history_id)
         result = history_db_manager.delete(self.table_name, where={"id": history_id})
         if not result.get("success"):
