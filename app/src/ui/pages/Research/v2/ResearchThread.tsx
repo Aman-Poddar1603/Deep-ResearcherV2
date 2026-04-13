@@ -9,8 +9,18 @@ import {
 } from '@/components/ai-elements/conversation'
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '@/components/ai-elements/reasoning'
 import {
+    ChainOfThought,
+    ChainOfThoughtContent,
+    ChainOfThoughtHeader,
+    ChainOfThoughtImage,
+    ChainOfThoughtSearchResult,
+    ChainOfThoughtSearchResults,
+    ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought"
+import {
     Plan, PlanHeader, PlanTitle, PlanDescription, PlanAction, PlanContent, PlanTrigger,
 } from '@/components/ai-elements/plan'
+
 import {
     Tool, ToolHeader, ToolContent, ToolInput, ToolOutput,
 } from '@/components/ai-elements/tool'
@@ -41,6 +51,7 @@ import {
     CheckCircle2, Circle, Loader2, Download, ExternalLink,
     ChevronDown, MessageSquare, FileJson, FileType, FileOutput, Share2,
     SendHorizonal, AlertCircle, RotateCcw, Wifi, WifiOff, Briefcase,
+    SearchIcon, ImageIcon,
 } from 'lucide-react'
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -62,14 +73,14 @@ function resolveResearchTemplate(key: string): string {
     return templates[key] ?? templates.comprehensive
 }
 
-// ─── Reasoning renderer ───────────────────────────────────────────────────────
+// ─── Thinking renderer ────────────────────────────────────────────────────────
 const ThinkingRenderer = memo(({ step, isLast, isRunning }: { step: LiveStep; isLast: boolean; isRunning: boolean }) => {
     if (!step.thinking && !(isLast && isRunning)) return null
     return (
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Reasoning isStreaming={!step.thinkingDone && isLast && isRunning} defaultOpen={isLast && isRunning}>
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 w-full mb-3">
+            <Reasoning className="w-full" isStreaming={!step.thinkingDone && isLast && isRunning}>
                 <ReasoningTrigger />
-                <ReasoningContent>{step.thinking || '…'}</ReasoningContent>
+                <ReasoningContent>{step.thinking || ''}</ReasoningContent>
             </Reasoning>
         </div>
     )
@@ -82,7 +93,7 @@ const PlanRenderer = memo(({ plan, steps, isRunning }: {
     steps: LiveStep[]
     isRunning: boolean
 }) => {
-    const activeIdx = steps.findIndex(s => s.status === 'running')
+    const activeIdx = steps.findIndex(s => s?.status === 'running')
     const tasks = plan.split('\n').filter(Boolean).map((line, i) => {
         const stepStatus = steps[i]?.status
         const status = stepStatus === 'completed' ? 'complete' as const
@@ -130,6 +141,28 @@ PlanRenderer.displayName = 'PlanRenderer'
 // ─── Tool call renderer ───────────────────────────────────────────────────────
 const ToolRenderer = memo(({ tool }: { tool: LiveToolCall }) => {
     const stateMap = { called: 'input-available', running: 'input-available', done: 'output-available', error: 'output-error' } as const
+    let searchResults: Array<{ url: string, title?: string, summary?: string }> | null = null;
+    let imageResults: Array<{ base64?: string, url?: string, caption?: string, title?: string }> | null = null;
+
+    if (tool.tool_name.includes('search') && tool.result) {
+         try {
+             const parsed = JSON.parse(tool.result);
+             if (Array.isArray(parsed)) {
+                  searchResults = parsed.slice(0, 8);
+             }
+         } catch(e) {}
+    }
+    if (tool.tool_name.includes('image') && tool.result) {
+         try {
+             const parsed = JSON.parse(tool.result);
+             if (Array.isArray(parsed)) {
+                  imageResults = parsed.slice(0, 4);
+             } else if (parsed && typeof parsed === 'object') {
+                  imageResults = [parsed];
+             }
+         } catch(e) {}
+    }
+
     return (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <Tool>
@@ -141,7 +174,29 @@ const ToolRenderer = memo(({ tool }: { tool: LiveToolCall }) => {
                 />
                 <ToolContent>
                     {tool.args != null && typeof tool.args === 'object' && !Array.isArray(tool.args) && <ToolInput input={tool.args as Record<string, unknown>} />}
-                    {(tool.result || tool.error) && (
+                    
+                    {searchResults && searchResults.length > 0 && (
+                          <div className="mt-2 mb-2 pl-1">
+                               <ChainOfThoughtSearchResults>
+                                     {searchResults.map((r, i) => (
+                                          <ChainOfThoughtSearchResult key={i} className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap">
+                                               <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-1 w-full overflow-hidden text-ellipsis"><LinkIcon className="size-3 shrink-0" /> {r.title || r.url}</a>
+                                          </ChainOfThoughtSearchResult>
+                                     ))}
+                               </ChainOfThoughtSearchResults>
+                          </div>
+                    )}
+                    {imageResults && imageResults.length > 0 && (
+                          <div className="mt-2 mb-2 grid grid-cols-2 gap-2">
+                               {imageResults.map((r, i) => (
+                                   <ChainOfThoughtImage key={i} caption={r.caption || r.title}>
+                                        <img className="h-auto max-w-full overflow-hidden rounded-md" src={r.base64 ? `data:image/jpeg;base64,${r.base64}` : (r.url ?? '')} alt={r.caption || r.title || "Image result"} />
+                                   </ChainOfThoughtImage>
+                               ))}
+                          </div>
+                    )}
+
+                    {(!searchResults && !imageResults && (tool.result || tool.error)) && (
                         <ToolOutput
                             output={tool.result ? { result: tool.result } : {}}
                             errorText={tool.state === 'error' ? (tool.error ?? 'Tool execution failed') : undefined}
@@ -174,11 +229,35 @@ const StepRenderer = memo(({ step, isLast, isRunning }: { step: LiveStep; isLast
             </div>
         </div>
 
-        {/* Thinking / reasoning */}
-        <ThinkingRenderer step={step} isLast={isLast} isRunning={isRunning} />
+        {/* Thinking / reasoning & tools */}
+        <div className="pl-2 ml-4 border-l-2 border-border/30 space-y-4">
+            <ThinkingRenderer step={step} isLast={isLast} isRunning={isRunning} />
 
-        {/* Tool calls */}
-        {step.tools.map(tool => <ToolRenderer key={tool.id} tool={tool} />)}
+            {/* Tool calls */}
+            {step.tools.length > 0 && (
+                 <div className="space-y-4 pb-2">
+                     {step.tools.map((tool) => {
+                          let Icon = undefined;
+                          if (tool.tool_name.includes('search')) Icon = SearchIcon;
+                          if (tool.tool_name.includes('image')) Icon = ImageIcon;
+                          
+                          return (
+                          <ChainOfThoughtStep 
+                              key={tool.id} 
+                              icon={Icon}
+                              label={<span><span className="font-semibold">{tool.tool_name}</span> execution</span>} 
+                              status={tool.state === 'done' ? 'complete' : tool.state === 'error' ? 'pending' : 'active'}
+                              className="font-medium"
+                          >
+                              <div className="-ml-6 mt-2">
+                                  <ToolRenderer tool={tool} />
+                              </div>
+                          </ChainOfThoughtStep>
+                          )
+                     })}
+                 </div>
+            )}
+        </div>
 
         {/* Step summary */}
         {step.summary && step.status === 'completed' && (
@@ -518,7 +597,7 @@ const ArtifactRenderer = memo(({ artifact, isStreaming, onOpen }: {
                                 </div>
                             ) : (
                                 <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3 italic font-serif">
-                                    "{artifact.slice(0, 300).replace(/[#*_[\]]/g, '')}…"
+                                    "{(artifact || '').slice(0, 300).replace(/[#*_[\]]/g, '')}…"
                                 </p>
                             )}
                             <div className="flex items-center gap-3 mt-4">

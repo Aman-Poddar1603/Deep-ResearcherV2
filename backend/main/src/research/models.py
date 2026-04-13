@@ -285,3 +285,59 @@ class SynthesisAnalysisProgressEvent(WSEvent):
     total_sources: int
     percent: int
     synthesis_preview: str = ""
+
+
+# ─── Classified ReAct / streaming events ──────────────────────────────────────
+
+
+class ReActEvent(WSEvent):
+    """Generic ReAct lifecycle envelope. sub_type classifies the phase."""
+
+    event: str = "re_act_event"
+    step_index: int
+    # "reason" | "act" | "observe" | "done"
+    sub_type: Literal["reason", "act", "observe", "done"]
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChainOfThoughtEvent(WSEvent):
+    """Streamed LLM reasoning token (inside <think> or before tool call)."""
+
+    event: str = "chain_of_thought"
+    step_index: int
+    token: str
+
+
+class ThinkEvent(WSEvent):
+    """Full reasoning block when the agent pauses to think (non-streaming)."""
+
+    event: str = "think_event"
+    step_index: int
+    thought: str
+
+
+class StreamEvent(WSEvent):
+    """Final answer / response tokens streamed from the LLM (not reasoning)."""
+
+    event: str = "stream_event"
+    step_index: int
+    token: str
+
+
+class ToolQueryEvent(WSEvent):
+    """Emitted just before a tool is invoked — contains the exact query args."""
+
+    event: str = "tool_call_query"
+    step_index: int
+    tool_name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolOutputEvent(WSEvent):
+    """Emitted after a tool returns — contains the compressed/parsed output."""
+
+    event: str = "tool_call_output"
+    step_index: int
+    tool_name: str
+    summary: str
+    result_payload: list[dict[str, Any]] = Field(default_factory=list)

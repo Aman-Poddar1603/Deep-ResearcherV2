@@ -26,6 +26,19 @@ from research.models import (
     SystemProgressEvent,
     SynthesisAnalysisStartedEvent,
     SynthesisAnalysisProgressEvent,
+    ThinkChunkEvent,
+    ThinkDoneEvent,
+    ToolCalledEvent,
+    ToolResultEvent,
+    ReactReasonEvent,
+    ReactActEvent,
+    ReactObserveEvent,
+    ReActEvent,
+    ChainOfThoughtEvent,
+    ThinkEvent,
+    StreamEvent,
+    ToolQueryEvent,
+    ToolOutputEvent,
 )
 from research.session import (
     update_session_status,
@@ -36,6 +49,8 @@ from research.token_tracker import TokenTracker
 from research.layer2.tools import (
     get_mcp_tools,
     extract_tool_token_count,
+    parse_tool_output,
+    summarise_tool_output,
 )
 from research.layer2.rag import (
     retrieve_for_coverage_check,
@@ -206,8 +221,7 @@ async def run_orchestrator2(
         cleaned_prompt=context.cleaned_prompt,
         plan_steps=plan_steps_str,
         knowledge_summary=(
-            knowledge_summary if context.extended_mode
-            else knowledge_summary[:6000]
+            knowledge_summary if context.extended_mode else knowledge_summary[:6000]
         ),
     )
 
@@ -221,23 +235,187 @@ async def run_orchestrator2(
     }
 
     synthesis_text = ""
+    _synth_thought: list[str] = []
+    _synth_in_tool: bool = False
+
     async for event in agent.astream_events(inputs, config=graph_config, version="v2"):
         if await is_stop_requested(research_id):
             break
 
         kind = event["event"]
         name = event.get("name", "")
+        synth_step = 99  # synthesis phase marker
 
-        if kind == "on_tool_end":
-            tool_tokens = extract_tool_token_count(name, event["data"].get("output"))
+        if kind == "on_chat_model_stream":
+            chunk = event["data"].get("chunk")
+            if chunk and chunk.content:
+                token = chunk.content if isinstance(chunk.content, str) else ""
+                if not token:
+                    continue
+                _synth_thought.append(token)
+                if _synth_in_tool:
+                    await emitter.emit(
+                        ChainOfThoughtEvent(
+                            research_id=research_id,
+                            step_index=synth_step,
+                            token=token,
+                        )
+                    )
+                    await emitter.emit(
+                        ReActEvent(
+                            research_id=research_id,
+                            step_index=synth_step,
+                            sub_type="reason",
+                            data={"token": token},
+                        )
+                    )
+                else:
+                    await emitter.emit(
+                        StreamEvent(
+                            research_id=research_id,
+                            step_index=synth_step,
+                            token=token,
+                        )
+                    )
+                    await emitter.emit(
+                        ThinkChunkEvent(
+                            research_id=research_id,
+                            text=token,
+                            step_index=synth_step,
+                        )
+                    )
+
+        elif kind == "on_tool_start":
+            _synth_in_tool = True
+            tool_name = name
+            tool_args = event["data"].get("input", {})
+            safe_args = (
+                tool_args if isinstance(tool_args, dict) else {"input": str(tool_args)}
+            )
+
+            if _synth_thought:
+                full_thought = "".join(_synth_thought)
+                await emitter.emit(
+                    ThinkEvent(
+                        research_id=research_id,
+                        step_index=synth_step,
+                        thought=full_thought,
+                    )
+                )
+                await emitter.emit(
+                    ReactReasonEvent(
+                        research_id=research_id,
+                        step_index=synth_step,
+                        thought=full_thought,
+                    )
+                )
+                _synth_thought.clear()
+
+            await emitter.emit(
+                ToolQueryEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    tool_name=tool_name,
+                    args=safe_args,
+                )
+            )
+            await emitter.emit(
+                ToolCalledEvent(
+                    research_id=research_id,
+                    tool_name=tool_name,
+                    args=safe_args,
+                    step_index=synth_step,
+                )
+            )
+            await emitter.emit(
+                ReactActEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    tool_name=tool_name,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    sub_type="act",
+                    data={"tool_name": tool_name, "args": safe_args},
+                )
+            )
+
+        elif kind == "on_tool_end":
+            _synth_in_tool = False
+            tool_name = name
+            output = event["data"].get("output")
+            tool_tokens = extract_tool_token_count(tool_name, output)
             if tool_tokens > 0:
                 await tracker.record_tool_tokens(tool_tokens)
+
+            summary = summarise_tool_output(tool_name, output)
+            parsed = parse_tool_output(tool_name, output)
+            compact = [
+                {
+                    "tool": str(i.get("tool", ""))[:120],
+                    "url": str(i.get("url", ""))[:700],
+                    "title": str(i.get("title", ""))[:300],
+                    "summary": str(i.get("description", ""))[:600],
+                }
+                for i in parsed[:6]
+            ]
+
+            await emitter.emit(
+                ToolOutputEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    tool_name=tool_name,
+                    summary=summary,
+                    result_payload=compact,
+                )
+            )
+            await emitter.emit(
+                ToolResultEvent(
+                    research_id=research_id,
+                    tool_name=tool_name,
+                    result_summary=summary,
+                    step_index=synth_step,
+                    result_payload=compact,
+                )
+            )
+            await emitter.emit(
+                ReactObserveEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    observation_summary=summary,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    sub_type="observe",
+                    data={"tool_name": tool_name, "summary": summary},
+                )
+            )
 
         elif kind == "on_chain_end" and "agent" in name.lower():
             messages = event["data"].get("output", {}).get("messages", [])
             if messages:
                 last = messages[-1]
                 synthesis_text = getattr(last, "content", "") or ""
+            await emitter.emit(
+                ThinkDoneEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=synth_step,
+                    sub_type="done",
+                    data={"summary": synthesis_text[:500] if synthesis_text else ""},
+                )
+            )
 
     # ── Coverage check ────────────────────────────────────────────────────────
     coverage_notes = []

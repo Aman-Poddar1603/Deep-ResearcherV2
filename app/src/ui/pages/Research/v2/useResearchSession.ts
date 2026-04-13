@@ -354,9 +354,11 @@ export function useResearchSession(options?: {
                             : next.tokens,
                     }
 
-                case 'system.progress': {
+                case 'system.progress':
+                case 'synthesis.analysis_started':
+                case 'synthesis.analysis_progress': {
                     const pct = toPercent(eventField(msg, 'progress') ?? eventField(msg, 'percent'))
-                    return { ...next, progress: pct ?? next.progress, progressMsg: eventString(msg, 'message') ?? next.progressMsg }
+                    return { ...next, status: 'running', progress: pct ?? next.progress, progressMsg: eventString(msg, 'message') ?? next.progressMsg }
                 }
 
                 case 'system.error': {
@@ -423,10 +425,12 @@ export function useResearchSession(options?: {
                     return { ...next, progress: 100, status: 'completed', progressMsg: 'Research complete' }
 
                 case 'react.reason':
-                case 'think.chunk': {
+                case 'think.chunk':
+                case 'stream_event':
+                case 'think_event': {
                     const idx = eventNumber(msg, 'step_index') ?? Math.max(0, next.steps.length - 1)
                     const steps = ensureStep(next.steps, idx)
-                    const rawChunk = eventString(msg, 'chunk', 'reasoning', 'thought', 'text') ?? ''
+                    const rawChunk = eventString(msg, 'chunk', 'reasoning', 'thought', 'text', 'token') ?? ''
                     if (!rawChunk) return next
                     steps[idx] = { ...steps[idx], thinking: appendStreamChunk(steps[idx].thinking, rawChunk) }
                     return { ...next, steps }
@@ -446,12 +450,14 @@ export function useResearchSession(options?: {
                     return { ...next, steps }
                 }
 
-                case 'tool.called': {
+                case 'tool.called':
+                case 'tool_call_query':
+                case 'react.act': {
                     const idx = eventNumber(msg, 'step_index') ?? 0
                     const steps = ensureStep(next.steps, idx)
                     const toolName = eventString(msg, 'tool_name', 'name') ?? 'tool'
                     const toolId = eventString(msg, 'tool_id', 'tool_call_id', 'call_id', 'toolCallId', 'toolId', 'callId')
-                    const toolArgs = eventField(msg, 'args') ?? eventField(msg, 'arguments')
+                    const toolArgs = eventField(msg, 'args') ?? eventField(msg, 'arguments') ?? eventField(msg, 'inputs') ?? {}
                     if (toolId && steps[idx].tools.some(t => t.id === toolId)) return next
                     if (!toolId && steps[idx].tools.some(t => sameToolSig(t.tool_name, t.args, toolName, toolArgs))) return next
                     const tool: LiveToolCall = { id: toolId ?? genId(), tool_name: toolName, createdAt: Date.now(), args: toolArgs, state: 'called' }
@@ -459,7 +465,9 @@ export function useResearchSession(options?: {
                     return { ...next, status: 'running', steps }
                 }
 
-                case 'tool.result': {
+                case 'tool.result':
+                case 'tool_call_output':
+                case 'react.observe': {
                     const idx = eventNumber(msg, 'step_index') ?? 0
                     const steps = [...next.steps]
                     if (steps[idx]) {
@@ -467,8 +475,9 @@ export function useResearchSession(options?: {
                         const toolId = eventString(msg, 'tool_id', 'tool_call_id', 'call_id', 'toolCallId', 'toolId', 'callId')
                         const toolName = eventString(msg, 'tool_name', 'name')
                         const args = eventField(msg, 'args') ?? eventField(msg, 'arguments')
-                        const raw = eventField(msg, 'result_summary') ?? eventField(msg, 'result') ?? eventField(msg, 'output')
-                        const result = typeof raw === 'string' ? raw : raw != null ? JSON.stringify(raw, null, 2) : ''
+                        const raw = eventField(msg, 'result_summary') ?? eventField(msg, 'result') ?? eventField(msg, 'output') ?? eventField(msg, 'summary') ?? eventString(msg, 'observation_summary')
+                        const resultPayload = eventField(msg, 'result_payload')
+                        const result = typeof raw === 'string' ? raw : raw != null ? JSON.stringify(raw, null, 2) : (resultPayload != null ? JSON.stringify(resultPayload, null, 2) : '')
                         const ti = toolId ? tools.findIndex(t => t.id === toolId)
                             : tools.findIndex(t => toolName && sameToolSig(t.tool_name, t.args, toolName, args) && (t.state === 'called' || t.state === 'running'))
                         if (ti !== -1) {

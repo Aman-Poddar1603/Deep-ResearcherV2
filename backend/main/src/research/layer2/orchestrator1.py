@@ -44,6 +44,12 @@ from research.models import (
     ReactActEvent,
     ReactObserveEvent,
     SystemProgressEvent,
+    ReActEvent,
+    ChainOfThoughtEvent,
+    ThinkEvent,
+    StreamEvent,
+    ToolQueryEvent,
+    ToolOutputEvent,
 )
 from research.session import (
     update_session_status,
@@ -373,6 +379,9 @@ async def _run_step(
 
     step_sources: list[dict] = []
     final_summary = ""
+    # Track whether current stream tokens are reasoning vs final answer
+    _accumulated_thought: list[str] = []
+    _in_tool_call: bool = False
 
     async for event in agent.astream_events(
         inputs,
@@ -387,11 +396,44 @@ async def _run_step(
         kind = event["event"]
         name = event.get("name", "")
 
+        # ── LLM streaming token ───────────────────────────────────────────────
         if kind == "on_chat_model_stream":
             chunk = event["data"].get("chunk")
             if chunk and chunk.content:
                 token = chunk.content if isinstance(chunk.content, str) else ""
-                if token:
+                if not token:
+                    continue
+
+                _accumulated_thought.append(token)
+
+                if _in_tool_call:
+                    # Tokens between tool calls = reasoning about observation
+                    # Emit as chain_of_thought (reasoning trace)
+                    await emitter.emit(
+                        ChainOfThoughtEvent(
+                            research_id=research_id,
+                            step_index=step.step_index,
+                            token=token,
+                        )
+                    )
+                    await emitter.emit(
+                        ReActEvent(
+                            research_id=research_id,
+                            step_index=step.step_index,
+                            sub_type="reason",
+                            data={"token": token},
+                        )
+                    )
+                else:
+                    # Pre-tool or final-answer tokens = stream_event
+                    await emitter.emit(
+                        StreamEvent(
+                            research_id=research_id,
+                            step_index=step.step_index,
+                            token=token,
+                        )
+                    )
+                    # Legacy compat
                     await emitter.emit(
                         ThinkChunkEvent(
                             research_id=research_id,
@@ -399,38 +441,71 @@ async def _run_step(
                             step_index=step.step_index,
                         )
                     )
-                    # await emitter.emit(
-                    #     ReactReasonEvent(
-                    #         research_id=research_id,
-                    #         step_index=step.step_index,
-                    #         thought=token,
-                    #     )
-                    # )
 
+        # ── Tool invocation start ─────────────────────────────────────────────
         elif kind == "on_tool_start":
+            _in_tool_call = True
             tool_name = name
             tool_args = event["data"].get("input", {})
+            safe_args = (
+                tool_args if isinstance(tool_args, dict) else {"input": str(tool_args)}
+            )
+
+            # Flush accumulated thought as a ThinkEvent before acting
+            if _accumulated_thought:
+                full_thought = "".join(_accumulated_thought)
+                await emitter.emit(
+                    ThinkEvent(
+                        research_id=research_id,
+                        step_index=step.step_index,
+                        thought=full_thought,
+                    )
+                )
+                await emitter.emit(
+                    ReactReasonEvent(
+                        research_id=research_id,
+                        step_index=step.step_index,
+                        thought=full_thought,
+                    )
+                )
+                _accumulated_thought.clear()
+
+            # Emit tool query events
+            await emitter.emit(
+                ToolQueryEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    tool_name=tool_name,
+                    args=safe_args,
+                )
+            )
             await emitter.emit(
                 ToolCalledEvent(
                     research_id=research_id,
                     tool_name=tool_name,
-                    args=(
-                        tool_args
-                        if isinstance(tool_args, dict)
-                        else {"input": str(tool_args)}
-                    ),
+                    args=safe_args,
                     step_index=step.step_index,
                 )
             )
-            # await emitter.emit(
-            #     ReactActEvent(
-            #         research_id=research_id,
-            #         step_index=step.step_index,
-            #         tool_name=tool_name,
-            #     )
-            # )
+            await emitter.emit(
+                ReactActEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    tool_name=tool_name,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    sub_type="act",
+                    data={"tool_name": tool_name, "args": safe_args},
+                )
+            )
 
+        # ── Tool invocation end ───────────────────────────────────────────────
         elif kind == "on_tool_end":
+            _in_tool_call = False
             tool_name = name
             output = event["data"].get("output")
 
@@ -441,23 +516,42 @@ async def _run_step(
 
             summary = summarise_tool_output(tool_name, output)
             parsed = parse_tool_output(tool_name, output)
+            compact_payload = _compact_tool_payload(parsed, extended_mode=extended_mode)
 
+            # Emit tool output events
+            await emitter.emit(
+                ToolOutputEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    tool_name=tool_name,
+                    summary=summary,
+                    result_payload=compact_payload,
+                )
+            )
             await emitter.emit(
                 ToolResultEvent(
                     research_id=research_id,
                     tool_name=tool_name,
                     result_summary=summary,
                     step_index=step.step_index,
-                    result_payload=_compact_tool_payload(parsed, extended_mode=extended_mode),
+                    result_payload=compact_payload,
                 )
             )
-            # await emitter.emit(
-            #     ReactObserveEvent(
-            #         research_id=research_id,
-            #         step_index=step.step_index,
-            #         observation_summary=summary,
-            #     )
-            # )
+            await emitter.emit(
+                ReactObserveEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    observation_summary=summary,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    sub_type="observe",
+                    data={"tool_name": tool_name, "summary": summary},
+                )
+            )
 
             # Collect normalised sources — one entry per parsed item
             for item in parsed:
@@ -473,15 +567,25 @@ async def _run_step(
                     }
                 )
 
+        # ── Agent chain end ───────────────────────────────────────────────────
         elif kind == "on_chain_end" and "agent" in name.lower():
             messages = event["data"].get("output", {}).get("messages", [])
             if messages:
                 last = messages[-1]
                 final_summary = getattr(last, "content", "") or ""
+
             await emitter.emit(
                 ThinkDoneEvent(
                     research_id=research_id,
                     step_index=step.step_index,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    sub_type="done",
+                    data={"summary": final_summary[:500] if final_summary else ""},
                 )
             )
 
