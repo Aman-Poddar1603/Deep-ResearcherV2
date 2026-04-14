@@ -340,6 +340,54 @@ def ensure_sources_section(response_text: str, chunks: list[dict[str, Any]]) -> 
     return f"{text_without_sources}\n\n{sources_section}\n"
 
 
+def build_sources_payload(
+    response_text: str,
+    chunks: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """
+    Build structured sources suitable for UI components:
+    [{"href": "...", "title": "..."}, ...]
+    """
+    if not chunks:
+        return []
+
+    by_id: dict[int, dict[str, Any]] = {}
+    for chunk in chunks:
+        source_id = int(chunk.get("source_id") or 0)
+        if source_id > 0 and source_id not in by_id:
+            by_id[source_id] = chunk
+
+    cited_ids = sorted(
+        {
+            int(match)
+            for match in re.findall(r"\[Source\s+(\d+)\]", response_text)
+            if match.isdigit()
+        }
+    )
+    if not cited_ids:
+        cited_ids = sorted(by_id.keys())[: min(3, len(by_id))]
+
+    items: list[dict[str, str]] = []
+    seen_hrefs: set[str] = set()
+    for source_id in cited_ids:
+        chunk = by_id.get(source_id)
+        if not chunk:
+            continue
+
+        source = str(chunk.get("source") or "unknown")
+        href = _resolve_source_download_url(source)
+        if not href:
+            continue
+        if href in seen_hrefs:
+            continue
+        seen_hrefs.add(href)
+
+        title = _normalize_source_display(source) or f"Source {source_id}"
+        items.append({"href": href, "title": title})
+
+    return items
+
+
 async def retrieve_chunks(query: str, k: int = TOP_K) -> list[dict[str, Any]]:
     """Return top-k relevant text chunks across all configured collections."""
     if not query.strip():
@@ -384,6 +432,9 @@ def build_context(
     history: list[dict],
     chunks: list[dict[str, Any]],
     mcp_content: str = "",
+    user_name: str | None = None,
+    user_location: str | None = None,
+    workspace_name: str | None = None,
 ) -> str:
     history_text = "\n".join(
         f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in history
@@ -393,8 +444,21 @@ def build_context(
         datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     )
 
+    clean_user_name = (user_name or "").strip()
+    clean_user_location = (user_location or "").strip()
+    clean_workspace_name = (workspace_name or "").strip()
+
+    profile_lines: list[str] = []
+    if clean_user_name:
+        profile_lines.append(f"User Name: {clean_user_name}")
+    if clean_user_location:
+        profile_lines.append(f"User Location: {clean_user_location}")
+    if clean_workspace_name:
+        profile_lines.append(f"Workspace: {clean_workspace_name}")
+
     parts = [
         f"### Current Server Time\n{server_now}",
+        "### User Profile\n" + "\n".join(profile_lines) if profile_lines else "",
         "### Conversation History\n" + history_text if history_text else "",
     ]
     if docs_text:
@@ -441,6 +505,9 @@ async def stream_rag_response(
     chunks: list[dict[str, Any]],
     mcp_content: str = "",
     image_attachments: list[dict[str, str]] | None = None,
+    user_name: str | None = None,
+    user_location: str | None = None,
+    workspace_name: str | None = None,
 ) -> AsyncIterator[str]:
     """
     Yield text tokens for the RAG response.
@@ -452,7 +519,14 @@ async def stream_rag_response(
     )
 
     query_text = query.strip() or "Please describe the attached image(s)."
-    context = build_context(history, chunks, mcp_content)
+    context = build_context(
+        history,
+        chunks,
+        mcp_content,
+        user_name=user_name,
+        user_location=user_location,
+        workspace_name=workspace_name,
+    )
 
     image_payloads = [
         item

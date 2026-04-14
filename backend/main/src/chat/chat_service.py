@@ -8,10 +8,11 @@ Reads are synchronous (called before streaming begins).
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from main.src.store.DBManager import chats_db_manager
+from main.src.store.DBManager import chats_db_manager, main_db_manager
 from main.src.utils.core.task_schedular import scheduler
 from main.src.utils.DRLogger import quickLog
 
@@ -22,6 +23,12 @@ async def _log(msg: str, level: str = "info", urgency: str = "none") -> None:
 _MSG_TABLE = "chat_messages"
 _THREAD_TABLE = "chat_threads"
 _ATT_TABLE = "chat_attachments"
+_WORKSPACE_TABLE = "workspaces"
+_SETTINGS_TABLE = "settings"
+
+_DEFAULT_USER_LOCATION = os.getenv(
+    "DEFAULT_USER_LOCATION", "Ranchi, Jharkhand, India"
+)
 
 
 def _now() -> str:
@@ -30,6 +37,77 @@ def _now() -> str:
 
 def new_id() -> str:
     return str(uuid4())
+
+
+def _first_non_empty(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _derive_location_from_settings(settings_row: dict[str, object] | None) -> str:
+    row = settings_row or {}
+    return _first_non_empty(
+        row.get("user_location"),
+        row.get("location"),
+        _DEFAULT_USER_LOCATION,
+    )
+
+
+def get_thread_runtime_context(thread_id: str) -> dict[str, str]:
+    """
+    Resolve runtime context for a chat thread used by websocket processing.
+
+    Includes workspace linkage, connected bucket, and user profile fields from
+    settings so they can be injected into model context and attachment flows.
+    """
+    thread_result = chats_db_manager.fetch_one(_THREAD_TABLE, where={"thread_id": thread_id})
+    thread_row = thread_result.get("data") if thread_result.get("success") else None
+    thread = thread_row or {}
+
+    workspace_id = _first_non_empty(thread.get("workspace_id"))
+    workspace_name = ""
+    connected_bucket_id = ""
+    if workspace_id:
+        workspace_result = main_db_manager.fetch_one(
+            _WORKSPACE_TABLE,
+            where={"id": workspace_id},
+        )
+        workspace_row = workspace_result.get("data") if workspace_result.get("success") else None
+        if isinstance(workspace_row, dict):
+            workspace_name = _first_non_empty(workspace_row.get("name"))
+            connected_bucket_id = _first_non_empty(workspace_row.get("connected_bucket_id"))
+
+    settings_row: dict[str, object] | None = None
+    settings_result = main_db_manager.fetch_all(_SETTINGS_TABLE)
+    if settings_result.get("success"):
+        rows = settings_result.get("data") or []
+        if rows and isinstance(rows[0], dict):
+            settings_row = rows[0]
+
+    settings_user_name = _first_non_empty((settings_row or {}).get("user_name"))
+    user_name = _first_non_empty(
+        settings_user_name,
+        thread.get("user_id"),
+        thread.get("created_by"),
+        "User",
+    )
+
+    return {
+        "workspace_id": workspace_id,
+        "workspace_name": workspace_name,
+        "connected_bucket_id": connected_bucket_id,
+        "user_name": user_name,
+        "user_location": _derive_location_from_settings(settings_row),
+        "created_by": _first_non_empty(
+            thread.get("created_by"),
+            thread.get("user_id"),
+            settings_user_name,
+            "chat-user",
+        ),
+    }
 
 
 # ──────────────────────────────────────────── reads (sync, pre-stream) ────────

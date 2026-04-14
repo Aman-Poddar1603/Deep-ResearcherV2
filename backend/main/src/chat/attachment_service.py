@@ -8,10 +8,13 @@ import asyncio
 import os
 from typing import Any
 
+from main.src.bucket.bucket_orchestrator import BucketOrchestrator
 from main.src.bucket.bucket_store import bucket_store
 from main.src.research.layer2.tools import get_mcp_tools, parse_tool_output
+from main.src.store.DBManager import main_db_manager
 from main.src.utils.core.task_schedular import scheduler
 from main.src.utils.DRLogger import quickLog
+from main.src.workspace.workspace_links import link_resource_to_connected_bucket
 
 
 async def _log(msg: str, level: str = "info", urgency: str = "none") -> None:
@@ -23,6 +26,9 @@ async def _log(msg: str, level: str = "info", urgency: str = "none") -> None:
 _CHAT_BUCKET_ID = os.getenv("CHAT_BUCKET_ID", "chat-attachments")
 _BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000")
 _IMAGE_FORMATS = {"png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "tiff"}
+_WORKSPACE_TABLE = "workspaces"
+
+_bucket_view = BucketOrchestrator()
 
 
 def save_attachment_to_bucket(
@@ -182,6 +188,9 @@ async def extract_mcp_content(
 
 async def process_attachments(
     raw_files: list[tuple[str, str, bytes]],  # (file_name, file_format, content)
+    workspace_id: str | None = None,
+    connected_bucket_id: str | None = None,
+    created_by: str = "chat-user",
 ) -> tuple[list[dict], str]:
     """
     Upload each file to bucket, request MCP extraction.
@@ -193,8 +202,51 @@ async def process_attachments(
     saved_meta: list[dict] = []
     mcp_texts: list[str] = []
 
-    for file_name, file_format, content in raw_files:
-        rel_path = save_attachment_to_bucket(file_name, file_format, content)
+    workspace = (workspace_id or "").strip()
+    bucket_id = (connected_bucket_id or "").strip()
+    actor = (created_by or "chat-user").strip() or "chat-user"
+
+    if workspace and not bucket_id:
+        workspace_result = main_db_manager.fetch_one(
+            _WORKSPACE_TABLE,
+            where={"id": workspace},
+        )
+        workspace_row = (
+            workspace_result.get("data") if workspace_result.get("success") else None
+        )
+        if isinstance(workspace_row, dict):
+            bucket_id = str(workspace_row.get("connected_bucket_id") or "").strip()
+
+    if workspace and not bucket_id:
+        raise ValueError(
+            f"No connected bucket is configured for workspace '{workspace}'."
+        )
+
+    if workspace and bucket_id:
+        uploaded_records = _bucket_view.uploadFilesToWorkspaceBucket(
+            workspace_id=workspace,
+            bucket_id=bucket_id,
+            files=raw_files,
+            created_by=actor,
+            source="chat_attachment",
+        )
+        uploaded_files = [
+            (
+                record.file_name or "file",
+                record.file_format or "other",
+                record.file_size or 0,
+                record.file_path,
+                record.id,
+            )
+            for record in uploaded_records
+        ]
+    else:
+        uploaded_files = []
+        for file_name, file_format, content in raw_files:
+            rel_path = save_attachment_to_bucket(file_name, file_format, content)
+            uploaded_files.append((file_name, file_format, len(content), rel_path, ""))
+
+    for file_name, file_format, size, rel_path, resource_id in uploaded_files:
         url = build_attachment_url(rel_path)
 
         extracted_text, analysis_status, analysis_tool = await extract_mcp_content(
@@ -203,14 +255,33 @@ async def process_attachments(
             file_format=file_format,
         )
 
+        if workspace and bucket_id and resource_id:
+            try:
+                link_resource_to_connected_bucket(
+                    connected_bucket_id=bucket_id,
+                    resource_id=resource_id,
+                    workspace_id=workspace,
+                )
+            except Exception as exc:
+                asyncio.ensure_future(
+                    _log(
+                        f"Failed linking chat attachment resource '{resource_id}' to workspace '{workspace}': {exc}",
+                        level="warning",
+                        urgency="moderate",
+                    )
+                )
+
         saved_meta.append(
             {
                 "file_name": file_name,
                 "rel_path": rel_path,
                 "url": url,
                 "absolute_url": _to_absolute_asset_url(url),
-                "size": len(content),
+                "size": int(size),
                 "file_format": file_format,
+                "resource_id": resource_id,
+                "bucket_id": bucket_id,
+                "workspace_id": workspace,
                 "analysis_status": analysis_status,
                 "analysis_tool": analysis_tool,
             }

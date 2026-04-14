@@ -412,21 +412,39 @@ class BucketOrchestrator:
         `allowed_file_types` is a comma-separated string of canonical type names
         (image, audio, video, files, other).  Using '*' or 'all' skips validation.
         """
-        raw = bucket.allowed_file_types.strip().lower()
+        raw = (bucket.allowed_file_types or "").strip().lower()
         if raw in ("*", "all"):
             return
-        allowed = {t.strip() for t in raw.split(",") if t.strip()}
-        # Only apply constraints that are recognisable canonical types.
-        valid_constraints = allowed & self._CANONICAL_TYPES
-        if not valid_constraints:
-            return  # No known constraints — allow through.
-        category = bucket_store._subfolder_for_format(file_format)
-        if category not in valid_constraints:
-            raise ValueError(
-                f"File type '{file_format}' (category '{category}') is not allowed "
-                f"in bucket '{bucket.name}'. Allowed types: "
-                f"{', '.join(sorted(valid_constraints))}."
-            )
+
+        allowed_tokens = {
+            token.strip().lower().lstrip(".") for token in raw.split(",") if token.strip()
+        }
+        if not allowed_tokens:
+            return
+
+        valid_categories = allowed_tokens & self._CANONICAL_TYPES
+        allowed_extensions = allowed_tokens - self._CANONICAL_TYPES
+
+        normalized_format = (file_format or "").strip().lower().lstrip(".")
+        if normalized_format.startswith("image/"):
+            normalized_format = normalized_format.split("/", 1)[1]
+
+        category = bucket_store._subfolder_for_format(normalized_format)
+
+        allowed_by_category = bool(valid_categories) and category in valid_categories
+        allowed_by_extension = bool(allowed_extensions) and normalized_format in allowed_extensions
+
+        if not valid_categories and not allowed_extensions:
+            return
+        if allowed_by_category or allowed_by_extension:
+            return
+
+        display_allowed = [*sorted(valid_categories), *[f".{ext}" for ext in sorted(allowed_extensions)]]
+        shown_type = f".{normalized_format}" if normalized_format else file_format
+        raise ValueError(
+            f"Invalid file type '{shown_type}'. Bucket '{bucket.name}' only supports: "
+            f"{', '.join(display_allowed)}"
+        )
 
     def uploadFileToWorkspaceBucket(
         self,

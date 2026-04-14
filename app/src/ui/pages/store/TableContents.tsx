@@ -4,6 +4,11 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import {
   Select,
@@ -55,6 +60,13 @@ const stringifyCellValue = (value: unknown): string => {
   return String(value)
 }
 
+const CELL_TRUNCATE_LIMIT = 40
+
+const truncateCellValue = (value: string, maxChars: number = CELL_TRUNCATE_LIMIT): string => {
+  if (value.length <= maxChars) return value
+  return `${value.slice(0, maxChars)}...`
+}
+
 const TableContents = () => {
   const { id, tableName } = useParams()
   const [searchQuery, setSearchQuery] = useState('')
@@ -63,6 +75,7 @@ const TableContents = () => {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortAsc, setSortAsc] = useState(true)
+  const [openCellKey, setOpenCellKey] = useState<string | null>(null)
   const [rowsResponse, setRowsResponse] = useState<DatabaseTableRowsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -180,6 +193,10 @@ const TableContents = () => {
     setSelectedRows(next)
   }
 
+  useEffect(() => {
+    setOpenCellKey(null)
+  }, [currentPage, rowsPerPage, searchQuery, dbId, table])
+
   const handleExportCsv = () => {
     if (visibleRows.length === 0 || columns.length === 0) return
 
@@ -293,8 +310,8 @@ const TableContents = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm border-separate border-spacing-0">
+      <div className="flex-1 overflow-x-auto overflow-y-auto">
+        <table className="w-full min-w-max text-sm border-separate border-spacing-0">
           <thead className="sticky top-0 z-20 bg-muted/10 backdrop-blur-md">
             <tr>
               <th className="h-12 px-4 text-left font-medium text-muted-foreground w-[50px] border-b bg-background/50">
@@ -339,15 +356,57 @@ const TableContents = () => {
                       const rawValue = row[col]
                       const value = stringifyCellValue(rawValue)
                       const isStatus = col.toLowerCase().includes('status')
+                      const shouldTruncate = value.length > CELL_TRUNCATE_LIMIT
+                      const cellKey = `${rowKey}:${col}`
 
                       return (
-                        <td key={col} className="p-4 font-mono text-sm align-top">
-                          {isStatus && typeof rawValue === 'string' ? (
+                        <td key={col} className="p-4 font-mono text-sm align-top whitespace-nowrap">
+                          {shouldTruncate ? (
+                            <Popover
+                              open={openCellKey === cellKey}
+                              onOpenChange={(open) => {
+                                if (!open && openCellKey === cellKey) {
+                                  setOpenCellKey(null)
+                                }
+                              }}
+                            >
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="block w-full h-full -m-4 p-4 text-left rounded hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                  onMouseEnter={() => setOpenCellKey(cellKey)}
+                                  onMouseLeave={() =>
+                                    setOpenCellKey((current) => (current === cellKey ? null : current))
+                                  }
+                                  onClick={() =>
+                                    setOpenCellKey((current) => (current === cellKey ? null : cellKey))
+                                  }
+                                >
+                                  {isStatus && typeof rawValue === 'string' ? (
+                                    <Badge variant="secondary" className="font-normal max-w-[40ch] truncate">
+                                      {truncateCellValue(value)}
+                                    </Badge>
+                                  ) : (
+                                    <span className="block whitespace-nowrap overflow-hidden text-ellipsis max-w-[40ch]">
+                                      {truncateCellValue(value)}
+                                    </span>
+                                  )}
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                align="start"
+                                side="top"
+                                className="max-w-[min(80vw,60rem)] whitespace-pre-wrap break-all font-mono text-xs"
+                              >
+                                {value}
+                              </PopoverContent>
+                            </Popover>
+                          ) : isStatus && typeof rawValue === 'string' ? (
                             <Badge variant="secondary" className="font-normal">
                               {value}
                             </Badge>
                           ) : (
-                            <span className="break-all">{value}</span>
+                            <span className="whitespace-nowrap">{value}</span>
                           )}
                         </td>
                       )

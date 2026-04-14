@@ -5,6 +5,7 @@ Client contract (matches existing frontend useChatSimulator):
   server → client:
     {"type": "token",    "content": "<chunk>"}
     {"type": "thinking", "content": "<chunk>"}  # reserved, not yet used
+        {"type": "sources",  "sources": [{"href": "...", "title": "..."}], "count": N}
     {"type": "title",    "content": "<title>"}
     {"type": "done"}
     {"type": "error",    "content": "<message>"}
@@ -93,6 +94,14 @@ async def _process_turn(
     if not user_query and not raw_files:
         return
 
+    runtime_context = chat_service.get_thread_runtime_context(thread_id)
+    workspace_id = str(runtime_context.get("workspace_id") or "").strip()
+    connected_bucket_id = str(runtime_context.get("connected_bucket_id") or "").strip()
+    created_by = str(runtime_context.get("created_by") or "chat-user").strip() or "chat-user"
+    user_name = str(runtime_context.get("user_name") or "").strip()
+    user_location = str(runtime_context.get("user_location") or "").strip()
+    workspace_name = str(runtime_context.get("workspace_name") or "").strip()
+
     # ── 1. Save user message (bg) ──────────────────────────────────────────
     seq = chat_service.get_next_seq(thread_id)
     user_msg_id = chat_service.new_id()
@@ -104,9 +113,17 @@ async def _process_turn(
     mcp_content = ""
     saved_meta: list[dict] = []
     if raw_files:
-        saved_meta, mcp_content = await attachment_service.process_attachments(
-            raw_files
-        )
+        try:
+            saved_meta, mcp_content = await attachment_service.process_attachments(
+                raw_files,
+                workspace_id=workspace_id,
+                connected_bucket_id=connected_bucket_id,
+                created_by=created_by,
+            )
+        except ValueError as exc:
+            await _send(ws, {"type": "error", "content": str(exc)})
+            return
+
         for meta in saved_meta:
             attachment_id = chat_service.new_id()
             attachment_ids.append(attachment_id)
@@ -190,7 +207,14 @@ async def _process_turn(
     full_response = ""
 
     if use_agent:
-        context = rag_service.build_context(history, chunks, mcp_content)
+        context = rag_service.build_context(
+            history,
+            chunks,
+            mcp_content,
+            user_name=user_name,
+            user_location=user_location,
+            workspace_name=workspace_name,
+        )
         stream = agent_service.stream_agent_response(user_query, context)
     else:
         stream = rag_service.stream_rag_response(
@@ -199,6 +223,9 @@ async def _process_turn(
             chunks,
             mcp_content,
             image_attachments=image_attachments,
+            user_name=user_name,
+            user_location=user_location,
+            workspace_name=workspace_name,
         )
 
     async for token in stream:
@@ -212,8 +239,24 @@ async def _process_turn(
             await _send(ws, {"type": "token", "content": appendix})
         full_response = full_response_with_sources
 
+    sources = rag_service.build_sources_payload(full_response, chunks)
+    if sources:
+        await _send(
+            ws,
+            {
+                "type": "sources",
+                "sources": sources,
+                "count": len(sources),
+            },
+        )
+
     # ── 5. Save assistant message (bg) ─────────────────────────────────────
-    await chat_service.bg_save_assistant_message(thread_id, full_response, seq + 1)
+    await chat_service.bg_save_assistant_message(
+        thread_id,
+        full_response,
+        seq + 1,
+        citations=[item.get("href", "") for item in sources if item.get("href")],
+    )
 
     # ── 6. Generate + broadcast thread title (before done so client receives it) ─
     await _maybe_generate_title(ws, thread_id, history, user_query, full_response)
