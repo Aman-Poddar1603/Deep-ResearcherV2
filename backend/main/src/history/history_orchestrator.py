@@ -1,5 +1,5 @@
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from main.apis.models.history import (
@@ -34,6 +34,27 @@ class HistoryOrchestrator:
             except ValueError:
                 pass
         return datetime.min
+
+    def _utcnow(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def _action_tokens(self, actions: str | None) -> set[str]:
+        if not actions:
+            return set()
+        tokens: set[str] = set()
+        for chunk in actions.replace("|", ",").split(","):
+            token = chunk.strip().lower()
+            if token:
+                tokens.add(token)
+        return tokens
+
+    def _actions_to_text(self, tokens: set[str]) -> str | None:
+        if not tokens:
+            return None
+        return ", ".join(sorted(tokens))
+
+    def _is_soft_deleted(self, actions: str | None) -> bool:
+        return "delete" in self._action_tokens(actions)
 
     def get_history(
         self,
@@ -70,11 +91,7 @@ class HistoryOrchestrator:
         ]
 
         if not include_deleted:
-            items = [
-                item
-                for item in items
-                if "delete" not in (item.actions or "").strip().lower()
-            ]
+            items = [item for item in items if not self._is_soft_deleted(item.actions)]
 
         if activity_contains:
             term = activity_contains.strip().lower()
@@ -189,7 +206,12 @@ class HistoryOrchestrator:
         return self.get_history_item(history_id)
 
     def delete_history_item(self, history_id: str) -> None:
-        quickLog(f"Deleting history item {history_id}", level="warning", urgency="moderate", module="API")
+        quickLog(
+            f"Deleting history item {history_id}",
+            level="warning",
+            urgency="moderate",
+            module="API",
+        )
         self.get_history_item(history_id)
         result = history_db_manager.delete(self.table_name, where={"id": history_id})
         if not result.get("success"):
@@ -198,6 +220,57 @@ class HistoryOrchestrator:
     def perform_action(self, history_id: str, action: HistoryActions) -> HistoryItem:
         item = self.get_history_item(history_id)
         if action is HistoryActions.DELETE:
+            tokens = self._action_tokens(item.actions)
+            tokens.add(HistoryActions.DELETE.value)
+            return self.patch_history_item(
+                history_id,
+                HistoryItemPatch(
+                    actions=self._actions_to_text(tokens),
+                    last_seen=self._utcnow(),
+                ),
+            )
+        if action is HistoryActions.RESTORE:
+            tokens = self._action_tokens(item.actions)
+            if HistoryActions.DELETE.value in tokens:
+                tokens.remove(HistoryActions.DELETE.value)
+            return self.patch_history_item(
+                history_id,
+                HistoryItemPatch(
+                    actions=self._actions_to_text(tokens),
+                    last_seen=self._utcnow(),
+                ),
+            )
+        if action is HistoryActions.TOUCH:
+            return self.patch_history_item(
+                history_id,
+                HistoryItemPatch(last_seen=self._utcnow()),
+            )
+        if action is HistoryActions.PURGE:
             self.delete_history_item(history_id)
             return item
         raise ValueError(f"Unsupported history action: {action.value}")
+
+    def perform_bulk_action(
+        self,
+        history_ids: list[str],
+        action: HistoryActions,
+    ) -> tuple[list[HistoryItem], list[str]]:
+        if not history_ids:
+            raise ValueError("history_ids is required")
+
+        processed: list[HistoryItem] = []
+        failed_ids: list[str] = []
+        seen: set[str] = set()
+
+        for raw_id in history_ids:
+            history_id = str(raw_id or "").strip()
+            if not history_id or history_id in seen:
+                continue
+            seen.add(history_id)
+
+            try:
+                processed.append(self.perform_action(history_id, action))
+            except Exception:
+                failed_ids.append(history_id)
+
+        return processed, failed_ids

@@ -5,12 +5,16 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from main.apis.models.history import (
     HistoryActions,
+    HistoryBulkActionRequest,
+    HistoryBulkActionResponse,
     HistoryItem,
     HistoryItemPatch,
     HistoryItemResponse,
     HistoryType,
 )
 from main.src.history import history_orchestrator
+from main.src.utils.core.task_schedular import scheduler
+from main.src.utils.DRLogger import quickLog
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -76,6 +80,26 @@ def list_history(
         _raise_history_http_error("List history items", exc)
 
 
+@router.post(
+    "/bulk-action",
+    response_model=HistoryBulkActionResponse,
+    status_code=status.HTTP_200_OK,
+)
+def perform_history_bulk_action(
+    payload: HistoryBulkActionRequest,
+) -> HistoryBulkActionResponse:
+    try:
+        processed, failed_ids = history_view.perform_bulk_action(
+            payload.history_ids,
+            payload.action,
+        )
+        return HistoryBulkActionResponse(items=processed, failed_ids=failed_ids)
+    except Exception as exc:
+        _raise_history_http_error(
+            f"Perform bulk action {payload.action.value} on history items", exc
+        )
+
+
 @router.get("/{history_id}", response_model=HistoryItem, status_code=status.HTTP_200_OK)
 def get_history_item(history_id: str) -> HistoryItem:
     try:
@@ -114,7 +138,15 @@ def patch_history_item(history_id: str, payload: HistoryItemPatch) -> HistoryIte
 async def delete_history_item(history_id: str) -> Response:
     try:
         history_view.delete_history_item(history_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted history {history_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": f"Successfully deleted history {history_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_history_http_error(f"Delete history item {history_id}", exc)

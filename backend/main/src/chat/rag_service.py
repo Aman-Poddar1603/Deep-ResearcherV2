@@ -113,7 +113,9 @@ def _is_time_or_date_query(normalized_query: str) -> bool:
     if not normalized_query:
         return False
     has_time_token = bool(
-        re.search(r"\b(time|date|day|today|now|current time|current date)\b", normalized_query)
+        re.search(
+            r"\b(time|date|day|today|now|current time|current date)\b", normalized_query
+        )
     )
     if not has_time_token:
         return False
@@ -616,7 +618,13 @@ SYSTEM_PROMPT = (
     "Use tools and retrieval context only when it materially improves answer quality. "
     "Do not waste tokens: keep answers concise unless the user asks for detail. "
     "For time/date questions, rely on the provided current server time context. "
-    "Do not fabricate citations, source names, or source URLs; the application tracks them separately."
+    "Do not fabricate citations, source names, or source URLs; the application tracks them separately.\n\n"
+    "Format instructions:\n"
+    "- For workflows or system diagrams: Generate Mermaid diagram code wrapped in markdown code blocks (```mermaid ... ```). "
+    "The frontend automatically parses and renders these into beautiful visualizations.\n"
+    "- For mathematical equations: Use LaTeX format with delimiters: "
+    "strictly use single $$ for inline math ($$ equation $$) and double $$ for block math ($$ equation $$). both "
+    "The frontend automatically renders these as formatted equations."
 )
 
 

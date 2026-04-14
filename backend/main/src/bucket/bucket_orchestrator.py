@@ -15,6 +15,7 @@ from main.apis.models.bucket import (
 )
 from main.src.store.DBManager import buckets_db_manager
 from main.src.bucket.bucket_store import bucket_store
+from main.src.history.history_tracker import record_history_event
 from main.src.utils.DRLogger import quickLog
 
 
@@ -70,6 +71,10 @@ class BucketOrchestrator:
         if isinstance(parsed, str):
             return {item.strip() for item in parsed.split(",") if item.strip()}
         return set()
+
+    def _primary_workspace_id(self, value: object) -> str | None:
+        ids = sorted(self._parse_connected_workspace_ids(value))
+        return ids[0] if ids else None
 
     def _fetch_one(
         self, table_name: str, where: dict[str, Any], not_found: str
@@ -185,6 +190,14 @@ class BucketOrchestrator:
             raise ValueError(result.get("message") or "Failed to create bucket")
         # Create physical directory tree in src/store/bucket/<id>/
         bucket_store.create_bucket_directory(record.id)
+        record_url = f"/bucket/{record.id}"
+        record_history_event(
+            activity=f"Created bucket {record.name}",
+            item_type="bucket",
+            user_id=record.created_by,
+            actions="create",
+            url=record_url,
+        )
         return self.getBucket(data["id"])
 
     def updateBucket(self, bucket_id: str, payload: BucketCreate) -> BucketRecord:
@@ -198,6 +211,13 @@ class BucketOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to update bucket")
+        record_history_event(
+            activity=f"Updated bucket {bucket_id}",
+            item_type="bucket",
+            user_id=record.created_by,
+            actions="update",
+            url=f"/bucket/{bucket_id}",
+        )
         return self.getBucket(bucket_id)
 
     def patchBucket(self, bucket_id: str, payload: BucketPatch) -> BucketRecord:
@@ -214,11 +234,22 @@ class BucketOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to patch bucket")
+        record_history_event(
+            activity=f"Patched bucket {bucket_id}",
+            item_type="bucket",
+            actions="patch",
+            url=f"/bucket/{bucket_id}",
+        )
         return self.getBucket(bucket_id)
 
     def deleteBucket(self, bucket_id: str) -> None:
-        quickLog(f"Deleting bucket {bucket_id}", level="warning", urgency="moderate", module="API")
-        self.getBucket(bucket_id)
+        quickLog(
+            f"Deleting bucket {bucket_id}",
+            level="warning",
+            urgency="moderate",
+            module="API",
+        )
+        bucket = self.getBucket(bucket_id)
         # Remove all child items from DB first
         buckets_db_manager.delete(self.item_table, where={"bucket_id": bucket_id})
         # Remove the bucket record
@@ -227,6 +258,13 @@ class BucketOrchestrator:
             raise ValueError(result.get("message") or "Failed to delete bucket")
         # Remove physical files from src/store/bucket/<id>/
         bucket_store.delete_bucket_directory(bucket_id)
+        record_history_event(
+            activity=f"Deleted bucket {bucket.name}",
+            item_type="bucket",
+            user_id=bucket.created_by,
+            actions="delete",
+            url=f"/bucket/{bucket_id}",
+        )
 
     def listBucketItems(
         self,
@@ -328,6 +366,15 @@ class BucketOrchestrator:
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to create bucket item")
         self._sync_bucket_stats(record.bucket_id)
+        workspace_id = self._primary_workspace_id(record.connected_workspace_ids)
+        record_history_event(
+            activity=f"Uploaded file {record.file_name}",
+            item_type="upload",
+            workspace_id=workspace_id,
+            user_id=record.created_by,
+            actions="upload",
+            url=bucket_store.build_asset_url(record.file_path),
+        )
         return self.getBucketItem(data["id"])
 
     def uploadFile(
@@ -395,7 +442,19 @@ class BucketOrchestrator:
                 raise ValueError(
                     result.get("message") or f"Failed to insert {file_name}"
                 )
-            created.append(self.getBucketItem(data["id"]))
+            created_item = self.getBucketItem(data["id"])
+            created.append(created_item)
+            workspace_id = self._primary_workspace_id(
+                created_item.connected_workspace_ids
+            )
+            record_history_event(
+                activity=f"Uploaded file {created_item.file_name}",
+                item_type="upload",
+                workspace_id=workspace_id,
+                user_id=created_item.created_by,
+                actions="upload",
+                url=bucket_store.build_asset_url(created_item.file_path),
+            )
         # Sync stats once after all inserts
         self._sync_bucket_stats(bucket_id)
         return created
@@ -417,7 +476,9 @@ class BucketOrchestrator:
             return
 
         allowed_tokens = {
-            token.strip().lower().lstrip(".") for token in raw.split(",") if token.strip()
+            token.strip().lower().lstrip(".")
+            for token in raw.split(",")
+            if token.strip()
         }
         if not allowed_tokens:
             return
@@ -432,14 +493,19 @@ class BucketOrchestrator:
         category = bucket_store._subfolder_for_format(normalized_format)
 
         allowed_by_category = bool(valid_categories) and category in valid_categories
-        allowed_by_extension = bool(allowed_extensions) and normalized_format in allowed_extensions
+        allowed_by_extension = (
+            bool(allowed_extensions) and normalized_format in allowed_extensions
+        )
 
         if not valid_categories and not allowed_extensions:
             return
         if allowed_by_category or allowed_by_extension:
             return
 
-        display_allowed = [*sorted(valid_categories), *[f".{ext}" for ext in sorted(allowed_extensions)]]
+        display_allowed = [
+            *sorted(valid_categories),
+            *[f".{ext}" for ext in sorted(allowed_extensions)],
+        ]
         shown_type = f".{normalized_format}" if normalized_format else file_format
         raise ValueError(
             f"Invalid file type '{shown_type}'. Bucket '{bucket.name}' only supports: "
@@ -521,7 +587,16 @@ class BucketOrchestrator:
                 raise ValueError(
                     result.get("message") or f"Failed to insert {file_name}"
                 )
-            created.append(self.getBucketItem(data["id"]))
+            created_item = self.getBucketItem(data["id"])
+            created.append(created_item)
+            record_history_event(
+                activity=f"Uploaded file {created_item.file_name}",
+                item_type="upload",
+                workspace_id=workspace_id,
+                user_id=created_item.created_by,
+                actions="upload",
+                url=bucket_store.build_asset_url(created_item.file_path),
+            )
 
         self._sync_bucket_stats(bucket_id)
         return created
@@ -539,13 +614,22 @@ class BucketOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to update bucket item")
+        workspace_id = self._primary_workspace_id(record.connected_workspace_ids)
+        record_history_event(
+            activity=f"Updated file record {record.file_name}",
+            item_type="bucket",
+            workspace_id=workspace_id,
+            user_id=record.created_by,
+            actions="update_item",
+            url=bucket_store.build_asset_url(record.file_path),
+        )
         return self.getBucketItem(item_id)
 
     def patchBucketItem(
         self, item_id: str, payload: BucketItemPatch
     ) -> BucketItemRecord:
         quickLog(f"Patching bucket item {item_id}", level="info", module="API")
-        self.getBucketItem(item_id)
+        existing = self.getBucketItem(item_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
         )
@@ -557,10 +641,24 @@ class BucketOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to patch bucket item")
+        workspace_id = self._primary_workspace_id(existing.connected_workspace_ids)
+        record_history_event(
+            activity=f"Patched file record {existing.file_name}",
+            item_type="bucket",
+            workspace_id=workspace_id,
+            user_id=existing.created_by,
+            actions="patch_item",
+            url=bucket_store.build_asset_url(existing.file_path),
+        )
         return self.getBucketItem(item_id)
 
     def deleteBucketItem(self, item_id: str) -> None:
-        quickLog(f"Deleting bucket item {item_id}", level="warning", urgency="moderate", module="API")
+        quickLog(
+            f"Deleting bucket item {item_id}",
+            level="warning",
+            urgency="moderate",
+            module="API",
+        )
         item = self.getBucketItem(item_id)
         result = buckets_db_manager.delete(self.item_table, where={"id": item_id})
         if not result.get("success"):
@@ -568,3 +666,12 @@ class BucketOrchestrator:
         # Remove the physical file (silently ignored if the path is a URL or already gone)
         bucket_store.delete_file(item.file_path)
         self._sync_bucket_stats(item.bucket_id)
+        workspace_id = self._primary_workspace_id(item.connected_workspace_ids)
+        record_history_event(
+            activity=f"Deleted file {item.file_name}",
+            item_type="bucket",
+            workspace_id=workspace_id,
+            user_id=item.created_by,
+            actions="delete_item",
+            url=bucket_store.build_asset_url(item.file_path),
+        )

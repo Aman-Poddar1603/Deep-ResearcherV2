@@ -605,6 +605,7 @@ export const deleteResearchSourceRecord = async (sourceId: string): Promise<void
 
 // History API
 export type HistoryType =
+  | "workspace"
   | "usage"
   | "research"
   | "chat"
@@ -642,13 +643,15 @@ export interface HistoryCreateRequest {
 
 export type HistoryPatchRequest = Partial<HistoryCreateRequest>;
 
+export type HistoryAction = "delete" | "restore" | "touch" | "purge";
+
 export interface HistoryListQuery {
   page?: number;
   size?: number;
   itemType?: HistoryType;
   workspaceId?: string;
   userId?: string;
-  include_deleted?: boolean;
+  includeDeleted?: boolean;
   activityContains?: string;
   urlContains?: string;
   createdFrom?: string | Date;
@@ -666,6 +669,11 @@ export interface HistoryListResponse {
   offset: number;
 }
 
+export interface HistoryBulkActionResponse {
+  items: HistoryItemRecord[];
+  failed_ids: string[];
+}
+
 export const listHistoryItems = async (
   query?: HistoryListQuery,
 ): Promise<HistoryListResponse> => {
@@ -677,7 +685,7 @@ export const listHistoryItems = async (
         itemType: query?.itemType,
         workspaceId: query?.workspaceId,
         userId: query?.userId,
-        include_deleted: query?.include_deleted,
+        include_deleted: query?.includeDeleted,
         activityContains: query?.activityContains,
         urlContains: query?.urlContains,
         createdFrom: query?.createdFrom,
@@ -727,12 +735,24 @@ export const deleteHistoryItem = async (historyId: string): Promise<void> => {
 
 export const executeHistoryAction = async (
   historyId: string,
-  action: "delete" = "delete",
+  action: HistoryAction = "delete",
 ): Promise<HistoryItemRecord> => {
   return requestData(
     api.post<HistoryItemRecord>(
       withQuery(`/history/${encodeURIComponent(historyId)}/action`, { action }),
     ),
+  );
+};
+
+export const executeHistoryBulkAction = async (
+  historyIds: string[],
+  action: HistoryAction,
+): Promise<HistoryBulkActionResponse> => {
+  return requestData(
+    api.post<HistoryBulkActionResponse>("/history/bulk-action", {
+      history_ids: historyIds,
+      action,
+    }),
   );
 };
 

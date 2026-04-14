@@ -14,6 +14,7 @@ def _utcnow() -> datetime:
 
 
 class HistoryType(str, Enum):
+    WORKSPACE = "workspace"
     USAGE = "usage"
     RESEARCH = "research"
     CHAT = "chat"
@@ -30,6 +31,9 @@ class HistoryType(str, Enum):
 
 class HistoryActions(str, Enum):
     DELETE = "delete"
+    RESTORE = "restore"
+    TOUCH = "touch"
+    PURGE = "purge"
 
 
 class HistoryItem(BaseModel):
@@ -62,6 +66,16 @@ class HistoryItemResponse(BaseModel):
     page: int = 1
     total_pages: int = 0
     offset: int = 0
+
+
+class HistoryBulkActionRequest(BaseModel):
+    history_ids: list[str] = Field(default_factory=list)
+    action: HistoryActions
+
+
+class HistoryBulkActionResponse(BaseModel):
+    items: list[HistoryItem] = Field(default_factory=list)
+    failed_ids: list[str] = Field(default_factory=list)
 
 
 class UserUsageHistoryRecord(HistoryItem):

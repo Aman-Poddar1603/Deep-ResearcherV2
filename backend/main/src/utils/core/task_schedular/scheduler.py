@@ -156,6 +156,7 @@ class Scheduler:
         self.worker_count = workers
         self.worker_tasks = []
         self.started = False
+        self.loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self):
         """
@@ -193,6 +194,8 @@ class Scheduler:
         """
         if self.started:
             return
+
+        self.loop = asyncio.get_running_loop()
 
         logger.info("Starting scheduler")
         _log_worker_event("Scheduler started", level="success")
@@ -293,3 +296,5 @@ class Scheduler:
         logger.info("Scheduler shutdown")
         _log_worker_event("Scheduler shutdown", level="success")
         await self.queue.join()
+        self.started = False
+        self.loop = None

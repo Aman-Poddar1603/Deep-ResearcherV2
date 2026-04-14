@@ -19,6 +19,7 @@ from main.apis.models.chats import (
     ChatThreadRecord,
 )
 from main.src.bucket.bucket_store import bucket_store
+from main.src.history.history_tracker import compact_preview, record_history_event
 from main.src.store.DBManager import chats_db_manager
 from main.src.utils.DRLogger import quickLog
 
@@ -104,7 +105,9 @@ class ChatOrchestrator:
     def _attachment_url(self, attachment_path: str | None) -> str | None:
         if not attachment_path:
             return None
-        if attachment_path.startswith("http://") or attachment_path.startswith("https://"):
+        if attachment_path.startswith("http://") or attachment_path.startswith(
+            "https://"
+        ):
             return attachment_path
         return bucket_store.build_asset_url(attachment_path)
 
@@ -123,7 +126,9 @@ class ChatOrchestrator:
             "updated_at": row.get("updated_at"),
         }
 
-    def _attachment_item_from_payload(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+    def _attachment_item_from_payload(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
         attachment_id = payload.get("attachment_id") or payload.get("id")
         message_id = payload.get("message_id")
         attachment_type = payload.get("attachment_type") or payload.get("type")
@@ -249,8 +254,8 @@ class ChatOrchestrator:
                 seen_paths,
             )
 
-        stored_attachment_ids, inline_attachment_items = self._parse_attachments_payload(
-            normalized.get("attachments")
+        stored_attachment_ids, inline_attachment_items = (
+            self._parse_attachments_payload(normalized.get("attachments"))
         )
 
         if attachment_rows_by_id:
@@ -278,7 +283,8 @@ class ChatOrchestrator:
                 [
                     item.get("attachment_id")
                     for item in items
-                    if isinstance(item.get("attachment_id"), str) and item.get("attachment_id")
+                    if isinstance(item.get("attachment_id"), str)
+                    and item.get("attachment_id")
                 ],
                 ensure_ascii=True,
             )
@@ -296,6 +302,23 @@ class ChatOrchestrator:
             except ValueError:
                 pass
         return datetime.min
+
+    def _thread_context(self, thread_id: str | None) -> tuple[str | None, str | None]:
+        if not thread_id:
+            return None, None
+        try:
+            thread = self.getThread(thread_id)
+            return thread.workspace_id, thread.user_id
+        except Exception:
+            return None, None
+
+    def _message_context(
+        self,
+        message: ChatMessageRecord,
+    ) -> tuple[str | None, str | None, str | None]:
+        thread_id = str(message.thread_id or "").strip() or None
+        workspace_id, user_id = self._thread_context(thread_id)
+        return thread_id, workspace_id, user_id
 
     def _fetch_one(
         self, table_name: str, where: dict[str, Any], not_found: str
@@ -396,7 +419,16 @@ class ChatOrchestrator:
         result = chats_db_manager.insert(self.thread_table, data)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to create chat thread")
-        return self.getThread(data["thread_id"])
+        created = self.getThread(data["thread_id"])
+        record_history_event(
+            activity=f"Created chat thread {created.thread_title or created.thread_id}",
+            item_type="chat",
+            workspace_id=created.workspace_id,
+            user_id=created.user_id,
+            actions="create_thread",
+            url=f"/chats/threads/{created.thread_id}",
+        )
+        return created
 
     def updateThread(
         self, thread_id: str, payload: ChatThreadCreate
@@ -412,7 +444,16 @@ class ChatOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to update chat thread")
-        return self.getThread(thread_id)
+        updated = self.getThread(thread_id)
+        record_history_event(
+            activity=f"Updated chat thread {thread_id}",
+            item_type="chat",
+            workspace_id=updated.workspace_id,
+            user_id=updated.user_id,
+            actions="update_thread",
+            url=f"/chats/threads/{thread_id}",
+        )
+        return updated
 
     def patchThread(self, thread_id: str, payload: ChatThreadPatch) -> ChatThreadRecord:
         quickLog(f"Patching chat thread {thread_id}", level="info", module="API")
@@ -430,7 +471,16 @@ class ChatOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to patch chat thread")
-        return self.getThread(thread_id)
+        patched = self.getThread(thread_id)
+        record_history_event(
+            activity=f"Patched chat thread {thread_id}",
+            item_type="chat",
+            workspace_id=patched.workspace_id,
+            user_id=patched.user_id,
+            actions="patch_thread",
+            url=f"/chats/threads/{thread_id}",
+        )
+        return patched
 
     def deleteThread(self, thread_id: str) -> None:
         quickLog(
@@ -439,12 +489,20 @@ class ChatOrchestrator:
             urgency="moderate",
             module="API",
         )
-        self.getThread(thread_id)
+        thread = self.getThread(thread_id)
         result = chats_db_manager.delete(
             self.thread_table, where={"thread_id": thread_id}
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to delete chat thread")
+        record_history_event(
+            activity=f"Deleted chat thread {thread.thread_title or thread_id}",
+            item_type="chat",
+            workspace_id=thread.workspace_id,
+            user_id=thread.user_id,
+            actions="delete_thread",
+            url=f"/chats/threads/{thread_id}",
+        )
 
     def listMessages(
         self,
@@ -474,9 +532,7 @@ class ChatOrchestrator:
 
         raw_rows = result.get("data") or []
         message_ids = {
-            row.get("message_id")
-            for row in raw_rows
-            if row.get("message_id")
+            row.get("message_id") for row in raw_rows if row.get("message_id")
         }
         attachment_map: dict[str, list[dict[str, Any]]] = {}
         attachment_rows_by_id: dict[str, dict[str, Any]] = {}
@@ -585,12 +641,24 @@ class ChatOrchestrator:
         result = chats_db_manager.insert(self.message_table, data)
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to create chat message")
-        return self.getMessage(data["message_id"])
+        created = self.getMessage(data["message_id"])
+        thread_id, workspace_id, user_id = self._message_context(created)
+        role = str(created.role or "message").strip() or "message"
+        preview = compact_preview(str(created.content or ""), max_chars=90) or "(empty)"
+        record_history_event(
+            activity=f"Chat {role}: {preview}",
+            item_type="chat",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            actions="create_message",
+            url=f"/chats/threads/{thread_id}" if thread_id else None,
+        )
+        return created
 
     def patchMessage(
         self, message_id: str, payload: ChatMessagePatch
     ) -> ChatMessageRecord:
-        self.getMessage(message_id)
+        existing = self.getMessage(message_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
         )
@@ -604,7 +672,24 @@ class ChatOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to patch chat message")
-        return self.getMessage(message_id)
+        patched = self.getMessage(message_id)
+        thread_id, workspace_id, user_id = self._message_context(patched)
+        role = str(patched.role or existing.role or "message").strip() or "message"
+        preview = (
+            compact_preview(
+                str(patched.content or existing.content or ""), max_chars=90
+            )
+            or "(empty)"
+        )
+        record_history_event(
+            activity=f"Patched chat {role}: {preview}",
+            item_type="chat",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            actions="patch_message",
+            url=f"/chats/threads/{thread_id}" if thread_id else None,
+        )
+        return patched
 
     def deleteMessage(self, message_id: str) -> None:
         quickLog(
@@ -613,12 +698,22 @@ class ChatOrchestrator:
             urgency="moderate",
             module="API",
         )
-        self.getMessage(message_id)
+        message = self.getMessage(message_id)
         result = chats_db_manager.delete(
             self.message_table, where={"message_id": message_id}
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to delete chat message")
+        thread_id, workspace_id, user_id = self._message_context(message)
+        preview = compact_preview(str(message.content or ""), max_chars=90) or "(empty)"
+        record_history_event(
+            activity=f"Deleted chat message: {preview}",
+            item_type="chat",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            actions="delete_message",
+            url=f"/chats/threads/{thread_id}" if thread_id else None,
+        )
 
     def listAttachments(
         self,
@@ -698,12 +793,30 @@ class ChatOrchestrator:
             raise ValueError(
                 result.get("message") or "Failed to create chat attachment"
             )
-        return self.getAttachment(data["attachment_id"])
+        created = self.getAttachment(data["attachment_id"])
+        thread_id: str | None = None
+        workspace_id: str | None = None
+        user_id: str | None = None
+        if created.message_id:
+            try:
+                message = self.getMessage(created.message_id)
+                thread_id, workspace_id, user_id = self._message_context(message)
+            except Exception:
+                thread_id = None
+        record_history_event(
+            activity=f"Added chat attachment {created.attachment_path or created.attachment_id}",
+            item_type="upload",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            actions="create_attachment",
+            url=f"/chats/threads/{thread_id}" if thread_id else None,
+        )
+        return created
 
     def patchAttachment(
         self, attachment_id: str, payload: ChatAttachmentPatch
     ) -> ChatAttachmentRecord:
-        self.getAttachment(attachment_id)
+        existing = self.getAttachment(attachment_id)
         patch_data = self._db_payload(
             payload.model_dump(exclude_unset=True, mode="python")
         )
@@ -717,7 +830,26 @@ class ChatOrchestrator:
         )
         if not result.get("success"):
             raise ValueError(result.get("message") or "Failed to patch chat attachment")
-        return self.getAttachment(attachment_id)
+        patched = self.getAttachment(attachment_id)
+        thread_id: str | None = None
+        workspace_id: str | None = None
+        user_id: str | None = None
+        target_message_id = patched.message_id or existing.message_id
+        if target_message_id:
+            try:
+                message = self.getMessage(target_message_id)
+                thread_id, workspace_id, user_id = self._message_context(message)
+            except Exception:
+                thread_id = None
+        record_history_event(
+            activity=f"Patched chat attachment {patched.attachment_path or attachment_id}",
+            item_type="chat",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            actions="patch_attachment",
+            url=f"/chats/threads/{thread_id}" if thread_id else None,
+        )
+        return patched
 
     def deleteAttachment(self, attachment_id: str) -> None:
         quickLog(
@@ -726,7 +858,7 @@ class ChatOrchestrator:
             urgency="moderate",
             module="API",
         )
-        self.getAttachment(attachment_id)
+        attachment = self.getAttachment(attachment_id)
         result = chats_db_manager.delete(
             self.attachment_table,
             where={"attachment_id": attachment_id},
@@ -735,3 +867,20 @@ class ChatOrchestrator:
             raise ValueError(
                 result.get("message") or "Failed to delete chat attachment"
             )
+        thread_id: str | None = None
+        workspace_id: str | None = None
+        user_id: str | None = None
+        if attachment.message_id:
+            try:
+                message = self.getMessage(attachment.message_id)
+                thread_id, workspace_id, user_id = self._message_context(message)
+            except Exception:
+                thread_id = None
+        record_history_event(
+            activity=f"Deleted chat attachment {attachment.attachment_path or attachment_id}",
+            item_type="chat",
+            workspace_id=workspace_id,
+            user_id=user_id,
+            actions="delete_attachment",
+            url=f"/chats/threads/{thread_id}" if thread_id else None,
+        )

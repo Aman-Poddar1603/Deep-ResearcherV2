@@ -12,6 +12,7 @@ from main.apis.models.workspaces import (
     WorkspacePatch,
     WorkspaceResourceStats,
 )
+from main.src.history.history_tracker import record_history_event
 from main.src.store.DBManager import buckets_db_manager, main_db_manager
 from main.src.bucket.bucket_store import bucket_store
 from main.src.utils.DRLogger import dr_logger
@@ -229,11 +230,19 @@ class WorkspaceOrchestrator:
             content=content,
         )
         asset_url = bucket_store.build_asset_url(stored_path)
-        return self._set_workspace_asset_url(
+        workspace = self._set_workspace_asset_url(
             workspace_id=workspace_id,
             field_name="banner_img",
             asset_url=asset_url,
         )
+        record_history_event(
+            activity=f"Uploaded workspace banner: {file_name}",
+            item_type="workspace",
+            workspace_id=workspace_id,
+            actions="upload_banner",
+            url=asset_url,
+        )
+        return workspace
 
     def uploadWorkspaceIcon(
         self,
@@ -250,11 +259,19 @@ class WorkspaceOrchestrator:
             content=content,
         )
         asset_url = bucket_store.build_asset_url(stored_path)
-        return self._set_workspace_asset_url(
+        workspace = self._set_workspace_asset_url(
             workspace_id=workspace_id,
             field_name="icon",
             asset_url=asset_url,
         )
+        record_history_event(
+            activity=f"Uploaded workspace icon: {file_name}",
+            item_type="workspace",
+            workspace_id=workspace_id,
+            actions="upload_icon",
+            url=asset_url,
+        )
+        return workspace
 
     def createWorkspace(self, workspace_data: WorkspaceCreate) -> WorkspaceOut:
         _log_system_workspace_event(
@@ -298,6 +315,13 @@ class WorkspaceOrchestrator:
         created_workspace_id = db_data.get("id")
         if not isinstance(created_workspace_id, str):
             raise ValueError("Workspace id generation failed")
+        record_history_event(
+            activity=f"Created workspace: {workspace_data.name}",
+            item_type="workspace",
+            workspace_id=created_workspace_id,
+            actions="create",
+            url=f"/workspace/{created_workspace_id}",
+        )
         return self.getWorkspace(created_workspace_id)
 
     def getWorkspace(self, workspace_id: str) -> WorkspaceOut:
@@ -439,9 +463,7 @@ class WorkspaceOrchestrator:
         paged_workspaces, total_items, total_pages, offset = self._paginate(
             workspaces, page, size
         )
-        resource_counts = self._build_workspace_resource_count_lookup(
-            paged_workspaces
-        )
+        resource_counts = self._build_workspace_resource_count_lookup(paged_workspaces)
         items = [
             WorkspaceListItem(
                 **workspace.model_dump(mode="python"),
@@ -502,6 +524,13 @@ class WorkspaceOrchestrator:
         _log_system_workspace_event(
             f"Successfully updated workspace {workspace_id}", level="success"
         )
+        record_history_event(
+            activity=f"Updated workspace {workspace_id}",
+            item_type="workspace",
+            workspace_id=workspace_id,
+            actions="update",
+            url=f"/workspace/{workspace_id}",
+        )
         return self.getWorkspace(workspace_id)
 
     def patchWorkspace(
@@ -540,6 +569,13 @@ class WorkspaceOrchestrator:
         _log_system_workspace_event(
             f"Successfully patched workspace {workspace_id}", level="success"
         )
+        record_history_event(
+            activity=f"Patched workspace {workspace_id}",
+            item_type="workspace",
+            workspace_id=workspace_id,
+            actions="patch",
+            url=f"/workspace/{workspace_id}",
+        )
         return self.getWorkspace(workspace_id)
 
     def deleteWorkspace(self, workspace_id: str) -> None:
@@ -562,4 +598,11 @@ class WorkspaceOrchestrator:
 
         _log_system_workspace_event(
             f"Successfully deleted workspace {workspace_id}", level="success"
+        )
+        record_history_event(
+            activity=f"Deleted workspace {workspace_id}",
+            item_type="workspace",
+            workspace_id=workspace_id,
+            actions="delete",
+            url=f"/workspace/{workspace_id}",
         )

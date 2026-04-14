@@ -12,13 +12,22 @@ import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from main.src.history.history_tracker import (
+    compact_preview,
+    record_history_event,
+    resolve_message_thread_id,
+    resolve_thread_context,
+)
 from main.src.store.DBManager import chats_db_manager, main_db_manager
 from main.src.utils.core.task_schedular import scheduler
 from main.src.utils.DRLogger import quickLog
 
 
 async def _log(msg: str, level: str = "info", urgency: str = "none") -> None:
-    await scheduler.schedule(quickLog, params={"message": msg, "level": level, "urgency": urgency})
+    await scheduler.schedule(
+        quickLog, params={"message": msg, "level": level, "urgency": urgency}
+    )
+
 
 _MSG_TABLE = "chat_messages"
 _THREAD_TABLE = "chat_threads"
@@ -26,9 +35,7 @@ _ATT_TABLE = "chat_attachments"
 _WORKSPACE_TABLE = "workspaces"
 _SETTINGS_TABLE = "settings"
 
-_DEFAULT_USER_LOCATION = os.getenv(
-    "DEFAULT_USER_LOCATION", "Ranchi, Jharkhand, India"
-)
+_DEFAULT_USER_LOCATION = os.getenv("DEFAULT_USER_LOCATION", "Ranchi, Jharkhand, India")
 
 
 def _now() -> str:
@@ -63,7 +70,9 @@ def get_thread_runtime_context(thread_id: str) -> dict[str, str]:
     Includes workspace linkage, connected bucket, and user profile fields from
     settings so they can be injected into model context and attachment flows.
     """
-    thread_result = chats_db_manager.fetch_one(_THREAD_TABLE, where={"thread_id": thread_id})
+    thread_result = chats_db_manager.fetch_one(
+        _THREAD_TABLE, where={"thread_id": thread_id}
+    )
     thread_row = thread_result.get("data") if thread_result.get("success") else None
     thread = thread_row or {}
 
@@ -75,10 +84,14 @@ def get_thread_runtime_context(thread_id: str) -> dict[str, str]:
             _WORKSPACE_TABLE,
             where={"id": workspace_id},
         )
-        workspace_row = workspace_result.get("data") if workspace_result.get("success") else None
+        workspace_row = (
+            workspace_result.get("data") if workspace_result.get("success") else None
+        )
         if isinstance(workspace_row, dict):
             workspace_name = _first_non_empty(workspace_row.get("name"))
-            connected_bucket_id = _first_non_empty(workspace_row.get("connected_bucket_id"))
+            connected_bucket_id = _first_non_empty(
+                workspace_row.get("connected_bucket_id")
+            )
 
     settings_row: dict[str, object] | None = None
     settings_result = main_db_manager.fetch_all(_SETTINGS_TABLE)
@@ -111,6 +124,7 @@ def get_thread_runtime_context(thread_id: str) -> dict[str, str]:
 
 
 # ──────────────────────────────────────────── reads (sync, pre-stream) ────────
+
 
 def get_recent_history(thread_id: str, limit: int = 10) -> list[dict]:
     """Return last `limit` messages for a thread, oldest-first."""
@@ -155,6 +169,17 @@ def save_user_message_now(
     result = chats_db_manager.insert(_MSG_TABLE, payload)
     if not result.get("success"):
         raise ValueError(result.get("message") or "Failed to insert user message")
+
+    workspace_id, user_id = resolve_thread_context(thread_id)
+    preview = compact_preview(content, max_chars=90) or "(empty)"
+    record_history_event(
+        activity=f"Chat user: {preview}",
+        item_type="chat",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actions="create_message",
+        url=f"/chats/threads/{thread_id}",
+    )
     return message_id
 
 
@@ -177,10 +202,22 @@ def save_attachment_now(
     result = chats_db_manager.insert(_ATT_TABLE, payload)
     if not result.get("success"):
         raise ValueError(result.get("message") or "Failed to insert attachment")
+
+    thread_id = resolve_message_thread_id(message_id)
+    workspace_id, user_id = resolve_thread_context(thread_id or "")
+    record_history_event(
+        activity=f"Attached file to chat: {attachment_path}",
+        item_type="upload",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actions="create_attachment",
+        url=f"/chats/threads/{thread_id}" if thread_id else None,
+    )
     return attachment_id
 
 
 # ──────────────────────────────────────────── background writes ────────────────
+
 
 async def bg_save_user_message(
     thread_id: str,
@@ -210,6 +247,17 @@ async def bg_save_user_message(
         chats_db_manager.insert,
         params={"table_name": _MSG_TABLE, "data": payload},
     )
+
+    workspace_id, user_id = resolve_thread_context(thread_id)
+    preview = compact_preview(content, max_chars=90) or "(empty)"
+    record_history_event(
+        activity=f"Chat user: {preview}",
+        item_type="chat",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actions="create_message",
+        url=f"/chats/threads/{thread_id}",
+    )
     return message_id
 
 
@@ -234,6 +282,17 @@ async def bg_save_assistant_message(
         chats_db_manager.insert,
         params={"table_name": _MSG_TABLE, "data": payload},
     )
+
+    workspace_id, user_id = resolve_thread_context(thread_id)
+    preview = compact_preview(content, max_chars=90) or "(empty)"
+    record_history_event(
+        activity=f"Chat assistant: {preview}",
+        item_type="chat",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actions="assistant_message",
+        url=f"/chats/threads/{thread_id}",
+    )
     return message_id
 
 
@@ -256,6 +315,17 @@ async def bg_save_attachment(
     await scheduler.schedule(
         chats_db_manager.insert,
         params={"table_name": _ATT_TABLE, "data": payload},
+    )
+
+    thread_id = resolve_message_thread_id(message_id)
+    workspace_id, user_id = resolve_thread_context(thread_id or "")
+    record_history_event(
+        activity=f"Attached file to chat: {attachment_path}",
+        item_type="upload",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actions="create_attachment",
+        url=f"/chats/threads/{thread_id}" if thread_id else None,
     )
     return attachment_id
 
@@ -285,6 +355,15 @@ async def bg_update_thread_title(thread_id: str, title: str) -> None:
             "data": {"thread_title": title, "updated_at": _now()},
             "where": {"thread_id": thread_id},
         },
+    )
+    workspace_id, user_id = resolve_thread_context(thread_id)
+    record_history_event(
+        activity=f"Updated chat title: {compact_preview(title, max_chars=70)}",
+        item_type="chat",
+        workspace_id=workspace_id,
+        user_id=user_id,
+        actions="update_thread_title",
+        url=f"/chats/threads/{thread_id}",
     )
 
 
