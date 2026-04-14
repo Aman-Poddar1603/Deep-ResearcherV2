@@ -24,6 +24,7 @@ from main.src.bucket import bucket_orchestrator as _bucket_orch
 from main.src.utils.core.task_schedular import scheduler
 from main.src.utils.DRLogger import dr_logger
 from main.src.utils.versionManagement import get_raw_version
+from main.src.workspace.workspace_links import link_resource_to_connected_bucket
 from main.src.workspace import workspace_orchestrator
 
 # Router only: include this in main server from another file.
@@ -170,7 +171,7 @@ async def upload_workspace_resource(
         content = await file.read()
         file_name = file.filename or "resource.bin"
         file_format = Path(file_name).suffix.lstrip(".").lower() or "bin"
-        return bucket_view.uploadFileToWorkspaceBucket(
+        created = bucket_view.uploadFileToWorkspaceBucket(
             workspace_id=workspace_id,
             bucket_id=workspace.connected_bucket_id,
             file_name=file_name,
@@ -180,6 +181,15 @@ async def upload_workspace_resource(
             source=source,
             summary=summary,
         )
+        await scheduler.schedule(
+            link_resource_to_connected_bucket,
+            params={
+                "connected_bucket_id": workspace.connected_bucket_id,
+                "resource_id": created.id,
+                "workspace_id": workspace_id,
+            },
+        )
+        return created
     except Exception as exc:
         _raise_workspace_http_error(f"Upload resource to workspace {workspace_id}", exc)
 
@@ -217,7 +227,7 @@ async def upload_workspace_resources_bulk(
             file_name = upload.filename or "resource.bin"
             file_format = Path(file_name).suffix.lstrip(".").lower() or "bin"
             file_tuples.append((file_name, file_format, content))
-        return bucket_view.uploadFilesToWorkspaceBucket(
+        created = bucket_view.uploadFilesToWorkspaceBucket(
             workspace_id=workspace_id,
             bucket_id=workspace.connected_bucket_id,
             files=file_tuples,
@@ -225,6 +235,16 @@ async def upload_workspace_resources_bulk(
             source=source,
             summary=summary,
         )
+        for item in created:
+            await scheduler.schedule(
+                link_resource_to_connected_bucket,
+                params={
+                    "connected_bucket_id": workspace.connected_bucket_id,
+                    "resource_id": item.id,
+                    "workspace_id": workspace_id,
+                },
+            )
+        return created
     except Exception as exc:
         _raise_workspace_http_error(
             f"Bulk upload resources to workspace {workspace_id}", exc
@@ -386,7 +406,7 @@ async def create_workspace_with_assets(
                 file_format = Path(file_name).suffix.lstrip(".").lower() or "bin"
                 file_tuples.append((file_name, file_format, content))
             if file_tuples:
-                bucket_view.uploadFilesToWorkspaceBucket(
+                created_items = bucket_view.uploadFilesToWorkspaceBucket(
                     workspace_id=workspace.id,
                     bucket_id=workspace.connected_bucket_id,
                     files=file_tuples,
@@ -394,6 +414,15 @@ async def create_workspace_with_assets(
                     source=resource_source,
                     summary=resource_summary,
                 )
+                for item in created_items:
+                    await scheduler.schedule(
+                        link_resource_to_connected_bucket,
+                        params={
+                            "connected_bucket_id": workspace.connected_bucket_id,
+                            "resource_id": item.id,
+                            "workspace_id": workspace.id,
+                        },
+                    )
 
         return workspace
     except Exception as exc:
@@ -446,7 +475,15 @@ async def delete_workspace(workspace_id: str) -> Response:
             f"Deleting workspace {workspace_id} API invoked", level="info"
         )
         workspace_view.deleteWorkspace(workspace_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted workspace {workspace_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": "Successfully deleted workspace {workspace_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_workspace_http_error(f"Delete workspace {workspace_id}", exc)

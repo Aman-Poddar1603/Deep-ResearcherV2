@@ -1,22 +1,20 @@
 import { useState, useCallback, memo, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
+  getAllWorkspaces,
   getChatThread,
   listChatMessages,
+  resolveApiUrl,
+  type ChatMessageAttachmentItem,
   type ChatMessageRecord,
 } from '@/lib/apis'
 import { toast } from '@/components/ui/sonner'
 import { Message, MessageContent, MessageResponse, MessageAction, MessageActions, MessageToolbar } from '@/components/ai-elements/message'
 import {
-  ChainOfThought,
-  ChainOfThoughtContent,
-  ChainOfThoughtHeader,
-  ChainOfThoughtStep,
-} from '@/components/ai-elements/chain-of-thought'
-import {
   Attachments,
   Attachment,
   AttachmentPreview,
+  type AttachmentData,
 } from '@/components/ai-elements/attachments'
 import {
   Conversation,
@@ -24,7 +22,7 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation'
-import { SearchIcon, CopyIcon, RefreshCcwIcon, Loader2Icon, CheckIcon, Upload, MessageSquare } from 'lucide-react'
+import { CopyIcon, RefreshCcwIcon, Loader2Icon, CheckIcon, Upload, MessageSquare } from 'lucide-react'
 import "katex/dist/katex.min.css";
 import Composer from '@/components/widgets/Composer'
 import { cn } from '@/lib/utils'
@@ -36,24 +34,95 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useChatSimulator, type ChatMessage } from './useChatSimulator'
 
+function inferAttachmentMediaType(
+  attachmentType: string | null | undefined,
+  fileName: string | null | undefined,
+): string {
+  const fromType = (attachmentType || '').toLowerCase().replace(/^\./, '')
+  const fromName = (fileName || '').toLowerCase().split('.').pop() || ''
+  const ext = fromType || fromName
+
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg', 'tiff'].includes(ext)) {
+    return `image/${ext === 'jpg' ? 'jpeg' : ext}`
+  }
+  if (['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm'].includes(ext)) {
+    return `video/${ext}`
+  }
+  if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext)) {
+    return `audio/${ext}`
+  }
+  if (ext === 'txt') return 'text/plain'
+  if (ext === 'md') return 'text/markdown'
+  if (ext === 'csv') return 'text/csv'
+  if (ext === 'json') return 'application/json'
+  if (ext === 'xml') return 'application/xml'
+  if (ext === 'pdf') return 'application/pdf'
+  if (ext === 'doc') return 'application/msword'
+  if (ext === 'docx') {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  }
+  if (ext === 'ppt') return 'application/vnd.ms-powerpoint'
+  if (ext === 'pptx') {
+    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  }
+  if (ext === 'xls') return 'application/vnd.ms-excel'
+  if (ext === 'xlsx') {
+    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  }
+  return 'application/octet-stream'
+}
+
+function toAttachmentUrl(item: ChatMessageAttachmentItem): string | null {
+  const direct = item.url ?? null
+  if (direct) {
+    return resolveApiUrl(direct)
+  }
+  const storedPath = item.attachment_path?.trim()
+  if (!storedPath) return null
+  const normalized = storedPath.replace(/^\/+/, '')
+  return resolveApiUrl(`/bucket/assets/${normalized}`)
+}
+
+function mapMessageAttachments(m: ChatMessageRecord): AttachmentData[] {
+  const items = m.attachment_items ?? []
+  return items
+    .map((item): AttachmentData | null => {
+      const url = toAttachmentUrl(item)
+      if (!url) return null
+
+      const filename = item.file_name ?? item.attachment_path?.split('/').pop() ?? 'Attachment'
+
+      return {
+        id: item.attachment_id,
+        type: 'file',
+        url,
+        filename,
+        mediaType: inferAttachmentMediaType(item.attachment_type, filename),
+      }
+    })
+    .filter((value): value is AttachmentData => value !== null)
+}
+
 function mapRecordToChatMessage(m: ChatMessageRecord): ChatMessage {
   const roleRaw = (m.role ?? 'assistant').toLowerCase()
   const role: 'user' | 'assistant' =
     roleRaw === 'user' ? 'user' : 'assistant'
+  const attachments = mapMessageAttachments(m)
   return {
     id: m.message_id,
     role,
     content: m.content ?? '',
+    attachments: attachments.length > 0 ? attachments : undefined,
   }
 }
 import { Shimmer } from '@/components/ai-elements/shimmer'
 import { Persona } from '@/components/ai-elements/persona'
-
 // Memoized individual message item to prevent unnecessary re-renders during streaming
 const ChatMessageItem = memo(({
   message,
   isLoading,
   isLast,
+  runtimeStatus,
   handleCopy,
   handleRetry,
   handleExport,
@@ -62,6 +131,7 @@ const ChatMessageItem = memo(({
   message: ChatMessage,
   isLoading: boolean,
   isLast: boolean,
+  runtimeStatus: string,
   handleCopy: (content: string, id: string) => void,
   handleRetry: () => void,
   handleExport: (format: string, id: string) => void,
@@ -69,6 +139,7 @@ const ChatMessageItem = memo(({
 }) => {
   const isAssistant = message.role === 'assistant'
   const isStreaming = isLast && isLoading && isAssistant
+  const activeStatus = runtimeStatus.trim()
 
   return (
     <Message
@@ -79,32 +150,6 @@ const ChatMessageItem = memo(({
       )}
     >
       <MessageContent className={message.role === 'user' ? "shadow-sm text-foreground" : "bg-transparent px-0 py-0 w-full text-justify"}>
-        {isAssistant && (message.thinking || (isStreaming && !message.content)) && (
-          <div className="bg-accent/50 rounded-2xl mb-4 border border-border/50 overflow-hidden w-full">
-            <ChainOfThought
-              key={message.content ? 'thinking-folded' : 'thinking-active'}
-              className='p-4 pb-0 w-full'
-              defaultOpen={!message.content}
-            >
-              <ChainOfThoughtHeader className='w-full' />
-              <ChainOfThoughtContent className='w-full pr-4'>
-                <ChainOfThoughtStep
-                  icon={SearchIcon}
-                  label="Thinking Process"
-                  status={isStreaming && !message.content ? "active" : "complete"}
-                >
-                  <MessageResponse
-                    className="text-muted-foreground mt-2 mb-4 w-full"
-                    isAnimating={isStreaming && !message.content}
-                  >
-                    {message.thinking}
-                  </MessageResponse>
-                </ChainOfThoughtStep>
-              </ChainOfThoughtContent>
-            </ChainOfThought>
-          </div>
-        )}
-
         {isAssistant ? (
           <>
             {message.content ? (
@@ -115,12 +160,24 @@ const ChatMessageItem = memo(({
                 {message.content}
               </MessageResponse>
             ) : (
-              isLoading && isLast && !message.thinking && (
+              isLoading && isLast && (
                 <div className="flex items-center gap-2 mb-4">
                   <Persona state="thinking" className="size-5" variant="glint" />
-                  <Shimmer className="text-sm font-medium">Thinking...</Shimmer>
+                  <Shimmer className="text-sm font-medium">
+                    {activeStatus || 'Generating response...'}
+                  </Shimmer>
                 </div>
               )
+            )}
+            {isStreaming && activeStatus && !!message.content && (
+              <div className="mt-2 flex items-center gap-2 text-muted-foreground/80">
+                <Persona
+                  state={message.content ? 'speaking' : 'thinking'}
+                  className="size-4"
+                  variant="glint"
+                />
+                <span className="text-xs font-medium">{activeStatus}</span>
+              </div>
             )}
           </>
         ) : (
@@ -205,27 +262,105 @@ const ChatMessageItem = memo(({
 ChatMessageItem.displayName = 'ChatMessageItem'
 
 const ChatInterface = () => {
+  const navigate = useNavigate()
   const { id: threadId } = useParams<{ id: string }>()
+  const normalizedThreadId = threadId?.trim() ?? ''
+  const isDraftThread = !normalizedThreadId || normalizedThreadId === 'new'
+  const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: string; name: string }>>([])
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(false)
+  const [headerTitle, setHeaderTitle] = useState('Chat')
+  const [headerSub, setHeaderSub] = useState('')
+  const [runtimeStatus, setRuntimeStatus] = useState('')
+
+  const handleRuntimeTitle = useCallback((title: string) => {
+    const nextTitle = title.trim()
+    if (!nextTitle) return
+    setHeaderTitle(nextTitle)
+  }, [])
+
   const { messages, isLoading, sendMessage, stopStreaming, replaceMessages } =
-    useChatSimulator()
+    useChatSimulator({
+      threadId: isDraftThread ? undefined : normalizedThreadId,
+      workspaceId: selectedWorkspaceId,
+      onTitle: handleRuntimeTitle,
+      onStatus: setRuntimeStatus,
+      onThreadCreated: (nextThreadId) => {
+        navigate(`/chat/${encodeURIComponent(nextThreadId)}`, { replace: true })
+      },
+    })
   const [input, setInput] = useState('')
   const [copyState, setCopyState] = useState<
     Record<string, 'idle' | 'loading' | 'success'>
   >({})
-  const [headerTitle, setHeaderTitle] = useState('Chat')
-  const [headerSub, setHeaderSub] = useState('')
 
   useEffect(() => {
-    if (!threadId?.trim()) return
+    let cancelled = false
+
+    void (async () => {
+      setIsLoadingWorkspaces(true)
+      try {
+        const { workspaces } = await getAllWorkspaces({
+          page: 1,
+          size: 200,
+          sortBy: 'updated_at',
+          sortOrder: 'desc',
+        })
+        if (cancelled) return
+
+        const options = workspaces.map((workspace) => ({
+          id: workspace.id,
+          name: workspace.name,
+        }))
+        setWorkspaceOptions(options)
+
+        const savedWorkspaceId = window.localStorage
+          .getItem('dr.chat.workspaceId')
+          ?.trim() ?? ''
+        if (!savedWorkspaceId) return
+        if (!options.some((workspace) => workspace.id === savedWorkspaceId)) return
+
+        setSelectedWorkspaceId((current) => current || savedWorkspaceId)
+      } catch {
+        if (!cancelled) {
+          setWorkspaceOptions([])
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingWorkspaces(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isDraftThread) {
+      setHeaderTitle('New Chat')
+      setHeaderSub('Unsaved conversation')
+      setRuntimeStatus('')
+      if (!isLoading && messages.length > 0) {
+        replaceMessages([], { preserveStreaming: true })
+      }
+      return
+    }
+
+    if (isLoading) {
+      return
+    }
+
     let cancelled = false
     void (async () => {
       try {
         const [thread, msgRes] = await Promise.all([
-          getChatThread(threadId),
+          getChatThread(normalizedThreadId),
           listChatMessages({
-            threadId,
+            threadId: normalizedThreadId,
             page: 1,
-            size: 500,
+            size: 200,
             sortBy: 'message_seq',
             sortOrder: 'asc',
           }),
@@ -240,25 +375,44 @@ const ChatInterface = () => {
         setHeaderSub(
           ws ? `Workspace ${ws} • ${updated}` : updated,
         )
-        replaceMessages(msgRes.items.map(mapRecordToChatMessage))
+        if (ws) {
+          setSelectedWorkspaceId(ws)
+          window.localStorage.setItem('dr.chat.workspaceId', ws)
+        }
+
+        const hydratedMessages = msgRes.items.map(mapRecordToChatMessage)
+        if (hydratedMessages.length > 0 || messages.length === 0) {
+          replaceMessages(hydratedMessages, { preserveStreaming: true })
+        }
       } catch (e) {
         if (!cancelled) {
           toast.error(
             e instanceof Error ? e.message : 'Failed to load conversation',
           )
-          replaceMessages([])
         }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [threadId, replaceMessages])
+  }, [isDraftThread, isLoading, messages.length, normalizedThreadId, replaceMessages])
+
+  const handleWorkspaceChange = useCallback((workspaceId: string) => {
+    const normalized = workspaceId.trim()
+    setSelectedWorkspaceId(normalized)
+    if (normalized) {
+      window.localStorage.setItem('dr.chat.workspaceId', normalized)
+    }
+  }, [])
 
   const handleSend = useCallback((value: string, files?: File[]) => {
+    if (isDraftThread && !selectedWorkspaceId.trim()) {
+      toast.error('Select a workspace before starting a chat')
+      return
+    }
     sendMessage(value, files)
     setInput('')
-  }, [sendMessage])
+  }, [isDraftThread, selectedWorkspaceId, sendMessage])
 
   const handleCopy = useCallback(async (content: string, messageId: string) => {
     setCopyState(prev => ({ ...prev, [messageId]: 'loading' }))
@@ -291,7 +445,7 @@ const ChatInterface = () => {
               {headerTitle}
             </h2>
             <p className="text-[10px] text-muted-foreground/60 mt-1 font-medium truncate max-w-[min(100vw-8rem,28rem)]">
-              {headerSub || (threadId ? `Thread ${threadId}` : 'Conversation')}
+              {(isLoading && runtimeStatus) || headerSub || (threadId ? `Thread ${threadId}` : 'Conversation')}
             </p>
           </div>
         </div>
@@ -312,6 +466,7 @@ const ChatInterface = () => {
                 message={message}
                 isLoading={isLoading}
                 isLast={index === messages.length - 1}
+                runtimeStatus={runtimeStatus}
                 handleCopy={handleCopy}
                 handleRetry={handleRetry}
                 handleExport={handleExport}
@@ -332,6 +487,11 @@ const ChatInterface = () => {
             onStop={stopStreaming}
             isLoading={isLoading}
             placeholder="Ask anything..."
+            workspaceId={selectedWorkspaceId}
+            workspaceOptions={workspaceOptions}
+            onWorkspaceChange={handleWorkspaceChange}
+            workspaceRequired={isDraftThread}
+            workspaceLoading={isLoadingWorkspaces}
           />
           <div className="text-center mt-2">
             <p className="text-[10px] text-muted-foreground/50 font-medium">

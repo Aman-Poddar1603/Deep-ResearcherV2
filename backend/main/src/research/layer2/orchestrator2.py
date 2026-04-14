@@ -1,11 +1,10 @@
-"""
-Orchestrator 2 — ReAct knowledge synthesizer.
+"""Orchestrator 2 — fast artifact context builder.
 
 Responsibilities:
-  1. Filter + deduplicate gathered sources
-  2. Chunk + embed into ChromaDB (via BG worker)
-  3. Verify plan coverage via RAG retrieval
-  4. Build the final artifact context prompt
+    1. Filter + deduplicate gathered sources
+    2. Chunk + embed into ChromaDB (via BG worker)
+    3. Build a concise synthesis context without a second long LLM pass
+    4. Return artifact-ready context immediately
 """
 
 import json
@@ -14,12 +13,6 @@ import time
 import uuid
 from typing import Any
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_core.runnables.config import RunnableConfig
-from langgraph.prebuilt import ToolNode, create_react_agent
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
-
 from research.config import settings
 from research.emitter import WSEmitter
 from research.models import (
@@ -27,34 +20,12 @@ from research.models import (
     SystemProgressEvent,
     SynthesisAnalysisStartedEvent,
     SynthesisAnalysisProgressEvent,
-    ThinkChunkEvent,
-    ThinkDoneEvent,
-    ToolCalledEvent,
-    ToolResultEvent,
-    ReactReasonEvent,
-    ReactActEvent,
-    ReactObserveEvent,
-    ReActEvent,
-    ChainOfThoughtEvent,
-    ThinkEvent,
-    StreamEvent,
-    ToolQueryEvent,
-    ToolOutputEvent,
 )
 from research.session import (
     update_session_status,
     is_stop_requested,
-    get_redis,
-)
-from research.token_tracker import TokenTracker
-from research.layer2.tools import (
-    get_mcp_tools,
-    extract_tool_token_count,
-    parse_tool_output,
-    summarise_tool_output,
 )
 from research.layer2.rag import (
-    retrieve_for_coverage_check,
     chunk_and_index,
 )
 from research.layer2.temp_files import (
@@ -68,29 +39,6 @@ from research.layer2.temp_files import (
 
 logger = logging.getLogger(__name__)
 
-_SYNTHESIZER_SYSTEM = """You are a knowledge synthesizer for a deep research project.
-User: {username}. Personality: {ai_personality}.
-
-Use the available MCP tools when you need fresh external evidence.
-Wait for the tool output before proceeding. Do not guess or assume results.
-
-Research topic: {cleaned_prompt}
-
-Your tasks:
-1. Analyse the gathered knowledge from all research steps.
-2. Identify gaps, contradictions, or areas needing more information.
-3. Use tools if needed to fill gaps.
-4. Produce a clean, comprehensive synthesis of all knowledge.
-5. Ensure every plan step is addressed.
-
-Plan steps to cover:
-{plan_steps}
-
-Gathered knowledge summary:
-{knowledge_summary}
-
-Produce a final synthesis that will be used to write the research artifact."""
-
 
 async def run_orchestrator2(
     context: ResearchContext,
@@ -98,7 +46,7 @@ async def run_orchestrator2(
     emitter: WSEmitter,
 ) -> dict:
     """
-    Synthesizes gathered sources. Returns artifact_context dict for Groq artifact gen.
+    Build artifact context from gathered sources and return it for final artifact generation.
     """
     research_id = context.research_id
     synth_started_at = time.monotonic()
@@ -169,270 +117,23 @@ async def run_orchestrator2(
     await emitter.emit(
         SystemProgressEvent(
             research_id=research_id,
-            message="Knowledge indexed. Running synthesis agent...",
+            message="Knowledge indexed. Preparing direct artifact context...",
             percent=88,
         )
     )
 
-    # ── Setup agent ───────────────────────────────────────────────────────────
-    redis_conn = await get_redis()
-    checkpointer = AsyncRedisSaver(redis_client=redis_conn)
-    await checkpointer.setup()
-    graph_config: RunnableConfig = {
-        "configurable": {"thread_id": f"orc2_{research_id}_{uuid.uuid4().hex[:8]}"},
-        "callbacks": [],
-    }
-
-    mcp_tools = await get_mcp_tools()
-    all_tools = list(mcp_tools)
-
-    tracker = TokenTracker(
-        emitter=emitter,
-        research_id=research_id,
-        step_index=99,
-        model_type="ollama",
-        source=f"ollama/{settings.OLLAMA_MODEL}",
-    )
-
-    llm = ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
-        temperature=0.1,
-    )
-
-    tool_node = ToolNode(all_tools, handle_tool_errors=True)
-
-    agent = create_react_agent(
-        model=llm,
-        tools=tool_node,
-        checkpointer=checkpointer,
-    )
-
-    graph_config["callbacks"] = [tracker]
-
-    plan_steps_str = "\n".join(
-        f"- Step {s.step_index + 1}: {s.step_title}" for s in context.plan
-    )
     knowledge_summary = _build_knowledge_summary(
         unique_sources, extended_mode=context.extended_mode
     )
+    synthesis_text = knowledge_summary
 
-    system_msg = _SYNTHESIZER_SYSTEM.format(
-        username=context.username,
-        ai_personality=context.ai_personality,
-        cleaned_prompt=context.cleaned_prompt,
-        plan_steps=plan_steps_str,
-        knowledge_summary=(
-            knowledge_summary if context.extended_mode else knowledge_summary[:6000]
-        ),
-    )
+    # ── Coverage notes (fast path, no second LLM pass) ───────────────────────
+    coverage_notes = [
+        f"Step {step.step_index + 1} ({step.step_title}): included from gathered sources"
+        for step in context.plan
+    ]
 
-    inputs = {
-        "messages": [
-            SystemMessage(content=system_msg),
-            HumanMessage(
-                content="Synthesize the gathered research and produce a comprehensive knowledge summary."
-            ),
-        ]
-    }
-
-    synthesis_text = ""
-    _synth_thought: list[str] = []
-    _synth_in_tool: bool = False
-
-    async for event in agent.astream_events(inputs, config=graph_config, version="v2"):
-        if await is_stop_requested(research_id):
-            break
-
-        kind = event["event"]
-        name = event.get("name", "")
-        synth_step = 99  # synthesis phase marker
-
-        if kind == "on_chat_model_stream":
-            chunk = event["data"].get("chunk")
-            if chunk and chunk.content:
-                token = chunk.content if isinstance(chunk.content, str) else ""
-                if not token:
-                    continue
-                _synth_thought.append(token)
-                if _synth_in_tool:
-                    await emitter.emit(
-                        ChainOfThoughtEvent(
-                            research_id=research_id,
-                            step_index=synth_step,
-                            token=token,
-                        )
-                    )
-                    await emitter.emit(
-                        ReActEvent(
-                            research_id=research_id,
-                            step_index=synth_step,
-                            sub_type="reason",
-                            data={"token": token},
-                        )
-                    )
-                else:
-                    await emitter.emit(
-                        StreamEvent(
-                            research_id=research_id,
-                            step_index=synth_step,
-                            token=token,
-                        )
-                    )
-                    await emitter.emit(
-                        ThinkChunkEvent(
-                            research_id=research_id,
-                            text=token,
-                            step_index=synth_step,
-                        )
-                    )
-
-        elif kind == "on_tool_start":
-            _synth_in_tool = True
-            tool_name = name
-            tool_args = event["data"].get("input", {})
-            safe_args = (
-                tool_args if isinstance(tool_args, dict) else {"input": str(tool_args)}
-            )
-
-            if _synth_thought:
-                full_thought = "".join(_synth_thought)
-                await emitter.emit(
-                    ThinkEvent(
-                        research_id=research_id,
-                        step_index=synth_step,
-                        thought=full_thought,
-                    )
-                )
-                await emitter.emit(
-                    ReactReasonEvent(
-                        research_id=research_id,
-                        step_index=synth_step,
-                        thought=full_thought,
-                    )
-                )
-                _synth_thought.clear()
-
-            await emitter.emit(
-                ToolQueryEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    tool_name=tool_name,
-                    args=safe_args,
-                )
-            )
-            await emitter.emit(
-                ToolCalledEvent(
-                    research_id=research_id,
-                    tool_name=tool_name,
-                    args=safe_args,
-                    step_index=synth_step,
-                )
-            )
-            await emitter.emit(
-                ReactActEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    tool_name=tool_name,
-                )
-            )
-            await emitter.emit(
-                ReActEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    sub_type="act",
-                    data={"tool_name": tool_name, "args": safe_args},
-                )
-            )
-
-        elif kind == "on_tool_end":
-            _synth_in_tool = False
-            tool_name = name
-            output = event["data"].get("output")
-            tool_tokens = extract_tool_token_count(tool_name, output)
-            if tool_tokens > 0:
-                await tracker.record_tool_tokens(tool_tokens)
-
-            summary = summarise_tool_output(tool_name, output)
-            parsed = parse_tool_output(tool_name, output)
-            compact = [
-                {
-                    "tool": str(i.get("tool", ""))[:120],
-                    "url": str(i.get("url", ""))[:700],
-                    "title": str(i.get("title", ""))[:300],
-                    "summary": str(i.get("description", ""))[:600],
-                }
-                for i in parsed[:6]
-            ]
-
-            await emitter.emit(
-                ToolOutputEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    tool_name=tool_name,
-                    summary=summary,
-                    result_payload=compact,
-                )
-            )
-            await emitter.emit(
-                ToolResultEvent(
-                    research_id=research_id,
-                    tool_name=tool_name,
-                    result_summary=summary,
-                    step_index=synth_step,
-                    result_payload=compact,
-                )
-            )
-            await emitter.emit(
-                ReactObserveEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    observation_summary=summary,
-                )
-            )
-            await emitter.emit(
-                ReActEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    sub_type="observe",
-                    data={"tool_name": tool_name, "summary": summary},
-                )
-            )
-
-        elif kind == "on_chain_end" and "agent" in name.lower():
-            messages = event["data"].get("output", {}).get("messages", [])
-            if messages:
-                last = messages[-1]
-                synthesis_text = getattr(last, "content", "") or ""
-            await emitter.emit(
-                ThinkDoneEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                )
-            )
-            await emitter.emit(
-                ReActEvent(
-                    research_id=research_id,
-                    step_index=synth_step,
-                    sub_type="done",
-                    data={"summary": synthesis_text[:500] if synthesis_text else ""},
-                )
-            )
-
-    # ── Coverage check ────────────────────────────────────────────────────────
-    coverage_notes = []
-    for step in context.plan:
-        docs = retrieve_for_coverage_check(research_id, step.step_description)
-        if docs:
-            coverage_notes.append(
-                f"Step {step.step_index + 1} ({step.step_title}): covered ({len(docs)} chunks)"
-            )
-        else:
-            coverage_notes.append(
-                f"Step {step.step_index + 1} ({step.step_title}): limited coverage"
-            )
-
-    logger.info("[orc2] Coverage check:\n%s", "\n".join(coverage_notes))
+    logger.info("[orc2] Fast coverage notes prepared for %d steps", len(context.plan))
 
     # ── Build cited sources ───────────────────────────────────────────────────
     cited_sources = _build_citations(unique_sources)
@@ -468,6 +169,7 @@ async def run_orchestrator2(
         "title": context.title,
         "description": context.description,
         "extended_mode": context.extended_mode,
+        "artifact_step_index": max(0, len(context.plan) - 1),
     }
 
 
@@ -620,6 +322,12 @@ async def _persist_metadata(
             {
                 "preprocess_ollama": settings.OLLAMA_MODEL,
                 "reasoner_groq": settings.GROQ_MODEL,
+                "artifact_primary_gemini": (
+                    settings.GEMINI_ARTIFACT_MODEL
+                    if settings.GEMINI_API_KEY.strip()
+                    else ""
+                ),
+                "artifact_fallback_ollama": settings.OLLAMA_MODEL,
                 "embedding_primary_ollama": settings.OLLAMA_EMBED_MODEL,
                 "embedding_fallback_gemini": (
                     settings.GEMINI_EMBED_MODEL

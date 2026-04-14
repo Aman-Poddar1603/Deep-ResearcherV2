@@ -69,6 +69,7 @@ class ChatMessageRecord(BaseModel):
     citations: str | None = None
     token_count: int | None = None
     attachments: str | None = None
+    attachment_items: list[dict] | None = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

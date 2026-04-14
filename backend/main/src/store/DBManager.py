@@ -1956,6 +1956,223 @@ class SQLiteManager:
             )
             return {"success": False, "message": str(e), "data": None}
 
+    # ── Read-only Metadata + Pagination Helpers ────────────────────────
+
+    def list_tables(self, include_internal: bool = False) -> Dict[str, Any]:
+        """
+        List table names in the current SQLite database.
+        """
+        try:
+            sql = "SELECT name FROM sqlite_master WHERE type='table'"
+            if not include_internal:
+                sql += " AND name NOT LIKE 'sqlite_%'"
+            sql += " ORDER BY name"
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+                table_names = [row["name"] for row in rows]
+
+            return {
+                "success": True,
+                "message": f"Found {len(table_names)} table(s)",
+                "data": table_names,
+            }
+        except sqlite3.Error as e:
+            _log_db_event(
+                f"Error listing tables: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def get_table_schema(self, table_name: str) -> Dict[str, Any]:
+        """
+        Return column metadata for a table via PRAGMA table_info.
+        """
+        try:
+            valid_table = self._validate_identifier(table_name)
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"PRAGMA table_info({valid_table})")
+                rows = cursor.fetchall()
+                columns = [
+                    {
+                        "cid": row["cid"],
+                        "name": row["name"],
+                        "type": row["type"],
+                        "notnull": bool(row["notnull"]),
+                        "dflt_value": row["dflt_value"],
+                        "pk": bool(row["pk"]),
+                    }
+                    for row in rows
+                ]
+
+            return {
+                "success": True,
+                "message": f"Schema fetched for '{valid_table}'",
+                "data": columns,
+            }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error getting schema for {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def count_rows(
+        self,
+        table_name: str,
+        where: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Count rows in a table with optional equality filters.
+        """
+        try:
+            valid_table = self._validate_identifier(table_name)
+            where_clause, params = self._build_where_clause(where)
+            sql = f"SELECT COUNT(*) AS cnt FROM {valid_table} {where_clause}"
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                row = cursor.fetchone()
+                count = int(row["cnt"] if row else 0)
+
+            return {
+                "success": True,
+                "message": f"Counted {count} row(s) in '{valid_table}'",
+                "data": {"count": count},
+            }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error counting rows for {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def get_table_size_bytes(self, table_name: str) -> Dict[str, Any]:
+        """
+        Best-effort table size estimation in bytes.
+
+        Uses SQLite dbstat virtual table when available. Returns `None` when
+        dbstat is unavailable in the current SQLite build.
+        """
+        try:
+            valid_table = self._validate_identifier(table_name)
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "SELECT SUM(pgsize) AS size_bytes FROM dbstat WHERE name = ?",
+                        (valid_table,),
+                    )
+                    row = cursor.fetchone()
+                    size_bytes = (
+                        int(row["size_bytes"])
+                        if row and row["size_bytes"] is not None
+                        else 0
+                    )
+                    return {
+                        "success": True,
+                        "message": f"Size estimated for '{valid_table}'",
+                        "data": {"size_bytes": size_bytes},
+                    }
+                except sqlite3.Error:
+                    return {
+                        "success": True,
+                        "message": "dbstat unavailable; table size not estimated",
+                        "data": {"size_bytes": None},
+                    }
+        except ValueError as e:
+            _log_db_event(
+                f"Error getting table size for {table_name}: {e}",
+                "error",
+                urgency="moderate",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
+    def fetch_paginated(
+        self,
+        table_name: str,
+        page: int = 1,
+        size: int = 20,
+        where: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Literal["asc", "desc"] = "asc",
+        columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch paginated rows from a table with optional where/sort clauses.
+        """
+        try:
+            valid_table = self._validate_identifier(table_name)
+            page = max(1, int(page))
+            size = max(1, int(size))
+            offset = (page - 1) * size
+
+            if sort_order.lower() not in {"asc", "desc"}:
+                raise ValueError("sort_order must be 'asc' or 'desc'")
+
+            select_expr = "*"
+            if columns:
+                valid_columns = [self._validate_identifier(c) for c in columns]
+                if not valid_columns:
+                    raise ValueError("columns must contain at least one field")
+                select_expr = ", ".join(valid_columns)
+
+            where_clause, where_params = self._build_where_clause(where)
+
+            order_clause = ""
+            if sort_by:
+                valid_sort = self._validate_identifier(sort_by)
+                order_clause = f" ORDER BY {valid_sort} {sort_order.upper()}"
+
+            count_sql = f"SELECT COUNT(*) AS cnt FROM {valid_table} {where_clause}"
+            data_sql = (
+                f"SELECT {select_expr} FROM {valid_table} {where_clause}"
+                f"{order_clause} LIMIT ? OFFSET ?"
+            )
+
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                cursor.execute(count_sql, where_params)
+                count_row = cursor.fetchone()
+                total_items = int(count_row["cnt"] if count_row else 0)
+                total_pages = (
+                    ((total_items + size - 1) // size) if total_items > 0 else 0
+                )
+
+                cursor.execute(data_sql, where_params + (size, offset))
+                rows = cursor.fetchall()
+                items = [dict(row) for row in rows]
+
+            return {
+                "success": True,
+                "message": f"Fetched {len(items)} row(s)",
+                "data": {
+                    "items": items,
+                    "page": page,
+                    "size": size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                    "offset": offset,
+                },
+            }
+        except (ValueError, sqlite3.Error) as e:
+            _log_db_event(
+                f"Error fetching paginated rows from {table_name}: {e}",
+                "error",
+                urgency="critical",
+            )
+            return {"success": False, "message": str(e), "data": None}
+
 
 def _initialize_store():
     """

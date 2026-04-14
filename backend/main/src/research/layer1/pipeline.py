@@ -250,6 +250,7 @@ async def run_layer1(
     # Save parent records synchronously to avoid FK race with research_sources inserts.
     from main.src.utils.core.task_schedular import scheduler
     from main.src.store.DBManager import researches_db_manager
+    from main.src.workspace.workspace_links import link_research_to_workspace
 
     research_row = researches_db_manager.insert(
         table_name="researches",
@@ -275,6 +276,14 @@ async def run_layer1(
         )
         await update_session_status(research_id, "error")
         return None
+
+    await scheduler.schedule(
+        link_research_to_workspace,
+        params={
+            "workspace_id": request.workspace_id,
+            "research_id": research_id,
+        },
+    )
 
     await scheduler.schedule(
         researches_db_manager.insert,

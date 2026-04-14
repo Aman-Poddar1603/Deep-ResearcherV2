@@ -1,6 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Paperclip, ArrowUp, Square, X, FileText, Image as ImageIcon, File, Library } from 'lucide-react'
 import { Button } from "@/components/ui/button"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select'
 import { cn } from "@/lib/utils"
 
 interface AttachedFile {
@@ -16,9 +23,26 @@ interface ComposerProps {
     onStop?: () => void
     isLoading?: boolean
     placeholder?: string
+    workspaceId?: string
+    workspaceOptions?: { id: string; name: string }[]
+    onWorkspaceChange?: (workspaceId: string) => void
+    workspaceRequired?: boolean
+    workspaceLoading?: boolean
 }
 
-const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: ComposerProps) => {
+const Composer = ({
+    value,
+    onChange,
+    onSend,
+    onStop,
+    isLoading,
+    placeholder,
+    workspaceId,
+    workspaceOptions,
+    onWorkspaceChange,
+    workspaceRequired,
+    workspaceLoading,
+}: ComposerProps) => {
     const [internalMessage, setInternalMessage] = useState('')
     const [isFocused, setIsFocused] = useState(false)
     const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
@@ -27,6 +51,8 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
 
     const isControlled = value !== undefined
     const message = isControlled ? value : internalMessage
+    const hasWorkspaceSelected = Boolean(workspaceId && workspaceId.trim())
+    const isWorkspaceMissing = Boolean(workspaceRequired && !hasWorkspaceSelected)
 
     const handleChange = (newValue: string) => {
         if (isControlled) {
@@ -115,7 +141,7 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
     }, [])
 
     const handleSend = () => {
-        if ((!message.trim() && attachedFiles.length === 0) || isLoading) return
+        if ((!message.trim() && attachedFiles.length === 0) || isLoading || isWorkspaceMissing) return
 
         const files = attachedFiles.map(af => af.file)
 
@@ -244,14 +270,25 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
 
                             <div className="flex items-center gap-2 ml-1 border-l border-border/30 pl-3">
                                 <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground/40 select-none">My Workspace</span>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 gap-1.5 rounded-full hover:bg-background/50 text-muted-foreground hover:text-foreground px-3 transition-all duration-200 border border-border/50 shadow-sm"
-                                >
-                                    <Library className="h-3.5 w-3.5" />
-                                    <span className="text-[11px] font-medium">Attach Research Context</span>
-                                </Button>
+                                <div className="flex items-center gap-1.5 rounded-full border border-border/50 bg-background/40 px-2 py-0.5">
+                                    <Library className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <Select
+                                        value={hasWorkspaceSelected ? workspaceId : undefined}
+                                        onValueChange={(next) => onWorkspaceChange?.(next)}
+                                        disabled={Boolean(isLoading || workspaceLoading || !workspaceOptions?.length)}
+                                    >
+                                        <SelectTrigger className="h-7 min-w-[180px] border-0 bg-transparent px-1 text-[11px] shadow-none focus:ring-0">
+                                            <SelectValue placeholder={workspaceLoading ? 'Loading workspaces...' : 'Select workspace'} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {(workspaceOptions ?? []).map((workspace) => (
+                                                <SelectItem key={workspace.id} value={workspace.id}>
+                                                    {workspace.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
                         </div>
 
@@ -269,11 +306,11 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
                                 onClick={isLoading && onStop ? onStop : handleSend}
                                 className={cn(
                                     "h-8 w-8 rounded-full ml-1 transition-all duration-500",
-                                    ((message.trim() || attachedFiles.length > 0) && !isLoading) || (isLoading && onStop)
+                                    ((message.trim() || attachedFiles.length > 0) && !isLoading && !isWorkspaceMissing) || (isLoading && onStop)
                                         ? "bg-primary text-primary-foreground hover:opacity-90 shadow-lg scale-100"
                                         : "bg-muted text-muted-foreground cursor-not-allowed scale-95 opacity-50"
                                 )}
-                                disabled={(!message.trim() && attachedFiles.length === 0 && !isLoading) || (isLoading && !onStop)}
+                                disabled={(!message.trim() && attachedFiles.length === 0 && !isLoading) || (isLoading && !onStop) || isWorkspaceMissing}
                             >
                                 {isLoading && onStop ? (
                                     <Square className="h-3.5 w-3.5 fill-current" />
@@ -283,6 +320,14 @@ const Composer = ({ value, onChange, onSend, onStop, isLoading, placeholder }: C
                             </Button>
                         </div>
                     </div>
+
+                    {isWorkspaceMissing && (
+                        <div className="px-3 pb-1">
+                            <p className="text-[10px] font-medium text-destructive/90">
+                                Select a workspace to start this chat.
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

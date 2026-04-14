@@ -54,6 +54,8 @@ from main.src.research.step_snapshots import (
 )
 from main.src.research.stop_manager import request_stop
 from main.src.store.DBManager import researches_db_manager
+from main.src.utils.core.task_schedular import scheduler
+from main.src.workspace.workspace_links import link_research_to_workspace
 
 router = APIRouter(prefix="/research", tags=["research"])
 logger = logging.getLogger(__name__)
@@ -1029,9 +1031,16 @@ def get_research_by_id(research_id: str) -> ResearchRecord:
 
 
 @router.post("/", response_model=ResearchRecord, status_code=status.HTTP_201_CREATED)
-def create_research(payload: ResearchCreate) -> ResearchRecord:
+async def create_research(payload: ResearchCreate) -> ResearchRecord:
     try:
-        return research_view.createResearch(payload)
+        created = research_view.createResearch(payload)
+        workspace_id = (created.workspace_id or "").strip()
+        if workspace_id:
+            await scheduler.schedule(
+                link_research_to_workspace,
+                params={"workspace_id": workspace_id, "research_id": created.id},
+            )
+        return created
     except Exception as exc:
         _raise_research_http_error("Create research", exc)
 

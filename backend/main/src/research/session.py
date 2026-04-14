@@ -254,6 +254,7 @@ async def get_token_totals(research_id: str) -> dict:
 
     ollama = int(await r.get(_key(research_id, "tokens", "model", "ollama")) or 0)
     groq = int(await r.get(_key(research_id, "tokens", "model", "groq")) or 0)
+    gemini = int(await r.get(_key(research_id, "tokens", "model", "gemini")) or 0)
     ollama_input = int(
         await r.get(_key(research_id, "tokens", "model", "ollama", "input")) or 0
     )
@@ -265,6 +266,12 @@ async def get_token_totals(research_id: str) -> dict:
     )
     groq_output = int(
         await r.get(_key(research_id, "tokens", "model", "groq", "output")) or 0
+    )
+    gemini_input = int(
+        await r.get(_key(research_id, "tokens", "model", "gemini", "input")) or 0
+    )
+    gemini_output = int(
+        await r.get(_key(research_id, "tokens", "model", "gemini", "output")) or 0
     )
 
     # Collect all step total keys (exclude step:{n}:input/output)
@@ -305,10 +312,11 @@ async def get_token_totals(research_id: str) -> dict:
     return {
         "grand_total": grand,
         "by_direction": {"input": input_total, "output": output_total},
-        "by_model": {"ollama": ollama, "groq": groq},
+        "by_model": {"ollama": ollama, "groq": groq, "gemini": gemini},
         "by_model_direction": {
             "ollama": {"input": ollama_input, "output": ollama_output},
             "groq": {"input": groq_input, "output": groq_output},
+            "gemini": {"input": gemini_input, "output": gemini_output},
         },
         "by_step": by_step,
         "by_step_direction": by_step_direction,

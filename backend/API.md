@@ -96,15 +96,15 @@ List all workspaces.
 }
 ```
 
-| Response Field | Type | Notes |
-| -------------- | ---- | ----- |
-| `items` | `WorkspaceListItem[]` | paginated workspace rows |
-| `items[].resource_count` | int | exact non-deleted files linked to that workspace |
-| `page` | int | current page |
-| `size` | int | requested page size |
-| `total_items` | int | total matching workspaces before pagination |
-| `total_pages` | int | total available pages |
-| `offset` | int | zero-based starting index for this page |
+| Response Field           | Type                  | Notes                                            |
+| ------------------------ | --------------------- | ------------------------------------------------ |
+| `items`                  | `WorkspaceListItem[]` | paginated workspace rows                         |
+| `items[].resource_count` | int                   | exact non-deleted files linked to that workspace |
+| `page`                   | int                   | current page                                     |
+| `size`                   | int                   | requested page size                              |
+| `total_items`            | int                   | total matching workspaces before pagination      |
+| `total_pages`            | int                   | total available pages                            |
+| `offset`                 | int                   | zero-based starting index for this page          |
 
 > Note: `created_at` and `updated_at` are returned in IST 12-hour format (`YYYY-MM-DD HH:MM:SS AM/PM`).
 > Note: `resource_count` is workspace-specific even if multiple workspaces share the same bucket.
@@ -730,6 +730,48 @@ Perform a named action on a history item.
 # 4. Chats API
 
 **Prefix:** `/chats`
+
+---
+
+## Chat Runtime WebSocket
+
+### `WS /chats/threads/{thread_id}/ws`
+
+Bidirectional streaming chat endpoint for live assistant responses.
+
+**Client -> server message body (JSON text frame)**
+
+```json
+{
+  "content": "Summarize the attached document",
+  "use_agent": false,
+  "attachments": [
+    {
+      "file_name": "paper.pdf",
+      "file_format": "pdf",
+      "data": "<base64-content>"
+    }
+  ]
+}
+```
+
+| Field                       | Type    | Required | Notes                                         |
+| --------------------------- | ------- | -------- | --------------------------------------------- |
+| `content`                   | string  | ❌       | User prompt text.                             |
+| `use_agent`                 | boolean | ❌       | If true, runs agent mode; otherwise RAG mode. |
+| `attachments`               | array   | ❌       | Optional inline base64 attachments.           |
+| `attachments[].file_name`   | string  | ✅       | Original filename.                            |
+| `attachments[].file_format` | string  | ✅       | Format/type (for storage routing).            |
+| `attachments[].data`        | string  | ✅       | Base64 payload.                               |
+
+**Server -> client events**
+
+| Event   | Shape                              | Notes                                          |
+| ------- | ---------------------------------- | ---------------------------------------------- |
+| `token` | `{"type":"token","content":"..."}` | Streamed response chunk.                       |
+| `title` | `{"type":"title","content":"..."}` | Optional generated title for initial exchange. |
+| `done`  | `{"type":"done"}`                  | Stream complete.                               |
+| `error` | `{"type":"error","content":"..."}` | Terminal/runtime error.                        |
 
 ---
 
@@ -1554,6 +1596,183 @@ Partially update settings (only send fields to change).
 Delete the settings record.
 
 **Response `204`** — No content
+
+---
+
+# 7. Database Explorer API
+
+**Prefix:** `/database`
+
+Read-only explorer APIs for listing databases, listing tables, and fetching
+table contents with pagination.
+
+---
+
+### `GET /database/`
+
+List available databases.
+
+**Query params:**
+
+| Param  | Type            | Default    | Notes |
+| ------ | --------------- | ---------- | ----- | -------------------- |
+| `page` | int             | `1`        | ≥ 1   |
+| `size` | int             | `50`       | 1–500 |
+| `type` | `"standard"` \\ | `"vector"` | —     | optional type filter |
+
+**Response `200`** — `DatabaseListResponse`
+
+```json
+{
+  "items": [
+    {
+      "id": "main",
+      "name": "Basic",
+      "description": "Core application data and user preferences",
+      "type": "standard",
+      "color": "blue-400",
+      "status": "active",
+      "tableCount": 4,
+      "totalRows": 120,
+      "size": "240 KB",
+      "lastModified": "2 mins ago",
+      "engine": "SQLite",
+      "version": "3.45.1"
+    }
+  ],
+  "page": 1,
+  "size": 50,
+  "total_items": 1,
+  "total_pages": 1,
+  "offset": 0
+}
+```
+
+---
+
+### `GET /database/{database_id}`
+
+Get detailed metadata for one database including table summaries.
+
+**Path params:**
+
+- `database_id` — database identifier from `GET /database/`
+
+**Response `200`** — `DatabaseDetail`
+
+```json
+{
+  "id": "main",
+  "name": "Basic",
+  "description": "Core application data and user preferences",
+  "type": "standard",
+  "color": "blue-400",
+  "status": "active",
+  "tables": [
+    {
+      "name": "workspaces",
+      "rows": 42,
+      "columns": 12,
+      "size": "64 KB",
+      "lastModified": "4 mins ago",
+      "description": "workspaces table in Basic database"
+    }
+  ],
+  "totalSize": "240 KB",
+  "createdAt": "Apr 14, 2026",
+  "lastModified": "2 mins ago",
+  "engine": "SQLite",
+  "version": "3.45.1",
+  "tableCount": 4,
+  "totalRows": 120
+}
+```
+
+**Response `404`** — Database not found
+
+---
+
+### `GET /database/{database_id}/tables`
+
+List tables for a database.
+
+**Query params:**
+
+| Param  | Type | Default | Notes  |
+| ------ | ---- | ------- | ------ |
+| `page` | int  | `1`     | ≥ 1    |
+| `size` | int  | `200`   | 1–1000 |
+
+**Response `200`** — `DatabaseTableListResponse`
+
+```json
+{
+  "items": [
+    {
+      "name": "workspaces",
+      "rows": 42,
+      "columns": 12,
+      "size": "64 KB",
+      "lastModified": "4 mins ago",
+      "description": "workspaces table in Basic database"
+    }
+  ],
+  "page": 1,
+  "size": 200,
+  "total_items": 1,
+  "total_pages": 1,
+  "offset": 0
+}
+```
+
+**Response `404`** — Database not found
+
+---
+
+### `GET /database/{database_id}/tables/{table_name}/rows`
+
+Fetch paginated rows for a table with schema metadata.
+
+**Query params:**
+
+| Param       | Type       | Default  | Notes                |
+| ----------- | ---------- | -------- | -------------------- | ---------------------------- |
+| `page`      | int        | `1`      | ≥ 1                  |
+| `size`      | int        | `25`     | 1–500                |
+| `sortBy`    | string     | —        | optional column name |
+| `sortOrder` | `"asc"` \\ | `"desc"` | `"asc"`              | applies when `sortBy` is set |
+
+**Response `200`** — `TableRowsResponse`
+
+```json
+{
+  "databaseId": "main",
+  "tableName": "workspaces",
+  "columns": [
+    {
+      "cid": 0,
+      "name": "id",
+      "type": "TEXT",
+      "notnull": true,
+      "defaultValue": null,
+      "pk": true
+    }
+  ],
+  "items": [
+    {
+      "id": "workspace-uuid",
+      "name": "My Workspace"
+    }
+  ],
+  "page": 1,
+  "size": 25,
+  "total_items": 1,
+  "total_pages": 1,
+  "offset": 0
+}
+```
+
+**Response `404`** — Database or table not found
 
 ---
 

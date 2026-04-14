@@ -1,8 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import {
+  listDatabases,
+  type DatabaseRecord,
+} from '@/lib/apis'
 import {
   Database,
   Table2,
@@ -19,135 +24,31 @@ import {
   FolderOutput,
   Boxes,
   Zap,
-  BrainCircuit
+  BrainCircuit,
+  MessageSquare,
+  Loader2,
 } from 'lucide-react'
 
-// Database types
-interface DatabaseInfo {
-  id: string
-  name: string
-  description: string
-  icon: React.ElementType
-  tableCount: number
-  totalRows: number
-  size: string
-  lastModified: string
-  status: 'active' | 'syncing' | 'idle'
-  color: string
-  type: 'standard' | 'vector'
+const getDatabaseIcon = (db: DatabaseRecord) => {
+  if (db.type === 'vector') {
+    if (db.id.includes('search')) return Zap
+    if (db.id.includes('web')) return Boxes
+    return BrainCircuit
+  }
+
+  const map: Record<string, React.ElementType> = {
+    main: Database,
+    history: History,
+    scrapes: Globe,
+    researches: FlaskConical,
+    buckets: Package,
+    chats: MessageSquare,
+    logs: FileText,
+    assets: FolderOutput,
+  }
+
+  return map[db.id] || Database
 }
-
-// Standard databases
-const standardDatabases: DatabaseInfo[] = [
-  {
-    id: 'basic',
-    name: 'Basic',
-    description: 'Core application data and user preferences',
-    icon: Database,
-    tableCount: 8,
-    totalRows: 1247,
-    size: '2.4 MB',
-    lastModified: '2 mins ago',
-    status: 'active',
-    color: 'blue-400',
-    type: 'standard'
-  },
-  {
-    id: 'history',
-    name: 'History',
-    description: 'Activity logs, actions, and audit trails',
-    icon: History,
-    tableCount: 5,
-    totalRows: 15234,
-    size: '18.7 MB',
-    lastModified: '30 secs ago',
-    status: 'active',
-    color: 'purple-400',
-    type: 'standard'
-  },
-  {
-    id: 'scrapes',
-    name: 'Scrapes',
-    description: 'Web scraping results and extracted data',
-    icon: Globe,
-    tableCount: 12,
-    totalRows: 45678,
-    size: '156.3 MB',
-    lastModified: '5 mins ago',
-    status: 'syncing',
-    color: 'green-400',
-    type: 'standard'
-  },
-  {
-    id: 'research',
-    name: 'Research',
-    description: 'Research sessions, queries, and results',
-    icon: FlaskConical,
-    tableCount: 7,
-    totalRows: 8934,
-    size: '67.8 MB',
-    lastModified: '1 hour ago',
-    status: 'active',
-    color: 'orange-400',
-    type: 'standard'
-  },
-  {
-    id: 'assets',
-    name: 'Assets',
-    description: 'Media metadata and file references',
-    icon: Package,
-    tableCount: 4,
-    totalRows: 3456,
-    size: '12.1 MB',
-    lastModified: '3 hours ago',
-    status: 'idle',
-    color: 'pink-400',
-    type: 'standard'
-  },
-  {
-    id: 'export',
-    name: 'Export',
-    description: 'Export configurations and generated outputs',
-    icon: FolderOutput,
-    tableCount: 3,
-    totalRows: 892,
-    size: '4.5 MB',
-    lastModified: '1 day ago',
-    status: 'idle',
-    color: 'cyan-400',
-    type: 'standard'
-  },
-]
-
-// Vector databases
-const vectorDatabases: DatabaseInfo[] = [
-  {
-    id: 'web-contents-vector',
-    name: 'Web Contents Vector',
-    description: 'Embedded web content for semantic search',
-    icon: Boxes,
-    tableCount: 2,
-    totalRows: 124567,
-    size: '2.3 GB',
-    lastModified: '10 mins ago',
-    status: 'active',
-    color: 'violet-400',
-    type: 'vector'
-  },
-  {
-    id: 'search-vector-store',
-    name: 'Search Vector Store',
-    description: 'Search queries and results embeddings',
-    icon: Zap,
-    tableCount: 3,
-    totalRows: 89234,
-    size: '1.8 GB',
-    lastModified: '25 mins ago',
-    status: 'active',
-    color: 'amber-400',
-    type: 'vector'
-  },
-]
 
 const getColorClasses = (color: string) => {
   const colorMap: Record<string, { text: string; bg: string; border: string }> = {
@@ -163,7 +64,7 @@ const getColorClasses = (color: string) => {
   return colorMap[color] || colorMap['blue-400']
 }
 
-const getStatusConfig = (status: DatabaseInfo['status']) => {
+const getStatusConfig = (status: DatabaseRecord['status']) => {
   switch (status) {
     case 'active':
       return { color: 'bg-green-500', label: 'Active', pulse: true }
@@ -174,36 +75,76 @@ const getStatusConfig = (status: DatabaseInfo['status']) => {
   }
 }
 
+const formatRowsCompact = (rows: number) => {
+  if (rows >= 1000) {
+    return `${(rows / 1000).toFixed(1)}k`
+  }
+  return `${rows}`
+}
+
 const Databases = () => {
   const navigate = useNavigate()
   const [hoveredDb, setHoveredDb] = useState<string | null>(null)
+  const [databases, setDatabases] = useState<DatabaseRecord[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const totalStats = {
-    databases: standardDatabases.length + vectorDatabases.length,
-    tables: [...standardDatabases, ...vectorDatabases].reduce((acc, db) => acc + db.tableCount, 0),
-    rows: [...standardDatabases, ...vectorDatabases].reduce((acc, db) => acc + db.totalRows, 0),
+  const loadDatabases = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await listDatabases({ page: 1, size: 200 })
+      setDatabases(response.items)
+    } catch (err) {
+      setDatabases([])
+      setError(err instanceof Error ? err.message : 'Failed to load databases')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const DatabaseCard = ({ db }: { db: DatabaseInfo }) => {
+  useEffect(() => {
+    void loadDatabases()
+  }, [])
+
+  const standardDatabases = useMemo(
+    () => databases.filter((db) => db.type === 'standard'),
+    [databases],
+  )
+  const vectorDatabases = useMemo(
+    () => databases.filter((db) => db.type === 'vector'),
+    [databases],
+  )
+
+  const totalStats = useMemo(
+    () => ({
+      databases: databases.length,
+      tables: databases.reduce((acc, db) => acc + db.tableCount, 0),
+      rows: databases.reduce((acc, db) => acc + db.totalRows, 0),
+    }),
+    [databases],
+  )
+
+  const DatabaseCard = ({ db }: { db: DatabaseRecord }) => {
     const colors = getColorClasses(db.color)
     const statusConfig = getStatusConfig(db.status)
-    const Icon = db.icon
+    const Icon = getDatabaseIcon(db)
     const isHovered = hoveredDb === db.id
 
     return (
       <Card
         className={cn(
-          "group cursor-pointer transition-all duration-300 border-muted-foreground/20 overflow-hidden hover:shadow-xl",
-          isHovered && "border-primary/40 scale-[1.02]"
+          'group cursor-pointer transition-all duration-300 border-muted-foreground/20 overflow-hidden hover:shadow-xl',
+          isHovered && 'border-primary/40 scale-[1.02]',
         )}
         onMouseEnter={() => setHoveredDb(db.id)}
         onMouseLeave={() => setHoveredDb(null)}
-        onClick={() => navigate(`/data/databases/${db.id}/visualizer`)}
+        onClick={() => navigate(`/data/databases/${encodeURIComponent(db.id)}/visualizer`)}
       >
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
-            <div className={cn("p-3 rounded-xl transition-all duration-300", colors.bg, isHovered && "scale-110")}>
-              <Icon className={cn("size-6", colors.text)} />
+            <div className={cn('p-3 rounded-xl transition-all duration-300', colors.bg, isHovered && 'scale-110')}>
+              <Icon className={cn('size-6', colors.text)} />
             </div>
             <div className="flex items-center gap-2">
               {db.type === 'vector' && (
@@ -213,27 +154,24 @@ const Databases = () => {
                 </Badge>
               )}
               <div className="flex items-center gap-1.5">
-                <div className={cn(
-                  "size-2 rounded-full",
-                  statusConfig.color,
-                  statusConfig.pulse && "animate-pulse"
-                )} />
+                <div
+                  className={cn(
+                    'size-2 rounded-full',
+                    statusConfig.color,
+                    statusConfig.pulse && 'animate-pulse',
+                  )}
+                />
                 <span className="text-[10px] text-muted-foreground">{statusConfig.label}</span>
               </div>
             </div>
           </div>
           <div className="mt-3">
-            <CardTitle className="text-lg group-hover:text-primary transition-colors">
-              {db.name}
-            </CardTitle>
-            <CardDescription className="text-xs mt-1 line-clamp-2">
-              {db.description}
-            </CardDescription>
+            <CardTitle className="text-lg group-hover:text-primary transition-colors">{db.name}</CardTitle>
+            <CardDescription className="text-xs mt-1 line-clamp-2">{db.description}</CardDescription>
           </div>
         </CardHeader>
 
         <CardContent className="pt-0">
-          {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-3 mb-4">
             <div className="flex flex-col items-center p-2.5 rounded-lg bg-muted/30">
               <Table2 className="size-4 text-muted-foreground mb-1" />
@@ -242,7 +180,7 @@ const Databases = () => {
             </div>
             <div className="flex flex-col items-center p-2.5 rounded-lg bg-muted/30">
               <FileText className="size-4 text-muted-foreground mb-1" />
-              <span className="text-lg font-bold">{(db.totalRows / 1000).toFixed(1)}k</span>
+              <span className="text-lg font-bold">{formatRowsCompact(db.totalRows)}</span>
               <span className="text-[10px] text-muted-foreground">Rows</span>
             </div>
             <div className="flex flex-col items-center p-2.5 rounded-lg bg-muted/30">
@@ -252,16 +190,17 @@ const Databases = () => {
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex items-center justify-between pt-3 border-t border-muted-foreground/10">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="size-3.5" />
               {db.lastModified}
             </div>
-            <ChevronRight className={cn(
-              "size-5 text-muted-foreground/30 transition-all duration-300",
-              isHovered && "text-primary translate-x-1"
-            )} />
+            <ChevronRight
+              className={cn(
+                'size-5 text-muted-foreground/30 transition-all duration-300',
+                isHovered && 'text-primary translate-x-1',
+              )}
+            />
           </div>
         </CardContent>
       </Card>
@@ -270,7 +209,6 @@ const Databases = () => {
 
   return (
     <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
-      {/* Header Section */}
       <div className="shrink-0 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
         <div className="w-full px-8 py-6">
           <div className="flex items-center justify-between mb-6">
@@ -279,17 +217,16 @@ const Databases = () => {
                 <Database className="size-7 text-primary" />
               </div>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  Databases
-                </h1>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  View and explore your application databases
-                </p>
+                <h1 className="text-2xl font-semibold tracking-tight">Databases</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">View and explore your application databases</p>
               </div>
             </div>
+            <Button variant="outline" onClick={() => void loadDatabases()} className="gap-2" disabled={isLoading}>
+              {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
+              Refresh
+            </Button>
           </div>
 
-          {/* Stats Summary */}
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/30 border border-muted-foreground/10">
               <Database className="size-4 text-primary" />
@@ -303,49 +240,68 @@ const Databases = () => {
             </div>
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/30 border border-muted-foreground/10">
               <FileText className="size-4 text-primary" />
-              <span className="text-sm font-medium">{(totalStats.rows / 1000).toFixed(1)}k</span>
+              <span className="text-sm font-medium">{formatRowsCompact(totalStats.rows)}</span>
               <span className="text-xs text-muted-foreground">Total Rows</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 overflow-y-auto w-full">
         <div className="p-8 space-y-8">
-          {/* Standard Databases */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <Database className="size-5 text-primary" />
-              <h2 className="text-lg font-semibold">Standard Databases</h2>
-              <Badge variant="secondary" className="text-xs">
-                {standardDatabases.length}
-              </Badge>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {standardDatabases.map((db) => (
-                <DatabaseCard key={db.id} db={db} />
-              ))}
-            </div>
-          </div>
+          {error && (
+            <Card className="border-destructive/40 bg-destructive/10">
+              <CardContent className="p-4 text-sm text-destructive">Failed to load databases: {error}</CardContent>
+            </Card>
+          )}
 
-          {/* Vector Databases */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <BrainCircuit className="size-5 text-violet-400" />
-              <h2 className="text-lg font-semibold">Vector Databases</h2>
-              <Badge variant="outline" className="text-xs border-violet-400/50 text-violet-400">
-                {vectorDatabases.length}
-              </Badge>
+          {isLoading ? (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading databases...
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {vectorDatabases.map((db) => (
-                <DatabaseCard key={db.id} db={db} />
-              ))}
-            </div>
-          </div>
+          ) : (
+            <>
+              <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <Database className="size-5 text-primary" />
+                  <h2 className="text-lg font-semibold">Standard Databases</h2>
+                  <Badge variant="secondary" className="text-xs">
+                    {standardDatabases.length}
+                  </Badge>
+                </div>
+                {standardDatabases.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No standard databases found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {standardDatabases.map((db) => (
+                      <DatabaseCard key={db.id} db={db} />
+                    ))}
+                  </div>
+                )}
+              </div>
 
-          {/* Info Note */}
+              <div>
+                <div className="flex items-center gap-3 mb-4">
+                  <BrainCircuit className="size-5 text-violet-400" />
+                  <h2 className="text-lg font-semibold">Vector Databases</h2>
+                  <Badge variant="outline" className="text-xs border-violet-400/50 text-violet-400">
+                    {vectorDatabases.length}
+                  </Badge>
+                </div>
+                {vectorDatabases.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No vector databases found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {vectorDatabases.map((db) => (
+                      <DatabaseCard key={db.id} db={db} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           <Card className="border-muted-foreground/20 bg-muted/10">
             <CardContent className="p-4 flex items-start gap-3">
               <div className="p-2 rounded-lg bg-primary/10">

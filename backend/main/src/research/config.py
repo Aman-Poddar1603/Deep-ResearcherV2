@@ -9,9 +9,22 @@ load_dotenv()
 
 class ResearchSettings(BaseSettings):
     # Ollama Configuration
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "gemma4:e2b"
-    OLLAMA_EMBED_MODEL: str = "embeddinggemma:latest"
+    OLLAMA_BASE_URL: str = Field(
+        default="http://localhost:11434",
+        validation_alias=AliasChoices("OLLAMA_BASE_URL", "OLLAMA_HOST"),
+    )
+    OLLAMA_MODEL: str = Field(
+        default="gemma4:e2b",
+        validation_alias=AliasChoices("OLLAMA_MODEL", "CHAT_MODEL"),
+    )
+    OLLAMA_EMBED_MODEL: str = Field(
+        default="embeddinggemma:latest",
+        validation_alias=AliasChoices("OLLAMA_EMBED_MODEL", "EMBED_MODEL"),
+    )
+    OLLAMA_VISION_MODEL: str = Field(
+        default="",
+        validation_alias=AliasChoices("OLLAMA_VISION_MODEL", "VISION_MODEL"),
+    )
 
     # Groq Configuration
     GROQ_API_KEY: str = ""
@@ -22,6 +35,7 @@ class ResearchSettings(BaseSettings):
         default="",
         validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
     )
+    GEMINI_ARTIFACT_MODEL: str = "models/gemini-2.0-flash-lite"
     GEMINI_EMBED_MODEL: str = "models/text-embedding-004"
 
     # MCP Configuration

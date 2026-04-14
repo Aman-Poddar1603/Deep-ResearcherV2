@@ -35,13 +35,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import aiohttp
 
 from main.src.utils.DRLogger import dr_logger, LogType
 from main.src.utils.versionManagement import getAppVersion
-from main.src.utils.task_scheduler import scheduler
+from main.src.utils.core.task_schedular import scheduler
 
 # Lazy import so the module loads even without GPU dependencies at import time
 _siglip_embedder = None
@@ -57,7 +57,7 @@ def _get_siglip():
 
 
 # Local singletons (imported from DBVector)
-from main.src.store.DBVector import db_vector_manager, metadata_store
+from main.src.store.vector.DBVector import db_vector_manager, metadata_store
 
 _std_logger = logging.getLogger(__name__)
 
@@ -73,7 +73,11 @@ WORKER_COUNT = 3  # asyncio coroutine workers per queue
 # ---------------------------------------------------------------------------
 
 
-def _log(level: LogType, message: str, urgency: str = "none") -> None:
+def _log(
+    level: LogType,
+    message: str,
+    urgency: Literal["none", "moderate", "critical"] = "none",
+) -> None:
     getattr(_std_logger, level if level in ("info", "warning", "error") else "info")(
         message
     )

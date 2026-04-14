@@ -43,9 +43,7 @@ from main.src.utils.DRLogger import quickLog
 from main.src.utils.core.task_schedular import scheduler
 from main.sse.event_bus import event_bus
 
-SearchType = Literal[
-    "workspace", "chats", "researches", "scrapes", "assets", "history"
-]
+SearchType = Literal["workspace", "chats", "researches", "scrapes", "assets", "history"]
 
 # ── Search target definitions ─────────────────────────────────────────
 # Each entry maps a content type to its db manager, table, search columns,
@@ -67,8 +65,11 @@ _SEARCH_TARGETS: List[Dict[str, Any]] = [
         "table": "chat_threads",
         "search_columns": ["thread_title"],
         "return_columns": [
-            "thread_id", "thread_title", "workspace_id",
-            "created_at", "updated_at",
+            "thread_id",
+            "thread_title",
+            "workspace_id",
+            "created_at",
+            "updated_at",
         ],
         "title_field": "thread_title",
         "snippet_field": "thread_title",
@@ -79,7 +80,11 @@ _SEARCH_TARGETS: List[Dict[str, Any]] = [
         "table": "researches",
         "search_columns": ["title", "desc", "prompt"],
         "return_columns": [
-            "id", "title", "desc", "prompt", "workspace_id",
+            "id",
+            "title",
+            "desc",
+            "prompt",
+            "workspace_id",
         ],
         "title_field": "title",
         "snippet_field": "desc",
@@ -90,7 +95,11 @@ _SEARCH_TARGETS: List[Dict[str, Any]] = [
         "table": "scrapes",
         "search_columns": ["url", "title", "content"],
         "return_columns": [
-            "id", "url", "title", "created_at", "updated_at",
+            "id",
+            "url",
+            "title",
+            "created_at",
+            "updated_at",
         ],
         "title_field": "title",
         "snippet_field": "url",
@@ -101,8 +110,13 @@ _SEARCH_TARGETS: List[Dict[str, Any]] = [
         "table": "bucket_items",
         "search_columns": ["file_name", "summary", "source"],
         "return_columns": [
-            "id", "bucket_id", "file_name", "file_format",
-            "file_size", "summary", "created_at",
+            "id",
+            "bucket_id",
+            "file_name",
+            "file_format",
+            "file_size",
+            "summary",
+            "created_at",
         ],
         "title_field": "file_name",
         "snippet_field": "summary",
@@ -113,7 +127,11 @@ _SEARCH_TARGETS: List[Dict[str, Any]] = [
         "table": "searches",
         "search_columns": ["query", "ai_summary"],
         "return_columns": [
-            "id", "query", "ai_summary", "total_results", "created_at",
+            "id",
+            "query",
+            "ai_summary",
+            "total_results",
+            "created_at",
         ],
         "title_field": "query",
         "snippet_field": "ai_summary",
@@ -155,12 +173,7 @@ def _build_item(
 
     `dict` — Normalised search result item.
     """
-    item_id = (
-        raw.get("id")
-        or raw.get("thread_id")
-        or raw.get("message_id")
-        or ""
-    )
+    item_id = raw.get("id") or raw.get("thread_id") or raw.get("message_id") or ""
     title = raw.get(title_field) or "Untitled"
     snippet = raw.get(snippet_field) or ""
     if isinstance(snippet, str) and len(snippet) > 200:
@@ -168,7 +181,8 @@ def _build_item(
 
     # Build metadata from remaining fields
     metadata = {
-        k: v for k, v in raw.items()
+        k: v
+        for k, v in raw.items()
         if k not in (title_field, snippet_field, "id", "thread_id")
     }
 
@@ -450,9 +464,7 @@ class SearchService:
         for content_type, items in top_results.items():
             context_parts.append(f"=== {content_type.upper()} ===")
             for item in items:
-                context_parts.append(
-                    f"- [{item['title']}]: {item['snippet']}"
-                )
+                context_parts.append(f"- [{item['title']}]: {item['snippet']}")
         context_text = "\n".join(context_parts)
 
         system_prompt = (
@@ -466,7 +478,7 @@ class SearchService:
         )
 
         user_prompt = (
-            f"Search query: \"{query}\"\n\n"
+            f'Search query: "{query}"\n\n'
             f"Top results from the application:\n{context_text}\n\n"
             f"Please summarise what was found and highlight the most "
             f"relevant items for this query."
@@ -506,15 +518,17 @@ class SearchService:
         )
 
         # Broadcast via SSE
-        await event_bus.broadcast({
-            "event": "search.ai_done",
-            "search_id": search_id,
-            "query": query,
-            "ai_mode": {
-                "status": "done",
-                "ai_summary": ai_summary,
-            },
-        })
+        await event_bus.broadcast(
+            {
+                "event": "search.ai_done",
+                "search_id": search_id,
+                "query": query,
+                "ai_mode": {
+                    "status": "done",
+                    "ai_summary": ai_summary,
+                },
+            }
+        )
 
     def get_ai_summary(self, search_id: str) -> Dict[str, Any]:
         """
@@ -544,9 +558,7 @@ class SearchService:
         }
         ```
         """
-        result = history_db_manager.fetch_one(
-            "searches", where={"id": search_id}
-        )
+        result = history_db_manager.fetch_one("searches", where={"id": search_id})
         if not result["success"] or not result["data"]:
             return {
                 "search_id": search_id,

@@ -18,6 +18,9 @@ from main.apis.models.chats import (
     ChatThreadRecord,
 )
 from main.src.chat import chat_orchestrator
+from main.src.workspace.workspace_links import link_chat_to_workspace
+from main.src.utils.DRLogger import quickLog
+from main.src.utils.core.task_schedular import scheduler
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -86,9 +89,24 @@ def get_thread(thread_id: str) -> ChatThreadRecord:
 @router.post(
     "/threads", response_model=ChatThreadRecord, status_code=status.HTTP_201_CREATED
 )
-def create_thread(payload: ChatThreadCreate) -> ChatThreadRecord:
+async def create_thread(payload: ChatThreadCreate) -> ChatThreadRecord:
     try:
-        return chat_view.createThread(payload)
+        workspace_id = (payload.workspace_id or "").strip()
+        if not workspace_id:
+            raise ValueError(
+                "workspaceId is required. Select a workspace before starting chat"
+            )
+
+        payload.workspace_id = workspace_id
+        created = chat_view.createThread(payload)
+        await scheduler.schedule(
+            link_chat_to_workspace,
+            params={
+                "workspace_id": workspace_id,
+                "chat_session_id": created.thread_id,
+            },
+        )
+        return created
     except Exception as exc:
         _raise_chat_http_error("Create chat thread", exc)
 
@@ -113,7 +131,15 @@ def patch_thread(thread_id: str, payload: ChatThreadPatch) -> ChatThreadRecord:
 async def delete_thread(thread_id: str) -> Response:
     try:
         chat_view.deleteThread(thread_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted chat thread {thread_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": f"Successfully deleted chat thread {thread_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_chat_http_error(f"Delete chat thread {thread_id}", exc)
@@ -181,7 +207,15 @@ def patch_message(message_id: str, payload: ChatMessagePatch) -> ChatMessageReco
 async def delete_message(message_id: str) -> Response:
     try:
         chat_view.deleteMessage(message_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted chat message {message_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": f"Successfully deleted chat message {message_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_chat_http_error(f"Delete chat message {message_id}", exc)
@@ -255,7 +289,15 @@ def patch_attachment(
 async def delete_attachment(attachment_id: str) -> Response:
     try:
         chat_view.deleteAttachment(attachment_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted chat attachment {attachment_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": f"Successfully deleted chat attachment {attachment_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_chat_http_error(f"Delete chat attachment {attachment_id}", exc)

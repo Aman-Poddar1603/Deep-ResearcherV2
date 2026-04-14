@@ -92,7 +92,9 @@ class ResearchContext(BaseModel):
 
 class TokenCounts(BaseModel):
     grand_total: int = 0
-    by_model: dict[str, int] = Field(default_factory=lambda: {"ollama": 0, "groq": 0})
+    by_model: dict[str, int] = Field(
+        default_factory=lambda: {"ollama": 0, "groq": 0, "gemini": 0}
+    )
     by_step: dict[str, int] = Field(default_factory=dict)
 
 

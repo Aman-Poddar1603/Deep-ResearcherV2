@@ -19,9 +19,10 @@ import logging
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import chromadb
+from main.src.research.config import settings
 from main.src.utils.DRLogger import LogType, dr_logger
 from main.src.utils.versionManagement import getAppVersion
 
@@ -30,6 +31,10 @@ from main.src.utils.versionManagement import getAppVersion
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).parent  # .../store/
 SRC_DIR = BASE_DIR.parent  # .../src/
+
+_PRIMARY_CHROMA_PATH = Path(settings.CHROMA_PATH).expanduser()
+_LEGACY_CHROMA_PATH = BASE_DIR / "database" / "chroma_store"
+_SQLITE_PATH = BASE_DIR / "database" / "sqlite" / "metadata.db"
 
 for _p in [str(SRC_DIR), str(SRC_DIR.parent)]:
     if _p not in sys.path:
@@ -43,12 +48,23 @@ _std_logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 COLLECTIONS = ("websites", "pdfs", "images", "custom", "research")
 
+
+def _is_allowed_collection(collection_name: str) -> bool:
+    name = (collection_name or "").strip()
+    if not name:
+        return False
+    return name in COLLECTIONS or name.startswith("research_")
+
 # ---------------------------------------------------------------------------
 # Logging helpers (mirrors original DRLogger pattern)
 # ---------------------------------------------------------------------------
 
 
-def _log(level: LogType, message: str, urgency: str = "none") -> None:
+def _log(
+    level: LogType,
+    message: str,
+    urgency: Literal["none", "moderate", "critical"] = "none",
+) -> None:
     """Dual-write to stdlib logger and DRLogger."""
     getattr(_std_logger, level if level in ("info", "warning", "error") else "info")(
         message
@@ -226,7 +242,7 @@ class MetadataStore:
 
         return await asyncio.to_thread(_run)
 
-    async def collection_stats(self) -> Dict[str, Any]:
+    async def collection_stats(self) -> List[Dict[str, Any]]:
         def _run():
             with self._conn() as conn:
                 rows = conn.execute(
@@ -283,9 +299,9 @@ class DBVectorManager:
         """Return (cached) ChromaDB collection handle, no embedding function
         because callers always supply pre-computed vectors."""
         if collection_name not in self._cols:
-            if collection_name not in COLLECTIONS:
+            if not _is_allowed_collection(collection_name):
                 raise ValueError(
-                    f"Unknown collection '{collection_name}'. Valid: {COLLECTIONS}"
+                    f"Unknown collection '{collection_name}'. Valid base collections: {COLLECTIONS} and research_*"
                 )
             self._cols[collection_name] = self._client.get_or_create_collection(
                 name=collection_name,
@@ -1101,13 +1117,78 @@ class ScrapeMetaStore:
 
 
 def _ensure_dirs() -> None:
-    for subdir in ("chroma_store", "sqlite"):
-        d = BASE_DIR / "database" / subdir
+    for path in (_PRIMARY_CHROMA_PATH, _LEGACY_CHROMA_PATH, _SQLITE_PATH.parent):
         try:
-            d.mkdir(parents=True, exist_ok=True)
-            _std_logger.info(f"Directory ensured: {d}")
+            path.mkdir(parents=True, exist_ok=True)
+            _std_logger.info(f"Directory ensured: {path}")
         except Exception as exc:
-            _std_logger.error(f"Failed to create {d}: {exc}")
+            _std_logger.error(f"Failed to create {path}: {exc}")
+
+
+def _is_chroma_store_populated(path: Path) -> bool:
+    try:
+        if not path.exists() or not path.is_dir():
+            return False
+
+        sqlite_file = path / "chroma.sqlite3"
+        if sqlite_file.exists() and sqlite_file.stat().st_size > 0:
+            return True
+
+        for child in path.iterdir():
+            if child.is_dir():
+                return True
+        return False
+    except OSError:
+        return False
+
+
+def _ensure_writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_chroma_path() -> Path:
+    primary_ready = _ensure_writable_dir(_PRIMARY_CHROMA_PATH)
+    legacy_ready = _ensure_writable_dir(_LEGACY_CHROMA_PATH)
+
+    primary_has_data = _is_chroma_store_populated(_PRIMARY_CHROMA_PATH)
+    legacy_has_data = _is_chroma_store_populated(_LEGACY_CHROMA_PATH)
+
+    if primary_ready and (primary_has_data or not legacy_has_data):
+        return _PRIMARY_CHROMA_PATH
+
+    if legacy_has_data:
+        _log(
+            "warning",
+            (
+                f"Primary CHROMA_PATH '{_PRIMARY_CHROMA_PATH}' is empty or unavailable; "
+                f"using legacy path '{_LEGACY_CHROMA_PATH}' until migration."
+            ),
+            urgency="moderate",
+        )
+        return _LEGACY_CHROMA_PATH
+
+    if primary_ready:
+        return _PRIMARY_CHROMA_PATH
+
+    if legacy_ready:
+        _log(
+            "warning",
+            (
+                f"Primary CHROMA_PATH '{_PRIMARY_CHROMA_PATH}' is not writable; "
+                f"falling back to '{_LEGACY_CHROMA_PATH}'."
+            ),
+            urgency="moderate",
+        )
+        return _LEGACY_CHROMA_PATH
+
+    return _PRIMARY_CHROMA_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -1116,8 +1197,7 @@ def _ensure_dirs() -> None:
 if not any(x in " ".join(sys.argv) for x in ("unittest", "pytest")):
     _ensure_dirs()
 
-_CHROMA_PATH = BASE_DIR / "database" / "chroma_store"
-_SQLITE_PATH = BASE_DIR / "database" / "sqlite" / "metadata.db"
+_CHROMA_PATH = _resolve_chroma_path()
 
 # Singleton exports — import these everywhere
 db_vector_manager: DBVectorManager = DBVectorManager(persist_directory=_CHROMA_PATH)

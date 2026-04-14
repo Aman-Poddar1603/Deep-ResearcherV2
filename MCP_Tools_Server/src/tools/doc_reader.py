@@ -82,16 +82,33 @@ def generate_temp_path(ext: str) -> Path:
 # -------------------- FILE HANDLING --------------------
 
 
-async def download_to_temp(url: str, forced_ext: str = None) -> Path:
+async def download_to_temp(url: str, forced_ext: str | None = None) -> Path:
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             resp.raise_for_status()
 
-            content_type = resp.headers.get("content-type", "")
+            content_type = (resp.headers.get("content-type", "") or "").lower()
 
             ext = forced_ext
             if not ext:
-                if "pdf" in content_type:
+                parsed_url = urlparse(url)
+                suffix_ext = Path(parsed_url.path).suffix.lstrip(".").lower()
+
+                # Prefer explicit extension from the URL path when present.
+                if suffix_ext in {
+                    "pdf",
+                    "docx",
+                    "pptx",
+                    "xlsx",
+                    "txt",
+                    "md",
+                    "csv",
+                    "json",
+                    "xml",
+                    "log",
+                }:
+                    ext = suffix_ext
+                elif "pdf" in content_type:
                     ext = "pdf"
                 elif "word" in content_type:
                     ext = "docx"
@@ -99,6 +116,16 @@ async def download_to_temp(url: str, forced_ext: str = None) -> Path:
                     ext = "pptx"
                 elif "spreadsheet" in content_type:
                     ext = "xlsx"
+                elif "markdown" in content_type:
+                    ext = "md"
+                elif "text/" in content_type:
+                    ext = "txt"
+                elif "json" in content_type:
+                    ext = "json"
+                elif "xml" in content_type:
+                    ext = "xml"
+                elif "csv" in content_type:
+                    ext = "csv"
                 else:
                     ext = "bin"
 
@@ -122,8 +149,8 @@ async def copy_to_temp(local_path: Path) -> Path:
     return temp_path
 
 
-async def prepare_file(item: Union[str, Tuple[str, str]]) -> Tuple[Path, bool, str]:
-    forced_type = None
+async def prepare_file(item: Union[str, Tuple[str, str]]) -> Tuple[Path | None, bool, str]:
+    forced_type: str | None = None
 
     if isinstance(item, tuple):
         item, forced_type = item
@@ -212,7 +239,14 @@ async def extract_text(path: Path):
         return await extract_pptx(path)
     elif p.endswith(".xlsx"):
         return await extract_xlsx(path)
-    elif p.endswith(".txt") or p.endswith(".md"):
+    elif (
+        p.endswith(".txt")
+        or p.endswith(".md")
+        or p.endswith(".csv")
+        or p.endswith(".json")
+        or p.endswith(".xml")
+        or p.endswith(".log")
+    ):
         return await extract_txt_md(path)
     else:
         return None

@@ -25,7 +25,7 @@ class TokenTracker(AsyncCallbackHandler):
         emitter,  # WSEmitter instance
         research_id: str,
         step_index: int,
-        model_type: str,  # "ollama" or "groq"
+        model_type: str,  # "ollama", "groq", or "gemini"
         source: str,  # e.g. "ollama/gemma4:e2b"
     ):
         self.emitter = emitter
@@ -47,6 +47,19 @@ class TokenTracker(AsyncCallbackHandler):
         """Call this after any MCP tool that returns its own token_count."""
         if token_count > 0:
             await self._record(token_count, input_delta=0, output_delta=token_count)
+
+    async def record_explicit_tokens(
+        self,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        """Record explicit input/output deltas when provider callbacks are unavailable."""
+        input_delta = max(0, int(input_tokens or 0))
+        output_delta = max(0, int(output_tokens or 0))
+        delta = input_delta + output_delta
+        if delta <= 0:
+            return
+        await self._record(delta, input_delta=input_delta, output_delta=output_delta)
 
     async def _record(
         self,

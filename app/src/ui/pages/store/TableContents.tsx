@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -6,225 +6,408 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select'
 import {
-    ChevronLeft,
-    ChevronRight,
-    Search,
-    Table2,
-    Download,
-    RefreshCw,
-    ArrowUpDown,
-    ChevronsLeft,
-    ChevronsRight
+  listDatabaseTableRows,
+  type DatabaseTableRowsResponse,
+} from '@/lib/apis'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Table2,
+  Download,
+  RefreshCw,
+  ArrowUpDown,
+  ChevronsLeft,
+  ChevronsRight,
+  Loader2,
 } from 'lucide-react'
 
-// Generate mock table data
-const generateMockData = (_tableName: string, count: number) => {
-    const statuses = ['active', 'inactive', 'pending', 'suspended']
-
-    return Array.from({ length: count }).map((_, i) => ({
-        id: i + 1,
-        name: `User ${i + 1}`,
-        email: `user${i + 1}@example.com`,
-        status: statuses[Math.floor(Math.random() * statuses.length)],
-        created_at: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        updated_at: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    }))
+const getColorForDb = (dbId: string) => {
+  const colorMap: Record<string, { text: string; bg: string }> = {
+    main: { text: 'text-blue-400', bg: 'bg-blue-400/10' },
+    history: { text: 'text-purple-400', bg: 'bg-purple-400/10' },
+    scrapes: { text: 'text-green-400', bg: 'bg-green-400/10' },
+    researches: { text: 'text-orange-400', bg: 'bg-orange-400/10' },
+    buckets: { text: 'text-pink-400', bg: 'bg-pink-400/10' },
+    chats: { text: 'text-cyan-400', bg: 'bg-cyan-400/10' },
+    logs: { text: 'text-amber-400', bg: 'bg-amber-400/10' },
+    vector_chroma: { text: 'text-violet-400', bg: 'bg-violet-400/10' },
+  }
+  return colorMap[dbId] || colorMap.main
 }
 
-const getColorForDb = (dbId: string) => {
-    const colorMap: Record<string, { text: string; bg: string }> = {
-        'basic': { text: 'text-blue-400', bg: 'bg-blue-400/10' },
-        'history': { text: 'text-purple-400', bg: 'bg-purple-400/10' },
-        'scrapes': { text: 'text-green-400', bg: 'bg-green-400/10' },
-        'research': { text: 'text-orange-400', bg: 'bg-orange-400/10' },
+const stringifyCellValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
     }
-    return colorMap[dbId] || colorMap['basic']
+  }
+  return String(value)
 }
 
 const TableContents = () => {
-    const { id, tableName } = useParams()
-    const [searchQuery, setSearchQuery] = useState('')
-    const [rowsPerPage, setRowsPerPage] = useState(25)
-    const [currentPage, setCurrentPage] = useState(1)
-    const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
-    const [sortCol, setSortCol] = useState<string | null>(null)
-    const [sortAsc, setSortAsc] = useState(true)
+  const { id, tableName } = useParams()
+  const [searchQuery, setSearchQuery] = useState('')
+  const [rowsPerPage, setRowsPerPage] = useState(25)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
+  const [sortCol, setSortCol] = useState<string | null>(null)
+  const [sortAsc, setSortAsc] = useState(true)
+  const [rowsResponse, setRowsResponse] = useState<DatabaseTableRowsResponse | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshVersion, setRefreshVersion] = useState(0)
 
-    const dbId = id || 'basic'
-    const colors = getColorForDb(dbId)
-    const table = tableName || 'users'
+  const dbId = id || ''
+  const table = tableName || ''
+  const colors = getColorForDb(dbId)
 
-    // Generate mock data
-    const allData = useMemo(() => generateMockData(table, 156), [table])
-    const columns = Object.keys(allData[0] || {})
+  useEffect(() => {
+    setCurrentPage(1)
+    setSelectedRows(new Set())
+    setSearchQuery('')
+  }, [dbId, table])
 
-    // Filter and sort
-    const filteredData = useMemo(() => {
-        let data = allData.filter(row =>
-            Object.values(row).some(v =>
-                String(v).toLowerCase().includes(searchQuery.toLowerCase())
-            )
-        )
-        if (sortCol) {
-            data = [...data].sort((a, b) => {
-                const aVal = a[sortCol as keyof typeof a]
-                const bVal = b[sortCol as keyof typeof b]
-                const cmp = String(aVal).localeCompare(String(bVal))
-                return sortAsc ? cmp : -cmp
-            })
+  useEffect(() => {
+    if (!dbId || !table) {
+      setRowsResponse(null)
+      setIsLoading(false)
+      setError('Database id or table name is missing')
+      return
+    }
+
+    let isCancelled = false
+
+    const loadRows = async () => {
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const response = await listDatabaseTableRows(dbId, table, {
+          page: currentPage,
+          size: rowsPerPage,
+          sortBy: sortCol ?? undefined,
+          sortOrder: sortAsc ? 'asc' : 'desc',
+        })
+
+        if (isCancelled) return
+
+        setRowsResponse(response)
+        setSelectedRows(new Set())
+
+        if (response.total_pages > 0 && currentPage > response.total_pages) {
+          setCurrentPage(response.total_pages)
         }
-        return data
-    }, [allData, searchQuery, sortCol, sortAsc])
-
-    // Pagination
-    const totalPages = Math.ceil(filteredData.length / rowsPerPage)
-    const paginatedData = useMemo(() => {
-        const start = (currentPage - 1) * rowsPerPage
-        return filteredData.slice(start, start + rowsPerPage)
-    }, [filteredData, currentPage, rowsPerPage])
-
-    const toggleSort = (col: string) => {
-        if (sortCol === col) setSortAsc(!sortAsc)
-        else { setSortCol(col); setSortAsc(true) }
-    }
-
-    const toggleSelectAll = () => {
-        if (selectedRows.size === paginatedData.length) {
-            setSelectedRows(new Set())
-        } else {
-            setSelectedRows(new Set(paginatedData.map(r => r.id)))
+      } catch (err) {
+        if (isCancelled) return
+        setRowsResponse(null)
+        setError(err instanceof Error ? err.message : 'Failed to load table rows')
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false)
         }
+      }
     }
 
-    const toggleSelect = (id: number) => {
-        const next = new Set(selectedRows)
-        if (next.has(id)) next.delete(id)
-        else next.add(id)
-        setSelectedRows(next)
+    void loadRows()
+
+    return () => {
+      isCancelled = true
     }
+  }, [dbId, table, currentPage, rowsPerPage, sortCol, sortAsc, refreshVersion])
 
-    const getStatusBadge = (status: string) => {
-        const config: Record<string, string> = {
-            active: 'bg-green-500/20 text-green-400',
-            inactive: 'bg-muted-foreground/20 text-muted-foreground',
-            pending: 'bg-yellow-500/20 text-yellow-400',
-            suspended: 'bg-red-500/20 text-red-400',
-        }
-        return config[status] || config.inactive
-    }
+  const columns = useMemo(
+    () => (rowsResponse?.columns || []).map((col) => col.name),
+    [rowsResponse?.columns],
+  )
 
-    return (
-        <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="shrink-0 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
-                <div className="w-full px-8 py-6">
-                    <div className="flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-4">
-                            <div className={cn("size-14 rounded-2xl flex items-center justify-center", colors.bg)}>
-                                <Table2 className={cn("size-7", colors.text)} />
-                            </div>
-                            <div>
-                                <h1 className="text-2xl font-semibold font-mono">{table}</h1>
-                                <p className="text-sm text-muted-foreground mt-0.5">
-                                    {filteredData.length} rows • {columns.length} columns
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {selectedRows.size > 0 && (
-                                <Badge variant="secondary" className="mr-2">{selectedRows.size} selected</Badge>
-                            )}
-                            <Button variant="outline" size="sm" className="gap-2">
-                                <RefreshCw className="size-4" />Refresh
-                            </Button>
-                            <Button variant="outline" size="sm" className="gap-2">
-                                <Download className="size-4" />Export
-                            </Button>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="relative flex-1 max-w-md">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                            <Input placeholder="Search in table..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1) }} className="pl-9 bg-background" />
-                        </div>
-                        <Select value={String(rowsPerPage)} onValueChange={v => { setRowsPerPage(Number(v)); setCurrentPage(1) }}>
-                            <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="10">10 rows</SelectItem>
-                                <SelectItem value="25">25 rows</SelectItem>
-                                <SelectItem value="50">50 rows</SelectItem>
-                                <SelectItem value="100">100 rows</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-            </div>
+  const rawRows = rowsResponse?.items || []
 
-            {/* Table Content */}
-            <div className="flex-1 overflow-auto">
-                <table className="w-full text-sm border-separate border-spacing-0">
-                    <thead className="sticky top-0 z-20 bg-muted/10 backdrop-blur-md">
-                        <tr>
-                            <th className="h-12 px-4 text-left font-medium text-muted-foreground w-[50px] border-b bg-background/50">
-                                <Checkbox checked={paginatedData.length > 0 && selectedRows.size === paginatedData.length} onCheckedChange={toggleSelectAll} />
-                            </th>
-                            {columns.map(col => (
-                                <th key={col} className="h-12 px-4 text-left font-medium text-muted-foreground border-b bg-background/50 cursor-pointer hover:text-foreground" onClick={() => toggleSort(col)}>
-                                    <div className="flex items-center gap-2">
-                                        {col}
-                                        {sortCol === col && <ArrowUpDown className={cn("size-3", !sortAsc && "rotate-180")} />}
-                                    </div>
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {paginatedData.length === 0 ? (
-                            <tr><td colSpan={columns.length + 1} className="p-8 text-center text-muted-foreground">No data found.</td></tr>
-                        ) : paginatedData.map(row => (
-                            <tr key={row.id} className={cn("hover:bg-muted/10 transition-colors", selectedRows.has(row.id) && "bg-muted/20")}>
-                                <td className="p-4 px-4"><Checkbox checked={selectedRows.has(row.id)} onCheckedChange={() => toggleSelect(row.id)} /></td>
-                                {columns.map(col => (
-                                    <td key={col} className="p-4 font-mono text-sm">
-                                        {col === 'status' ? (
-                                            <Badge className={cn("font-normal", getStatusBadge(row[col as keyof typeof row] as string))}>{String(row[col as keyof typeof row])}</Badge>
-                                        ) : col === 'id' ? (
-                                            <span className="text-muted-foreground">{String(row[col as keyof typeof row])}</span>
-                                        ) : (
-                                            String(row[col as keyof typeof row])
-                                        )}
-                                    </td>
-                                ))}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return rawRows
 
-            {/* Pagination Footer */}
-            <div className="shrink-0 border-t bg-background/50 backdrop-blur-sm px-8 py-4">
-                <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">
-                        Showing {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, filteredData.length)} of {filteredData.length} rows
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" size="icon" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}><ChevronsLeft className="size-4" /></Button>
-                        <Button variant="outline" size="icon" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}><ChevronLeft className="size-4" /></Button>
-                        <span className="text-sm px-3">Page {currentPage} of {totalPages}</span>
-                        <Button variant="outline" size="icon" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}><ChevronRight className="size-4" /></Button>
-                        <Button variant="outline" size="icon" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}><ChevronsRight className="size-4" /></Button>
-                    </div>
-                </div>
-            </div>
-        </div>
+    const needle = searchQuery.trim().toLowerCase()
+    return rawRows.filter((row) =>
+      Object.values(row).some((value) => stringifyCellValue(value).toLowerCase().includes(needle)),
     )
+  }, [rawRows, searchQuery])
+
+  const getRowKey = (row: Record<string, unknown>, index: number) => {
+    const candidate = row.id ?? row.uuid ?? row._id
+    if (typeof candidate === 'string' || typeof candidate === 'number') {
+      return String(candidate)
+    }
+    return `${rowsResponse?.offset || 0}-${index}`
+  }
+
+  const visibleRows = filteredRows
+  const totalPages = rowsResponse?.total_pages || 0
+  const totalItems = rowsResponse?.total_items || 0
+  const effectiveTotalPages = totalPages > 0 ? totalPages : 1
+
+  const toggleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortAsc(!sortAsc)
+    } else {
+      setSortCol(col)
+      setSortAsc(true)
+    }
+    setCurrentPage(1)
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedRows.size === visibleRows.length) {
+      setSelectedRows(new Set())
+    } else {
+      setSelectedRows(new Set(visibleRows.map((row, idx) => getRowKey(row, idx))))
+    }
+  }
+
+  const toggleSelect = (rowId: string) => {
+    const next = new Set(selectedRows)
+    if (next.has(rowId)) next.delete(rowId)
+    else next.add(rowId)
+    setSelectedRows(next)
+  }
+
+  const handleExportCsv = () => {
+    if (visibleRows.length === 0 || columns.length === 0) return
+
+    const escapeCsvCell = (value: string) => `"${value.replace(/"/g, '""')}"`
+    const header = columns.map(escapeCsvCell).join(',')
+    const body = visibleRows
+      .map((row) => columns.map((col) => escapeCsvCell(stringifyCellValue(row[col]))).join(','))
+      .join('\n')
+
+    const csv = `${header}\n${body}`
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${table}-page-${currentPage}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  if (isLoading && !rowsResponse) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error && !rowsResponse) {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <div className="text-sm text-destructive">Failed to load table rows: {error}</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
+      <div className="shrink-0 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
+        <div className="w-full px-8 py-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className={cn('size-14 rounded-2xl flex items-center justify-center', colors.bg)}>
+                <Table2 className={cn('size-7', colors.text)} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold font-mono">{table || 'table'}</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {totalItems.toLocaleString()} rows • {columns.length} columns
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {selectedRows.size > 0 && (
+                <Badge variant="secondary" className="mr-2">
+                  {selectedRows.size} selected
+                </Badge>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setRefreshVersion((prev) => prev + 1)}
+                disabled={isLoading}
+              >
+                <RefreshCw className={cn('size-4', isLoading && 'animate-spin')} />
+                Refresh
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleExportCsv}
+                disabled={visibleRows.length === 0}
+              >
+                <Download className="size-4" />
+                Export
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search in current page..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 bg-background"
+              />
+            </div>
+            <Select
+              value={String(rowsPerPage)}
+              onValueChange={(v) => {
+                setRowsPerPage(Number(v))
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10 rows</SelectItem>
+                <SelectItem value="25">25 rows</SelectItem>
+                <SelectItem value="50">50 rows</SelectItem>
+                <SelectItem value="100">100 rows</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        <table className="w-full text-sm border-separate border-spacing-0">
+          <thead className="sticky top-0 z-20 bg-muted/10 backdrop-blur-md">
+            <tr>
+              <th className="h-12 px-4 text-left font-medium text-muted-foreground w-[50px] border-b bg-background/50">
+                <Checkbox
+                  checked={visibleRows.length > 0 && selectedRows.size === visibleRows.length}
+                  onCheckedChange={toggleSelectAll}
+                />
+              </th>
+              {columns.map((col) => (
+                <th
+                  key={col}
+                  className="h-12 px-4 text-left font-medium text-muted-foreground border-b bg-background/50 cursor-pointer hover:text-foreground"
+                  onClick={() => toggleSort(col)}
+                >
+                  <div className="flex items-center gap-2">
+                    {col}
+                    {sortCol === col && <ArrowUpDown className={cn('size-3', !sortAsc && 'rotate-180')} />}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length + 1} className="p-8 text-center text-muted-foreground">
+                  No data found.
+                </td>
+              </tr>
+            ) : (
+              visibleRows.map((row, rowIndex) => {
+                const rowKey = getRowKey(row, rowIndex)
+                return (
+                  <tr
+                    key={rowKey}
+                    className={cn('hover:bg-muted/10 transition-colors', selectedRows.has(rowKey) && 'bg-muted/20')}
+                  >
+                    <td className="p-4 px-4">
+                      <Checkbox checked={selectedRows.has(rowKey)} onCheckedChange={() => toggleSelect(rowKey)} />
+                    </td>
+                    {columns.map((col) => {
+                      const rawValue = row[col]
+                      const value = stringifyCellValue(rawValue)
+                      const isStatus = col.toLowerCase().includes('status')
+
+                      return (
+                        <td key={col} className="p-4 font-mono text-sm align-top">
+                          {isStatus && typeof rawValue === 'string' ? (
+                            <Badge variant="secondary" className="font-normal">
+                              {value}
+                            </Badge>
+                          ) : (
+                            <span className="break-all">{value}</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="shrink-0 border-t bg-background/50 backdrop-blur-sm px-8 py-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {totalItems > 0
+              ? `Showing ${(rowsResponse?.offset || 0) + 1} to ${(rowsResponse?.offset || 0) + (rowsResponse?.items.length || 0)} of ${totalItems} rows`
+              : 'No rows available'}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => setCurrentPage(1)}
+            >
+              <ChevronsLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => setCurrentPage((p) => p - 1)}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="text-sm px-3">
+              Page {totalPages > 0 ? currentPage : 0} of {totalPages > 0 ? totalPages : 0}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={currentPage >= effectiveTotalPages || totalPages === 0 || isLoading}
+              onClick={() => setCurrentPage((p) => p + 1)}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={currentPage >= effectiveTotalPages || totalPages === 0 || isLoading}
+              onClick={() => setCurrentPage(effectiveTotalPages)}
+            >
+              <ChevronsRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default TableContents

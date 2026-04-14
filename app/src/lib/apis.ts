@@ -4,6 +4,17 @@ const backendUrl =
   (import.meta.env.VITE_BACKEND_URL as string | undefined) ??
   "http://localhost:8000";
 
+const toWebsocketBaseUrl = (url: string): string => {
+  if (/^wss?:\/\//i.test(url)) return url;
+  if (url.startsWith("https://")) return `wss://${url.slice("https://".length)}`;
+  if (url.startsWith("http://")) return `ws://${url.slice("http://".length)}`;
+  return url;
+};
+
+const backendWsUrl =
+  (import.meta.env.VITE_BACKEND_WS_URL as string | undefined) ??
+  toWebsocketBaseUrl(backendUrl);
+
 export const resolveApiUrl = (path?: string | null): string | null => {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;
@@ -12,6 +23,23 @@ export const resolveApiUrl = (path?: string | null): string | null => {
     : backendUrl;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${normalizedBase}${normalizedPath}`;
+};
+
+export const resolveWsUrl = (path?: string | null): string | null => {
+  if (!path) return null;
+  if (/^wss?:\/\//i.test(path)) return path;
+  const normalizedBase = backendWsUrl.endsWith("/")
+    ? backendWsUrl.slice(0, -1)
+    : backendWsUrl;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+};
+
+export const getChatRuntimeWsUrl = (threadId: string): string => {
+  const resolved = resolveWsUrl(
+    `/chats/threads/${encodeURIComponent(threadId)}/ws`,
+  );
+  return resolved ?? "";
 };
 
 const api = axios.create({
@@ -817,8 +845,21 @@ export interface ChatMessageRecord {
   citations: string | null;
   token_count: number | null;
   attachments: string | null;
+  attachment_items?: ChatMessageAttachmentItem[] | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ChatMessageAttachmentItem {
+  attachment_id: string;
+  message_id: string | null;
+  attachment_type: string | null;
+  attachment_path: string | null;
+  attachment_size: number | null;
+  file_name?: string | null;
+  url?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface ChatMessageCreateRequest {
@@ -849,6 +890,13 @@ export interface ChatMessageListQuery {
 
 export type ChatMessageListResponse = PaginationResponse<ChatMessageRecord>;
 
+const normalizeChatMessagePageSize = (size?: number): number | undefined => {
+  if (size === undefined || size === null || !Number.isFinite(size)) {
+    return undefined;
+  }
+  return Math.min(200, Math.max(1, Math.trunc(size)));
+};
+
 export const listChatMessages = async (
   query?: ChatMessageListQuery,
 ): Promise<ChatMessageListResponse> => {
@@ -856,7 +904,7 @@ export const listChatMessages = async (
     api.get<ChatMessageListResponse>(
       withQuery("/chats/messages", {
         page: query?.page,
-        size: query?.size,
+        size: normalizeChatMessagePageSize(query?.size),
         threadId: query?.threadId,
         role: query?.role,
         parentId: query?.parentId,
@@ -1341,6 +1389,151 @@ export const getSearchAiStatus = async (
   return requestData(
     api.get<SearchAiStatusResponse>(
       `/search/${encodeURIComponent(searchId)}/ai`,
+    ),
+  );
+};
+
+// Database Explorer API (read-only)
+export type DatabaseType = "standard" | "vector";
+export type DatabaseStatus = "active" | "syncing" | "idle";
+
+export interface DatabaseRecord {
+  id: string;
+  name: string;
+  description: string;
+  type: DatabaseType;
+  color: string;
+  status: DatabaseStatus;
+  tableCount: number;
+  totalRows: number;
+  size: string;
+  lastModified: string;
+  engine: string;
+  version: string;
+}
+
+export interface DatabaseTableRecord {
+  name: string;
+  rows: number;
+  columns: number;
+  size: string;
+  lastModified: string;
+  description: string;
+}
+
+export interface DatabaseDetailRecord {
+  id: string;
+  name: string;
+  description: string;
+  type: DatabaseType;
+  color: string;
+  status: DatabaseStatus;
+  tables: DatabaseTableRecord[];
+  totalSize: string;
+  createdAt: string;
+  lastModified: string;
+  engine: string;
+  version: string;
+  tableCount: number;
+  totalRows: number;
+}
+
+export interface DatabaseColumnMeta {
+  cid: number | null;
+  name: string;
+  type: string | null;
+  notnull: boolean;
+  defaultValue: unknown;
+  pk: boolean;
+}
+
+export interface DatabaseTableRowsResponse {
+  databaseId: string;
+  tableName: string;
+  columns: DatabaseColumnMeta[];
+  items: Record<string, unknown>[];
+  page: number;
+  size: number;
+  total_items: number;
+  total_pages: number;
+  offset: number;
+}
+
+export interface DatabaseListQuery {
+  page?: number;
+  size?: number;
+  type?: DatabaseType;
+}
+
+export interface DatabaseTableListQuery {
+  page?: number;
+  size?: number;
+}
+
+export interface DatabaseTableRowsQuery {
+  page?: number;
+  size?: number;
+  sortBy?: string;
+  sortOrder?: SortOrder;
+}
+
+export type DatabaseListResponse = PaginationResponse<DatabaseRecord>;
+export type DatabaseTableListResponse = PaginationResponse<DatabaseTableRecord>;
+
+export const listDatabases = async (
+  query?: DatabaseListQuery,
+): Promise<DatabaseListResponse> => {
+  return requestData(
+    api.get<DatabaseListResponse>(
+      withQuery("/database/", {
+        page: query?.page,
+        size: query?.size,
+        type: query?.type,
+      }),
+    ),
+  );
+};
+
+export const getDatabase = async (
+  databaseId: string,
+): Promise<DatabaseDetailRecord> => {
+  return requestData(
+    api.get<DatabaseDetailRecord>(
+      `/database/${encodeURIComponent(databaseId)}`,
+    ),
+  );
+};
+
+export const listDatabaseTables = async (
+  databaseId: string,
+  query?: DatabaseTableListQuery,
+): Promise<DatabaseTableListResponse> => {
+  return requestData(
+    api.get<DatabaseTableListResponse>(
+      withQuery(`/database/${encodeURIComponent(databaseId)}/tables`, {
+        page: query?.page,
+        size: query?.size,
+      }),
+    ),
+  );
+};
+
+export const listDatabaseTableRows = async (
+  databaseId: string,
+  tableName: string,
+  query?: DatabaseTableRowsQuery,
+): Promise<DatabaseTableRowsResponse> => {
+  return requestData(
+    api.get<DatabaseTableRowsResponse>(
+      withQuery(
+        `/database/${encodeURIComponent(databaseId)}/tables/${encodeURIComponent(tableName)}/rows`,
+        {
+          page: query?.page,
+          size: query?.size,
+          sortBy: query?.sortBy,
+          sortOrder: query?.sortOrder,
+        },
+      ),
     ),
   );
 };
