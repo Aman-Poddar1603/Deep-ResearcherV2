@@ -46,7 +46,7 @@ async def search(
     type_filter: str | None = Query(
         default=None,
         alias="typeFilter",
-        description="Filter by type: workspace, chats, researches, scrapes, assets, history",
+        description="Filter by type: workspace, chats, researches, scrapes, assets",
     ),
     workspace_id: str | None = Query(
         default=None,

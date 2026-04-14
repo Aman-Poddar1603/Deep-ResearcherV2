@@ -20,6 +20,7 @@ import {
 } from '@/lib/apis'
 import { toast } from '@/components/ui/sonner'
 import { Persona, type PersonaState } from '@/components/ai-elements/persona'
+import { Streamdown } from 'streamdown'
 import {
   Search as SearchIcon,
   FlaskConical,
@@ -33,7 +34,6 @@ import {
   ExternalLink,
   Copy,
   X,
-  History as HistoryIcon,
   ArrowRight,
   Loader2,
   Brain
@@ -54,7 +54,7 @@ interface SearchResult {
   relevance: number
 }
 
-type CategoryId = 'researches' | 'chats' | 'workspaces' | 'assets' | 'databases' | 'history'
+type CategoryId = 'researches' | 'chats' | 'workspaces' | 'assets' | 'databases'
 
 interface CategoryConfig {
   id: CategoryId
@@ -74,7 +74,6 @@ const CATEGORIES: CategoryConfig[] = [
   { id: 'workspaces', label: 'Workspaces', icon: Briefcase, color: 'text-purple-400', bgColor: 'bg-purple-400/10' },
   { id: 'assets', label: 'Assets', icon: Files, color: 'text-green-400', bgColor: 'bg-green-400/10' },
   { id: 'databases', label: 'Databases', icon: Database, color: 'text-cyan-400', bgColor: 'bg-cyan-400/10' },
-  { id: 'history', label: 'History', icon: HistoryIcon, color: 'text-pink-400', bgColor: 'bg-pink-400/10' },
 ]
 
 const RECENT_SEARCHES = [
@@ -101,8 +100,6 @@ function mapApiTypeToCategory(apiType: string): CategoryId {
       return 'databases'
     case 'assets':
       return 'assets'
-    case 'history':
-      return 'history'
     default:
       return 'researches'
   }
@@ -115,7 +112,6 @@ function categoryIdToTypeFilter(id: CategoryId): string {
     researches: 'researches',
     databases: 'scrapes',
     assets: 'assets',
-    history: 'history',
   }
   return map[id]
 }
@@ -154,8 +150,6 @@ function buildResultUrl(
       }
       return '/data/bucket'
     }
-    case 'history':
-      return '/history'
     default:
       return '/search'
   }
@@ -428,22 +422,13 @@ const AISummaryCard = ({
     }
   }, [aiEnabled, isLoading, summary])
 
-  // Parse markdown-like formatting
+  // Parse markdown using Streamdown
   const renderContent = (text: string) => {
-    return text.split('\n').map((line, i) => {
-      if (line.startsWith('**') && line.endsWith('**')) {
-        return <p key={i} className="font-semibold text-foreground mt-4 mb-2 text-sm">{line.replace(/\*\*/g, '')}</p>
-      }
-      if (line.startsWith('•')) {
-        return <p key={i} className="ml-3 my-1.5 flex items-start gap-2"><span className="text-primary mt-1">•</span><span>{line.slice(1).trim()}</span></p>
-      }
-      if (line.match(/^\d+\./)) {
-        const num = line.match(/^(\d+)\./)?.[1]
-        return <p key={i} className="ml-3 my-1.5 flex items-start gap-2"><span className="text-primary font-medium">{num}.</span><span>{line.replace(/^\d+\.\s*/, '')}</span></p>
-      }
-      if (line.trim() === '') return <div key={i} className="h-2" />
-      return <p key={i} className="my-1.5 leading-relaxed">{line}</p>
-    })
+    return (
+      <div className="text-sm text-muted-foreground/80 leading-relaxed">
+        <Streamdown>{text}</Streamdown>
+      </div>
+    )
   }
 
   return (
@@ -890,7 +875,7 @@ const Search = () => {
                 {showRecentSearches && !inputValue && (
                   <div className="absolute top-full left-0 right-0 mt-2 p-1.5 bg-background border border-muted-foreground/20 rounded-xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="flex items-center gap-2 px-3 py-2 text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60">
-                      <HistoryIcon className="size-3" />
+                      <Clock className="size-3" />
                       Recent
                     </div>
                     {RECENT_SEARCHES.map((term, i) => (

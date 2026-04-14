@@ -121,21 +121,6 @@ _SEARCH_TARGETS: List[Dict[str, Any]] = [
         "title_field": "file_name",
         "snippet_field": "summary",
     },
-    {
-        "type": "history",
-        "manager": history_db_manager,
-        "table": "searches",
-        "search_columns": ["query", "ai_summary"],
-        "return_columns": [
-            "id",
-            "query",
-            "ai_summary",
-            "total_results",
-            "created_at",
-        ],
-        "title_field": "query",
-        "snippet_field": "ai_summary",
-    },
 ]
 
 
@@ -429,6 +414,7 @@ class SearchService:
         ## Description
 
         Generates an AI summary: tries Groq first, falls back to Ollama.
+        Uses caching to prevent spam calls to Groq API.
         Updates the searches table, records history, and broadcasts via SSE.
         Designed to run as a background task.
 
@@ -458,7 +444,7 @@ class SearchService:
 
         ## Side Effects
 
-        - Tries Groq API first, falls back to Ollama.
+        - Tries Groq API first (with caching), falls back to Ollama.
         - Updates the searches table with the AI summary.
         - Records history in user_usage_history and ai_summaries tables.
         - Broadcasts `search.ai_done` event via SSE EventBus.
@@ -471,6 +457,81 @@ class SearchService:
         from langchain_groq import ChatGroq
         from langchain_core.messages import HumanMessage, SystemMessage
         import time
+        import redis
+        import asyncio
+        import hashlib
+
+        # ─── QUERY-BASED CACHING: Use query as the cache key ─────────────────────
+        # Hash the query to create a stable cache key
+        query_hash = hashlib.md5(query.lower().strip().encode()).hexdigest()
+        cache_key = f"search_ai_summary:{query_hash}"
+        processing_key = f"search_ai_processing:{query_hash}"
+        processing_ttl = 300  # 5 minutes lock per query
+
+        r = None
+        try:
+            redis_url = settings.REDIS_URL or "redis://localhost:6379"
+            r = redis.from_url(redis_url, decode_responses=True)
+
+            # Check Redis cache for this query
+            cached_summary = r.get(cache_key)
+            if cached_summary:
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"AI summary retrieved from Redis cache for query: {query}",
+                        "level": "info",
+                        "urgency": "none",
+                        "module": "DB",
+                    },
+                )
+                # Update current search record with cached summary
+                history_db_manager.update(
+                    "searches",
+                    {"ai_summary": cached_summary, "status": "done"},
+                    where={"id": search_id},
+                )
+                # Broadcast the cached result
+                await event_bus.broadcast(
+                    {
+                        "event": "search.ai_done",
+                        "search_id": search_id,
+                        "query": query,
+                        "ai_mode": {
+                            "status": "done",
+                            "ai_summary": cached_summary,
+                            "model": "cached",
+                            "time_taken_sec": 0,
+                        },
+                    }
+                )
+                return
+
+            # Check if already being processed for this query
+            if r.exists(processing_key):
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"AI summary generation already in progress for query: {query}, skipping duplicate call",
+                        "level": "warning",
+                        "urgency": "moderate",
+                        "module": "DB",
+                    },
+                )
+                return
+
+            # Set processing lock for this query
+            r.setex(processing_key, processing_ttl, "1")
+        except Exception as redis_error:
+            await scheduler.schedule(
+                quickLog,
+                params={
+                    "message": f"Redis cache check failed, proceeding with caution: {redis_error}",
+                    "level": "warning",
+                    "urgency": "moderate",
+                    "module": "DB",
+                },
+            )
 
         # Build context from top results
         context_parts: List[str] = []
@@ -649,6 +710,39 @@ class SearchService:
                 },
             }
         )
+
+        # ─── QUERY-BASED CACHING: Store summary in Redis for future searches ─────
+        if r is not None and ai_summary:
+            try:
+                # Cache for 24 hours (86400 seconds)
+                cache_ttl = 86400
+                r.setex(cache_key, cache_ttl, ai_summary)
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"AI summary cached in Redis for query: {query} (TTL: {cache_ttl}s)",
+                        "level": "info",
+                        "urgency": "none",
+                        "module": "DB",
+                    },
+                )
+            except Exception as cache_error:
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"Failed to cache summary in Redis: {cache_error}",
+                        "level": "warning",
+                        "urgency": "none",
+                        "module": "DB",
+                    },
+                )
+
+        # ─── CLEANUP: Remove Redis processing lock ──────────────────────────────
+        if r is not None:
+            try:
+                r.delete(processing_key)
+            except Exception:
+                pass  # Silently fail on cleanup errors
 
     def get_ai_summary(self, search_id: str) -> Dict[str, Any]:
         """
