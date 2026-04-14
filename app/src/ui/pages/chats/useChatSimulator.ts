@@ -12,6 +12,12 @@ export interface ChatMessage {
     content: string;
     images?: string[]; // Base64 encoded images for Ollama
     attachments?: AttachmentData[];
+    citations?: Record<string, string>;
+}
+
+interface ChatRuntimeSource {
+    href?: string;
+    title?: string;
 }
 
 interface UseChatSimulatorOptions {
@@ -35,7 +41,29 @@ interface ChatRuntimeEvent {
     status?: string;
     tool?: string;
     file_name?: string;
+    sources?: ChatRuntimeSource[];
+    count?: number;
 }
+
+const sourcesToCitations = (sources: ChatRuntimeSource[] | undefined): Record<string, string> => {
+    if (!Array.isArray(sources) || sources.length === 0) {
+        return {};
+    }
+
+    const citations: Record<string, string> = {};
+    const seenTitles: Record<string, number> = {};
+    for (const item of sources) {
+        const href = (item?.href ?? '').trim();
+        const baseTitle = (item?.title ?? '').trim() || 'Source';
+        if (!href) continue;
+
+        const nextCount = (seenTitles[baseTitle] ?? 0) + 1;
+        seenTitles[baseTitle] = nextCount;
+        const title = nextCount > 1 ? `${baseTitle} (${nextCount})` : baseTitle;
+        citations[title] = href;
+    }
+    return citations;
+};
 
 const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -264,6 +292,27 @@ export function useChatSimulator(options: UseChatSimulatorOptions = {}) {
                         });
                         finalize();
                         closeSocket();
+                        return;
+                    }
+
+                    if (data.type === 'sources') {
+                        const citations = sourcesToCitations(data.sources);
+                        if (Object.keys(citations).length === 0) {
+                            return;
+                        }
+                        setMessages((prev) => {
+                            const last = prev[prev.length - 1];
+                            if (last?.id === assistantMessageId) {
+                                return [
+                                    ...prev.slice(0, -1),
+                                    {
+                                        ...last,
+                                        citations,
+                                    },
+                                ];
+                            }
+                            return prev;
+                        });
                         return;
                     }
 

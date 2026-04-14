@@ -45,7 +45,47 @@ class ChatOrchestrator:
         for key, value in list(payload.items()):
             if isinstance(value, datetime):
                 payload[key] = value.isoformat()
+            elif isinstance(value, (dict, list)):
+                payload[key] = json.dumps(value, ensure_ascii=True)
         return payload
+
+    def _parse_citations(self, value: Any) -> dict[str, str] | None:
+        if value is None:
+            return None
+
+        parsed: Any = value
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return None
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                return None
+
+        if isinstance(parsed, dict):
+            normalized: dict[str, str] = {}
+            for key, url in parsed.items():
+                title = str(key or "").strip()
+                href = str(url or "").strip()
+                if title and href:
+                    normalized[title] = href
+            return normalized or None
+
+        if isinstance(parsed, list):
+            normalized_list: dict[str, str] = {}
+            for index, item in enumerate(parsed, start=1):
+                if isinstance(item, dict):
+                    title = str(item.get("title") or f"Source {index}").strip()
+                    href = str(item.get("href") or item.get("url") or "").strip()
+                else:
+                    title = f"Source {index}"
+                    href = str(item or "").strip()
+                if title and href:
+                    normalized_list[title] = href
+            return normalized_list or None
+
+        return None
 
     def _normalize_timestamps(self, row: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(row)
@@ -242,6 +282,7 @@ class ChatOrchestrator:
                 ],
                 ensure_ascii=True,
             )
+        normalized["citations"] = self._parse_citations(normalized.get("citations"))
         normalized["attachment_items"] = items
         return normalized
 

@@ -66,7 +66,7 @@ class ChatMessageRecord(BaseModel):
     parent_id: str | None = None
     role: str | None = None
     content: str | None = None
-    citations: str | None = None
+    citations: dict[str, str] | None = None
     token_count: int | None = None
     attachments: str | None = None
     attachment_items: list[dict] | None = None
@@ -81,7 +81,7 @@ class ChatMessageCreate(BaseModel):
     parent_id: str | None = None
     role: str | None = None
     content: str | None = None
-    citations: str | None = None
+    citations: dict[str, str] | None = None
     token_count: int | None = None
     attachments: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)
@@ -93,7 +93,7 @@ class ChatMessagePatch(BaseModel):
     parent_id: str | None = None
     role: str | None = None
     content: str | None = None
-    citations: str | None = None
+    citations: dict[str, str] | None = None
     token_count: int | None = None
     attachments: str | None = None
     updated_at: datetime | None = None

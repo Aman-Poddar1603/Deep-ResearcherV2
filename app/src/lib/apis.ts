@@ -842,7 +842,7 @@ export interface ChatMessageRecord {
   parent_id: string | null;
   role: string | null;
   content: string | null;
-  citations: string | null;
+  citations: Record<string, string> | string | null;
   token_count: number | null;
   attachments: string | null;
   attachment_items?: ChatMessageAttachmentItem[] | null;
@@ -868,7 +868,7 @@ export interface ChatMessageCreateRequest {
   parent_id?: string | null;
   role?: string | null;
   content?: string | null;
-  citations?: string | null;
+  citations?: Record<string, string> | string | null;
   token_count?: number | null;
   attachments?: string | null;
 }

@@ -232,14 +232,8 @@ async def _process_turn(
         full_response += token
         await _send(ws, {"type": "token", "content": token})
 
-    full_response_with_sources = rag_service.ensure_sources_section(full_response, chunks)
-    if full_response_with_sources != full_response:
-        appendix = full_response_with_sources[len(full_response) :]
-        if appendix:
-            await _send(ws, {"type": "token", "content": appendix})
-        full_response = full_response_with_sources
-
     sources = rag_service.build_sources_payload(full_response, chunks)
+    citations = rag_service.build_citations_dict(full_response, chunks)
     if sources:
         await _send(
             ws,
@@ -255,7 +249,7 @@ async def _process_turn(
         thread_id,
         full_response,
         seq + 1,
-        citations=[item.get("href", "") for item in sources if item.get("href")],
+        citations=citations,
     )
 
     # ── 6. Generate + broadcast thread title (before done so client receives it) ─

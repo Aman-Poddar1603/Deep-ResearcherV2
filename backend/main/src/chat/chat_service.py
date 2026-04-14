@@ -217,7 +217,7 @@ async def bg_save_assistant_message(
     thread_id: str,
     content: str,
     seq: int,
-    citations: list[str] | None = None,
+    citations: dict[str, str] | None = None,
 ) -> str:
     message_id = str(uuid4())
     payload = {
@@ -226,7 +226,7 @@ async def bg_save_assistant_message(
         "message_seq": seq,
         "role": "assistant",
         "content": content,
-        "citations": json.dumps(citations or []),
+        "citations": json.dumps(citations or {}, ensure_ascii=True),
         "token_count": len(content.split()),
         "created_at": _now(),
     }

@@ -388,6 +388,32 @@ def build_sources_payload(
     return items
 
 
+def build_citations_dict(
+    response_text: str,
+    chunks: list[dict[str, Any]],
+) -> dict[str, str]:
+    """
+    Build citations map in the format:
+    {"source_name": "source_url", ...}
+    """
+    items = build_sources_payload(response_text, chunks)
+    citations: dict[str, str] = {}
+    title_counts: dict[str, int] = {}
+
+    for item in items:
+        href = str(item.get("href") or "").strip()
+        title = str(item.get("title") or "Source").strip() or "Source"
+        if not href:
+            continue
+
+        count = title_counts.get(title, 0) + 1
+        title_counts[title] = count
+        key = title if count == 1 else f"{title} ({count})"
+        citations[key] = href
+
+    return citations
+
+
 async def retrieve_chunks(query: str, k: int = TOP_K) -> list[dict[str, Any]]:
     """Return top-k relevant text chunks across all configured collections."""
     if not query.strip():
@@ -494,8 +520,8 @@ SYSTEM_PROMPT = (
     "You are an intelligent assistant for both general chat and retrieval-augmented answers. "
     "Prefer retrieved context when available, but if no retrieved sources exist, answer using normal assistant reasoning. "
     "For time/date questions, use the provided current server time context. "
-    "When your answer uses retrieved evidence, cite inline using [Source N]. "
-    "When any [Source N] is used, end the response with a markdown section exactly titled '## Sources'."
+    "Do not fabricate citations, source names, or source URLs. "
+    "The application tracks and renders source citations separately."
 )
 
 

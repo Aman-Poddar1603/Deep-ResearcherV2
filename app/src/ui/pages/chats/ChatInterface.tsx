@@ -22,6 +22,12 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation'
+import {
+  Source,
+  Sources,
+  SourcesContent,
+  SourcesTrigger,
+} from '@/components/ai-elements/sources'
 import { CopyIcon, RefreshCcwIcon, Loader2Icon, CheckIcon, Upload, MessageSquare } from 'lucide-react'
 import "katex/dist/katex.min.css";
 import Composer from '@/components/widgets/Composer'
@@ -103,6 +109,36 @@ function mapMessageAttachments(m: ChatMessageRecord): AttachmentData[] {
     .filter((value): value is AttachmentData => value !== null)
 }
 
+function parseMessageCitations(
+  citations: ChatMessageRecord['citations'],
+): Record<string, string> | undefined {
+  if (!citations) return undefined
+
+  const toDict = (value: unknown): Record<string, string> | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined
+    }
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, href]) => [String(key || '').trim(), String(href || '').trim()] as const)
+      .filter(([key, href]) => key.length > 0 && href.length > 0)
+    if (entries.length === 0) return undefined
+    return Object.fromEntries(entries)
+  }
+
+  if (typeof citations === 'string') {
+    const raw = citations.trim()
+    if (!raw) return undefined
+    try {
+      const parsed = JSON.parse(raw)
+      return toDict(parsed)
+    } catch {
+      return undefined
+    }
+  }
+
+  return toDict(citations)
+}
+
 function mapRecordToChatMessage(m: ChatMessageRecord): ChatMessage {
   const roleRaw = (m.role ?? 'assistant').toLowerCase()
   const role: 'user' | 'assistant' =
@@ -113,6 +149,7 @@ function mapRecordToChatMessage(m: ChatMessageRecord): ChatMessage {
     role,
     content: m.content ?? '',
     attachments: attachments.length > 0 ? attachments : undefined,
+    citations: parseMessageCitations(m.citations),
   }
 }
 import { Shimmer } from '@/components/ai-elements/shimmer'
@@ -168,6 +205,16 @@ const ChatMessageItem = memo(({
                   </Shimmer>
                 </div>
               )
+            )}
+            {!!message.citations && Object.keys(message.citations).length > 0 && (
+              <Sources className="mt-3">
+                <SourcesTrigger count={Object.keys(message.citations).length} />
+                <SourcesContent>
+                  {Object.entries(message.citations).map(([title, href]) => (
+                    <Source href={href} key={`${title}:${href}`} title={title} />
+                  ))}
+                </SourcesContent>
+              </Sources>
             )}
             {isStreaming && activeStatus && !!message.content && (
               <div className="mt-2 flex items-center gap-2 text-muted-foreground/80">
