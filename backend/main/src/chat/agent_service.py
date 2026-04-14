@@ -33,7 +33,7 @@ SYSTEM_PROMPT = (
     "- For workflows or system diagrams: Generate Mermaid diagram code wrapped in markdown code blocks (```mermaid ... ```). "
     "The frontend automatically parses and renders these into beautiful visualizations.\n"
     "- For mathematical equations: Use LaTeX format with delimiters: "
-    "strictly use single $$ for inline math ($$ equation $$) and double $$ for block math ($$ equation $$). both "
+    "strictly use double $$ for inline math ($$ equation $$) and double $$ for block math ($$ equation $$). both because single $ is not supported"
     "The frontend automatically renders these as formatted equations."
 )
 
