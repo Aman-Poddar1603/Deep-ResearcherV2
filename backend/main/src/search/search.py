@@ -422,12 +422,14 @@ class SearchService:
         search_id: str,
         query: str,
         top_results: Dict[str, List[Dict[str, Any]]],
+        workspace_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> None:
         """
         ## Description
 
-        Generates an AI summary using the Ollama wrapper with `gemma4:e2b`,
-        updates the searches table, and broadcasts the result via SSE.
+        Generates an AI summary: tries Groq first, falls back to Ollama.
+        Updates the searches table, records history, and broadcasts via SSE.
         Designed to run as a background task.
 
         ## Parameters
@@ -444,20 +446,31 @@ class SearchService:
           - Description: Top results per type from `get_top_per_type()`.
           - Constraints: Dict keyed by type string.
 
+        - `workspace_id` (`Optional[str]`)
+          - Description: Workspace context for history recording.
+
+        - `user_id` (`Optional[str]`)
+          - Description: User context for history recording.
+
         ## Returns
 
         `None`
 
         ## Side Effects
 
-        - Calls Ollama API for AI generation.
+        - Tries Groq API first, falls back to Ollama.
         - Updates the searches table with the AI summary.
+        - Records history in user_usage_history and ai_summaries tables.
         - Broadcasts `search.ai_done` event via SSE EventBus.
         """
+        from main.src.research.config import settings
         from main.src.utils.llms.ollama.DROllamaWrapper import (
             getAsyncClient,
             asyncGenerateContent,
         )
+        from langchain_groq import ChatGroq
+        from langchain_core.messages import HumanMessage, SystemMessage
+        import time
 
         # Build context from top results
         context_parts: List[str] = []
@@ -484,26 +497,91 @@ class SearchService:
             f"relevant items for this query."
         )
 
-        try:
-            aclient = getAsyncClient()
-            ai_summary = await asyncGenerateContent(
-                prompt=user_prompt,
-                system=system_prompt,
-                model="gemma4:e2b",
-                image=None,
-                aclient=aclient,
-            )
-        except Exception as e:
-            ai_summary = f"AI summary generation failed: {str(e)}"
-            await scheduler.schedule(
-                quickLog,
-                params={
-                    "message": f"AI search summary failed: {e}",
-                    "level": "error",
-                    "module": ["DB"],
-                    "urgency": "moderate",
-                },
-            )
+        ai_summary = None
+        model_used = None
+        tokens_used = 0
+        start_time = time.time()
+        status = "failed"
+
+        # Try Groq first
+        if settings.GROQ_API_KEY:
+            try:
+                groq_llm = ChatGroq(
+                    model=settings.GROQ_MODEL or "llama-3.3-70b-versatile",
+                    api_key=settings.GROQ_API_KEY,
+                    temperature=0.3,
+                )
+                messages = [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt),
+                ]
+                response = await groq_llm.ainvoke(messages)
+                ai_summary = response.content if response else None
+                model_used = "groq"
+                status = "done"
+
+                # Extract token count if available
+                if hasattr(response, "usage_metadata"):
+                    tokens_used = response.usage_metadata.get("output_tokens", 0)
+
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"AI search summary generated via Groq for query: {query[:50]}",
+                        "level": "success",
+                        "urgency": "none",
+                        "module": "DB",
+                    },
+                )
+            except Exception as groq_error:
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"Groq summary failed, falling back to Ollama: {groq_error}",
+                        "level": "warning",
+                        "urgency": "moderate",
+                        "module": "DB",
+                    },
+                )
+
+        # Fallback to Ollama if Groq failed
+        if not ai_summary:
+            try:
+                aclient = getAsyncClient()
+                ai_summary = await asyncGenerateContent(
+                    prompt=user_prompt,
+                    system=system_prompt,
+                    model="gemma4:e2b",
+                    image=None,
+                    aclient=aclient,
+                )
+                model_used = "ollama"
+                status = "done"
+
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"AI search summary generated via Ollama for query: {query[:50]}",
+                        "level": "success",
+                        "urgency": "none",
+                        "module": "DB",
+                    },
+                )
+            except Exception as ollama_error:
+                ai_summary = f"AI summary generation failed: {str(ollama_error)}"
+                status = "failed"
+
+                await scheduler.schedule(
+                    quickLog,
+                    params={
+                        "message": f"Both Groq and Ollama failed for search summary: {ollama_error}",
+                        "level": "error",
+                        "urgency": "critical",
+                        "module": "DB",
+                    },
+                )
+
+        time_taken_sec = int(time.time() - start_time)
 
         # Update the search record
         now = datetime.now(timezone.utc).isoformat()
@@ -517,6 +595,46 @@ class SearchService:
             where={"id": search_id},
         )
 
+        # Record in ai_summaries table
+        ai_summary_id = str(uuid.uuid4())
+        history_db_manager.insert(
+            "ai_summaries",
+            {
+                "id": ai_summary_id,
+                "workspace_id": workspace_id,
+                "prompt": user_prompt[:500],  # Store first 500 chars of prompt
+                "model": model_used or "unknown",
+                "time_taken_sec": time_taken_sec,
+                "status": status,
+                "tokens_used": tokens_used,
+                "original_test": query[
+                    :200
+                ],  # Note: column is "original_test" as per schema
+                "summary": ai_summary[:1000] if ai_summary else None,
+                "created_at": now,
+            },
+        )
+
+        # Record in user_usage_history table
+        history_id = str(uuid.uuid4())
+        from main.src.history.history_tracker import compact_preview
+
+        activity_preview = compact_preview(ai_summary or "Summary failed", max_chars=80)
+        history_db_manager.insert(
+            "user_usage_history",
+            {
+                "id": history_id,
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "activity": f"Generated AI search summary: {query}",
+                "type": "ai_summary",
+                "created_at": now,
+                "last_seen": now,
+                "actions": f"search_summary_{model_used}",
+                "url": f"/search/{search_id}",
+            },
+        )
+
         # Broadcast via SSE
         await event_bus.broadcast(
             {
@@ -526,6 +644,8 @@ class SearchService:
                 "ai_mode": {
                     "status": "done",
                     "ai_summary": ai_summary,
+                    "model": model_used,
+                    "time_taken_sec": time_taken_sec,
                 },
             }
         )

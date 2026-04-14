@@ -48,6 +48,16 @@ async def search(
         alias="typeFilter",
         description="Filter by type: workspace, chats, researches, scrapes, assets, history",
     ),
+    workspace_id: str | None = Query(
+        default=None,
+        alias="workspaceId",
+        description="Optional workspace context for history recording",
+    ),
+    user_id: str | None = Query(
+        default=None,
+        alias="userId",
+        description="Optional user context for history recording",
+    ),
 ) -> dict:
     """
     ## Description
@@ -168,6 +178,8 @@ async def search(
                 "search_id": search_id,
                 "query": q,
                 "top_results": top_results,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
             },
         )
 
@@ -183,7 +195,19 @@ async def search(
 
 
 @router.get("/{search_id}/ai", status_code=status.HTTP_200_OK)
-async def get_search_ai(search_id: str) -> dict:
+async def get_search_ai(
+    search_id: str,
+    workspace_id: str | None = Query(
+        default=None,
+        alias="workspaceId",
+        description="Optional workspace context for history recording",
+    ),
+    user_id: str | None = Query(
+        default=None,
+        alias="userId",
+        description="Optional user context for history recording",
+    ),
+) -> dict:
     """
     ## Description
 
@@ -236,9 +260,7 @@ async def get_search_ai(search_id: str) -> dict:
         # Fetch the original query from the search record
         from main.src.store.DBManager import history_db_manager
 
-        record = history_db_manager.fetch_one(
-            "searches", where={"id": search_id}
-        )
+        record = history_db_manager.fetch_one("searches", where={"id": search_id})
         if record["success"] and record["data"]:
             original_query = record["data"].get("query", "")
             if original_query:
@@ -249,15 +271,15 @@ async def get_search_ai(search_id: str) -> dict:
                     where={"id": search_id},
                 )
 
-                top_results = search_service.get_top_per_type(
-                    query=original_query, n=2
-                )
+                top_results = search_service.get_top_per_type(query=original_query, n=2)
                 await scheduler.schedule(
                     search_service.generate_ai_summary,
                     params={
                         "search_id": search_id,
                         "query": original_query,
                         "top_results": top_results,
+                        "workspace_id": workspace_id,
+                        "user_id": user_id,
                     },
                 )
                 result["status"] = "processing"
