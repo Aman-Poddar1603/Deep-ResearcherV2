@@ -12,10 +12,10 @@ export function Layout() {
         <GlobalLayout contentClassName={cn(
             isHome || isChat ? "hide-scrollbar-entrance" : "overflow-hidden"
         )}>
-            <div className="flex flex-col h-full relative">
+            <div className="flex flex-col h-full min-w-0 relative">
                 {/* Scrollable Content Area */}
                 <div className={cn(
-                    "flex-1 min-h-0",
+                    "flex-1 min-h-0 min-w-0",
                     isHome ? "overflow-y-auto no-scrollbar p-8 pt-12 pb-32" : "h-full"
                 )}>
                     <Outlet />

@@ -39,7 +39,7 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
             <SidebarProvider defaultOpen={true}>
                 <div className="flex flex-1 overflow-hidden relative h-full">
                     <AppSidebar />
-                    <SidebarInset className="flex flex-col p-4 pt-14">
+                    <SidebarInset className="flex min-w-0 flex-col p-4 pt-14">
                         <header className="flex items-center gap-2 px-4 mb-2">
                             <SidebarTrigger />
 
@@ -95,7 +95,7 @@ export function GlobalLayout({ children, contentClassName }: GlobalLayoutProps) 
                         </header>
                         <div
                             key={reloadKey}
-                            className={cn("flex-1 min-h-0 bg-card rounded-2xl overflow-hidden no-scrollbar border flex flex-col", contentClassName)}
+                            className={cn("flex min-w-0 flex-1 min-h-0 bg-card rounded-2xl overflow-hidden no-scrollbar border flex-col", contentClassName)}
                         >
                             {children}
                         </div>

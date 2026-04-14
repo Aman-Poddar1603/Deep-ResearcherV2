@@ -235,7 +235,7 @@ const TableContents = () => {
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-muted/10 overflow-hidden animate-in fade-in duration-500">
+    <div className="flex flex-col h-full w-full min-w-0 bg-muted/10 overflow-hidden animate-in fade-in duration-500">
       <div className="shrink-0 border-b bg-background/50 backdrop-blur-sm sticky top-0 z-30">
         <div className="w-full px-8 py-6">
           <div className="flex items-center justify-between mb-6">
@@ -310,8 +310,8 @@ const TableContents = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-x-auto overflow-y-auto">
-        <table className="w-full min-w-max text-sm border-separate border-spacing-0">
+      <div className="flex-1 min-w-0 overflow-x-auto overflow-y-auto">
+        <table className="w-max min-w-full text-sm border-separate border-spacing-0">
           <thead className="sticky top-0 z-20 bg-muted/10 backdrop-blur-md">
             <tr>
               <th className="h-12 px-4 text-left font-medium text-muted-foreground w-[50px] border-b bg-background/50">
@@ -360,7 +360,7 @@ const TableContents = () => {
                       const cellKey = `${rowKey}:${col}`
 
                       return (
-                        <td key={col} className="p-4 font-mono text-sm align-top whitespace-nowrap">
+                        <td key={col} className="p-0 font-mono text-sm align-top whitespace-nowrap">
                           {shouldTruncate ? (
                             <Popover
                               open={openCellKey === cellKey}
@@ -373,7 +373,7 @@ const TableContents = () => {
                               <PopoverTrigger asChild>
                                 <button
                                   type="button"
-                                  className="block w-full h-full -m-4 p-4 text-left rounded hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                  className="block w-full h-full px-4 py-4 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                   onMouseEnter={() => setOpenCellKey(cellKey)}
                                   onMouseLeave={() =>
                                     setOpenCellKey((current) => (current === cellKey ? null : current))
@@ -402,11 +402,13 @@ const TableContents = () => {
                               </PopoverContent>
                             </Popover>
                           ) : isStatus && typeof rawValue === 'string' ? (
-                            <Badge variant="secondary" className="font-normal">
-                              {value}
-                            </Badge>
+                            <div className="px-4 py-4">
+                              <Badge variant="secondary" className="font-normal">
+                                {value}
+                              </Badge>
+                            </div>
                           ) : (
-                            <span className="whitespace-nowrap">{value}</span>
+                            <span className="block px-4 py-4 whitespace-nowrap">{value}</span>
                           )}
                         </td>
                       )
