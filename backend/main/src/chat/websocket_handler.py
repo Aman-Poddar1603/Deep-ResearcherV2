@@ -4,7 +4,7 @@ websocket_handler.py — WebSocket endpoint for RAG + Agent chat.
 Client contract (matches existing frontend useChatSimulator):
   server → client:
     {"type": "token",    "content": "<chunk>"}
-    {"type": "thinking", "content": "<chunk>"}  # reserved, not yet used
+    {"type": "thinking", "content": "<status>"}
         {"type": "sources",  "sources": [{"href": "...", "title": "..."}], "count": N}
     {"type": "title",    "content": "<title>"}
     {"type": "done"}
@@ -17,12 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import json
 import os
+import re
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 from fastapi import WebSocket, WebSocketDisconnect
 
+from main.src.research.layer2.tools import get_mcp_tools, parse_tool_output
 from main.src.utils.core.task_schedular import scheduler
 from main.src.utils.DRLogger import quickLog
 
@@ -38,6 +43,16 @@ async def _log(msg: str, level: str = "info", urgency: str = "none") -> None:
 # Decide agent vs RAG based on env flag or per-request field
 USE_AGENT_DEFAULT = os.getenv("USE_AGENT", "false").lower() == "true"
 _IMAGE_FORMATS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
+_URL_PATTERN = re.compile(r"https?://[^\s<>()\[\]\{\}\"']+", flags=re.IGNORECASE)
+_SCRIPT_STYLE_PATTERN = re.compile(
+    r"<\s*(script|style)\b[^>]*>.*?<\s*/\s*\1\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+_WEB_TOOL_PREFERENCES = ("read_webpages", "scrape_single_url", "web_search")
+_MAX_WEB_SOURCE_ITEMS = 3
+_MAX_WEB_SOURCE_CHARS = 4500
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -55,6 +70,211 @@ async def _send(ws: WebSocket, payload: dict) -> None:
         await ws.send_json(payload)
     except Exception:
         pass  # client disconnected mid-stream
+
+
+def _extract_urls(text: str) -> list[str]:
+    found = _URL_PATTERN.findall(text or "")
+    urls: list[str] = []
+    seen: set[str] = set()
+    for raw in found:
+        candidate = raw.rstrip(".,;:!?)]}")
+        if not candidate:
+            continue
+        parsed = urlsplit(candidate)
+        if parsed.scheme.lower() not in {"http", "https"}:
+            continue
+        normalized = str(urlunsplit(parsed))
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        urls.append(normalized)
+    return urls
+
+
+def _normalize_tool_name(tool_name: str) -> str:
+    name = (tool_name or "").strip().lower()
+    if not name:
+        return ""
+    if "::" in name:
+        name = name.split("::")[-1]
+    if "/" in name:
+        name = name.split("/")[-1]
+    if "." in name:
+        name = name.split(".")[-1]
+    for prefix in ("research_tools_", "mcp_", "tool_"):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+    return name
+
+
+def _select_web_tool(tools: list[Any]) -> Any | None:
+    for preferred in _WEB_TOOL_PREFERENCES:
+        for tool in tools:
+            normalized = _normalize_tool_name(getattr(tool, "name", ""))
+            if normalized == preferred:
+                return tool
+    return None
+
+
+def _build_web_tool_payload(tool: Any, urls: list[str]) -> dict[str, Any]:
+    args_schema = getattr(tool, "args_schema", None)
+    fields = (
+        list(getattr(args_schema, "model_fields", {}).keys()) if args_schema else []
+    )
+    lower_to_field = {field.lower(): field for field in fields}
+
+    for list_key in ("urls", "links", "websites", "website_urls"):
+        if list_key in lower_to_field:
+            return {lower_to_field[list_key]: urls}
+
+    for single_key in ("url", "link", "website"):
+        if single_key in lower_to_field:
+            return {lower_to_field[single_key]: urls[0]}
+
+    if "query" in lower_to_field:
+        return {lower_to_field["query"]: " ".join(urls)}
+
+    if fields:
+        first = fields[0]
+        if first.lower().endswith("s"):
+            return {first: urls}
+        return {first: urls[0]}
+
+    return {"urls": urls}
+
+
+def _html_to_text(raw_html: str) -> str:
+    if not raw_html:
+        return ""
+    no_script = _SCRIPT_STYLE_PATTERN.sub(" ", raw_html)
+    no_tags = _HTML_TAG_PATTERN.sub(" ", no_script)
+    unescaped = html.unescape(no_tags)
+    return _WHITESPACE_PATTERN.sub(" ", unescaped).strip()
+
+
+def _merge_sources(
+    primary: list[dict[str, str]],
+    secondary: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for item in [*primary, *secondary]:
+        href = str(item.get("href") or "").strip()
+        title = str(item.get("title") or href or "Source").strip()
+        if not href and not title:
+            continue
+        key = (href.lower(), title.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append({"href": href, "title": title})
+
+    return merged
+
+
+async def _fetch_webpages_direct(
+    urls: list[str],
+) -> tuple[str, list[dict[str, str]], str]:
+    snippets: list[str] = []
+    sources: list[dict[str, str]] = []
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+            for url in urls[:_MAX_WEB_SOURCE_ITEMS]:
+                response = await client.get(
+                    url,
+                    headers={"User-Agent": "DeepResearcherChat/2.0"},
+                )
+                response.raise_for_status()
+
+                body_text = _html_to_text(response.text)
+                if not body_text:
+                    continue
+
+                content = body_text[:_MAX_WEB_SOURCE_CHARS]
+                snippets.append(
+                    "\n".join(
+                        [
+                            f"URL: {url}",
+                            "Extracted content:",
+                            content,
+                        ]
+                    )
+                )
+                sources.append({"href": url, "title": url})
+    except Exception as exc:
+        await _log(
+            f"Direct webpage fetch failed: {exc}",
+            level="warning",
+            urgency="moderate",
+        )
+        return "", [], "failed"
+
+    if not snippets:
+        return "", [], "empty"
+
+    context_text = "### Live Website Content\n" + "\n\n".join(snippets)
+    return context_text, sources, "completed"
+
+
+async def _fetch_live_website_context(
+    query: str,
+) -> tuple[str, list[dict[str, str]], str]:
+    urls = _extract_urls(query)
+    if not urls:
+        return "", [], "none"
+
+    try:
+        tools = await get_mcp_tools()
+        tool = _select_web_tool(tools)
+        if tool is not None:
+            payload = _build_web_tool_payload(tool, urls)
+            output = await tool.ainvoke(payload)
+            parsed = parse_tool_output(getattr(tool, "name", ""), output)
+
+            snippets: list[str] = []
+            sources: list[dict[str, str]] = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url") or "").strip()
+                content = str(item.get("content") or "").strip()
+                title = str(item.get("title") or url or "Web Source").strip()
+                if not content:
+                    continue
+
+                if url:
+                    sources.append({"href": url, "title": title or url})
+
+                snippets.append(
+                    "\n".join(
+                        [
+                            f"Title: {title}",
+                            f"URL: {url}" if url else "URL: not provided",
+                            "Extracted content:",
+                            content[:_MAX_WEB_SOURCE_CHARS],
+                        ]
+                    )
+                )
+
+                if len(snippets) >= _MAX_WEB_SOURCE_ITEMS:
+                    break
+
+            if snippets:
+                context_text = "### Live Website Content\n" + "\n\n".join(snippets)
+                normalized_sources = _merge_sources(sources, [])
+                return context_text, normalized_sources, "mcp"
+    except Exception as exc:
+        await _log(
+            f"MCP webpage fetch failed: {exc}",
+            level="warning",
+            urgency="moderate",
+        )
+
+    # Fallback keeps chat useful if MCP is unavailable or returns empty.
+    return await _fetch_webpages_direct(urls)
 
 
 # ── main handler ──────────────────────────────────────────────────────────────
@@ -87,6 +307,7 @@ async def _process_turn(
     data: dict[str, Any],
 ) -> None:
     user_query: str = (data.get("content") or "").strip()
+    query_urls = _extract_urls(user_query)
     raw_files: list[tuple[str, str, bytes]] = _decode_attachments(data)
     image_attachments = _extract_image_attachments(raw_files)
     use_agent: bool = bool(data.get("use_agent", USE_AGENT_DEFAULT))
@@ -201,7 +422,58 @@ async def _process_turn(
 
     # ── 3. Retrieve RAG chunks ─────────────────────────────────────────────
     history = chat_service.get_recent_history(thread_id, limit=10)
-    chunks = await rag_service.retrieve_chunks(user_query)
+    live_web_sources: list[dict[str, str]] = []
+
+    if query_urls:
+        await _send(
+            ws,
+            {
+                "type": "thinking",
+                "content": "Fetching live website content...",
+            },
+        )
+        web_context, live_web_sources, web_status = await _fetch_live_website_context(
+            user_query
+        )
+        if web_context.strip():
+            mcp_content = "\n\n".join(
+                part for part in [mcp_content, web_context] if part.strip()
+            )
+            await _send(
+                ws,
+                {
+                    "type": "thinking",
+                    "content": "Read website content. Preparing answer...",
+                },
+            )
+        else:
+            await _send(
+                ws,
+                {
+                    "type": "thinking",
+                    "content": (
+                        "Could not fetch website content live. "
+                        "Answering with available context."
+                    ),
+                },
+            )
+            await _log(
+                f"Live website fetch returned no content (status={web_status})",
+                level="warning",
+                urgency="none",
+            )
+
+    chunks: list[dict[str, Any]] = []
+    should_query_rag = rag_service.should_use_rag(user_query) and not query_urls
+    if should_query_rag:
+        await _send(
+            ws,
+            {
+                "type": "thinking",
+                "content": "Searching workspace knowledge base...",
+            },
+        )
+        chunks = await rag_service.retrieve_chunks(user_query)
 
     # ── 4. Stream response ─────────────────────────────────────────────────
     full_response = ""
@@ -232,8 +504,18 @@ async def _process_turn(
         full_response += token
         await _send(ws, {"type": "token", "content": token})
 
-    sources = rag_service.build_sources_payload(full_response, chunks)
+    rag_sources = rag_service.build_sources_payload(full_response, chunks)
+    sources = _merge_sources(live_web_sources, rag_sources)
+
     citations = rag_service.build_citations_dict(full_response, chunks)
+    for source in live_web_sources:
+        href = str(source.get("href") or "").strip()
+        if not href:
+            continue
+        title = str(source.get("title") or href).strip() or href
+        if title not in citations:
+            citations[title] = href
+
     if sources:
         await _send(
             ws,

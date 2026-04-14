@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from main.src.research.config import settings
@@ -47,6 +47,8 @@ async def stream_agent_response(
         model=CHAT_MODEL,
         base_url=OLLAMA_HOST,
         temperature=0.2,
+        keep_alive=True,
+        reasoning=False,
     )
 
     messages = [

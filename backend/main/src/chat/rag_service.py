@@ -18,9 +18,9 @@ from typing import Any, AsyncIterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
-from langchain_community.chat_models import ChatOllama
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_ollama import ChatOllama
 
 from main.src.research.config import settings
 from main.src.store.vector.DBVector import COLLECTIONS, db_vector_manager
@@ -50,6 +50,99 @@ _raw_collection_override = [
 _collection_override = [c for c in _raw_collection_override if c in COLLECTIONS]
 CHAT_COLLECTIONS = tuple(_collection_override) if _collection_override else COLLECTIONS
 _DIMENSION_MISMATCH_COLLECTIONS: set[str] = set()
+
+_SMALL_TALK_EXACT = {
+    "hi",
+    "hii",
+    "hello",
+    "hey",
+    "yo",
+    "hola",
+    "sup",
+    "what's up",
+    "whats up",
+}
+_SMALL_TALK_PREFIXES = (
+    "hi ",
+    "hello ",
+    "hey ",
+    "good morning",
+    "good afternoon",
+    "good evening",
+)
+_RAG_HINT_KEYWORDS = {
+    "source",
+    "sources",
+    "citation",
+    "citations",
+    "document",
+    "documents",
+    "doc",
+    "docs",
+    "pdf",
+    "file",
+    "files",
+    "attachment",
+    "attachments",
+    "uploaded",
+    "knowledge base",
+    "knowledgebase",
+    "vector",
+    "workspace",
+    "bucket",
+    "research",
+    "according to",
+}
+
+
+def _normalize_query(query: str) -> str:
+    return re.sub(r"\s+", " ", (query or "").strip().lower())
+
+
+def _contains_url(text: str) -> bool:
+    return bool(re.search(r"https?://", text or "", flags=re.IGNORECASE))
+
+
+def _is_small_talk_query(normalized_query: str) -> bool:
+    if normalized_query in _SMALL_TALK_EXACT:
+        return True
+    return any(normalized_query.startswith(prefix) for prefix in _SMALL_TALK_PREFIXES)
+
+
+def _is_time_or_date_query(normalized_query: str) -> bool:
+    if not normalized_query:
+        return False
+    has_time_token = bool(
+        re.search(r"\b(time|date|day|today|now|current time|current date)\b", normalized_query)
+    )
+    if not has_time_token:
+        return False
+    # Keep this narrow to avoid accidental skips on long domain questions.
+    return len(normalized_query.split()) <= 14
+
+
+def should_use_rag(query: str) -> bool:
+    """
+    Decide if retrieval should run for a chat turn.
+
+    Heuristic goals:
+    - Skip retrieval for small-talk and time/date prompts.
+    - Use retrieval when the user asks about documents/sources/files/knowledge-base.
+    - Default to non-RAG to avoid unnecessary latency/token cost.
+    """
+    normalized = _normalize_query(query)
+    if not normalized:
+        return False
+    if _contains_url(normalized):
+        # URL prompts should prefer live fetch/tool context over local vector recall.
+        return False
+    if _is_small_talk_query(normalized):
+        return False
+    if _is_time_or_date_query(normalized):
+        return False
+    if any(keyword in normalized for keyword in _RAG_HINT_KEYWORDS):
+        return True
+    return False
 
 
 def _chat_query_collections() -> tuple[str, ...]:
@@ -466,8 +559,10 @@ def build_context(
         f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in history
     )
     docs_text = _build_source_blocks(chunks) if chunks else ""
-    server_now = (
-        datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    now_local = datetime.now(timezone.utc).astimezone()
+    readable_time_context = (
+        f"Current time is {now_local.strftime('%I:%M:%S %p')} and day is {now_local.strftime('%A')} "
+        f"and today's date is {now_local.strftime('%B %d, %Y')}."
     )
 
     clean_user_name = (user_name or "").strip()
@@ -483,7 +578,7 @@ def build_context(
         profile_lines.append(f"Workspace: {clean_workspace_name}")
 
     parts = [
-        f"### Current Server Time\n{server_now}",
+        f"### Current Server Time\n{readable_time_context}",
         "### User Profile\n" + "\n".join(profile_lines) if profile_lines else "",
         "### Conversation History\n" + history_text if history_text else "",
     ]
@@ -517,11 +612,11 @@ def build_langchain_messages(
 # ── streaming generation ───────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = (
-    "You are an intelligent assistant for both general chat and retrieval-augmented answers. "
-    "Prefer retrieved context when available, but if no retrieved sources exist, answer using normal assistant reasoning. "
-    "For time/date questions, use the provided current server time context. "
-    "Do not fabricate citations, source names, or source URLs. "
-    "The application tracks and renders source citations separately."
+    "You are an intelligent AI chatbot built for helping the user. "
+    "Use tools and retrieval context only when it materially improves answer quality. "
+    "Do not waste tokens: keep answers concise unless the user asks for detail. "
+    "For time/date questions, rely on the provided current server time context. "
+    "Do not fabricate citations, source names, or source URLs; the application tracks them separately."
 )
 
 
@@ -542,6 +637,7 @@ async def stream_rag_response(
         model=CHAT_MODEL,
         base_url=OLLAMA_HOST,
         temperature=0.3,
+        reasoning=False,
     )
 
     query_text = query.strip() or "Please describe the attached image(s)."
@@ -601,6 +697,7 @@ async def generate_thread_title(history_text: str) -> str:
         model=CHAT_MODEL,
         base_url=OLLAMA_HOST,
         temperature=0,
+        reasoning=False,
     )
     prompt = (
         "Generate a short (5 words max) descriptive title for this conversation. "
@@ -640,6 +737,7 @@ async def _stream_ollama_vision_response(
             },
         ],
         "stream": True,
+        "think": False,
         "options": {"temperature": 0.3},
     }
 
