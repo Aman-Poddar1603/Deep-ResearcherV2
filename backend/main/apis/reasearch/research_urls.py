@@ -11,6 +11,7 @@ from typing import Any, Literal, NoReturn
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from main.apis.models.research import (
+    ChainOfThoughtEntry,
     ResearchCreate,
     ResearchListResponse,
     ResearchPatch,
@@ -26,7 +27,10 @@ from main.apis.models.research import (
     ResearchStartResponse,
     ResearchStatusResponse,
     ResearchTokenTotals,
+    StepDetail,
     StopResearchResponse,
+    ThinkingBlock,
+    ToolCallDetail,
 )
 from main.src.research import session_store
 from main.src.research.emitter import WSEmitter
@@ -585,6 +589,135 @@ async def replay_research_events(
     )
 
 
+def _aggregate_step_details(
+    timeline_events: list[ResearchReplayEvent],
+    plan: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Parse timeline events into comprehensive step-wise granular data."""
+    from main.apis.models.research import (
+        ChainOfThoughtEntry,
+        StepDetail,
+        ThinkingBlock,
+        ToolCallDetail,
+    )
+
+    # Index plan by step
+    plan_by_step: dict[int, dict[str, Any]] = {
+        s.get("step_index", i): s for i, s in enumerate(plan)
+    }
+
+    # Group events by step
+    steps_map: dict[int, dict[str, Any]] = {}
+    current_step = -1
+
+    for event in timeline_events:
+        payload = event.payload or {}
+        event_type = payload.get("event", "")
+        step_idx = payload.get("step_index", -1)
+
+        # Track which step we're in
+        if "plan.step_started" in event_type:
+            current_step = step_idx
+            if current_step not in steps_map:
+                plan_info = plan_by_step.get(current_step, {})
+                steps_map[current_step] = {
+                    "step_index": current_step,
+                    "step_title": plan_info.get(
+                        "step_title", f"Step {current_step + 1}"
+                    ),
+                    "step_description": plan_info.get("step_description", ""),
+                    "status": "running",
+                    "thinking_blocks": [],
+                    "chain_of_thought_tokens": [],
+                    "tool_calls": [],
+                    "response_tokens": [],
+                    "conclusion": "",
+                    "sources_found": 0,
+                    "tokens_used": 0,
+                    "started_at": payload.get("ts"),
+                }
+
+        # Aggregate event data into current step
+        if current_step >= 0 and current_step in steps_map:
+            step_data = steps_map[current_step]
+
+            # Thinking/reasoning
+            if "think.chunk" in event_type or "chain_of_thought" in event_type:
+                step_data["chain_of_thought_tokens"].append(
+                    ChainOfThoughtEntry(
+                        token=payload.get("text") or payload.get("token", ""),
+                        timestamp=payload.get("ts"),
+                    ).model_dump()
+                )
+
+            # Full thinking block
+            elif "think_event" in event_type or "react.reason" in event_type:
+                step_data["thinking_blocks"].append(
+                    ThinkingBlock(
+                        text=payload.get("thought", ""),
+                        timestamp=payload.get("ts"),
+                    ).model_dump()
+                )
+
+            # Tool calls
+            elif "tool.called" in event_type or "tool_call_query" in event_type:
+                step_data["tool_calls"].append(
+                    ToolCallDetail(
+                        tool_name=payload.get("tool_name", ""),
+                        args=payload.get("args", {}),
+                        timestamp=payload.get("ts"),
+                    ).model_dump()
+                )
+
+            # Tool results
+            elif "tool.result" in event_type or "tool_call_output" in event_type:
+                if step_data["tool_calls"]:
+                    last_tool = step_data["tool_calls"][-1]
+                    last_tool["summary"] = payload.get("result_summary") or payload.get(
+                        "summary", ""
+                    )
+                    last_tool["result_payload"] = payload.get("result_payload", [])
+
+            # Response/final tokens
+            elif "stream_event" in event_type:
+                step_data["response_tokens"].append(payload.get("token", ""))
+
+            # Conclusions
+            elif "plan.step_completed" in event_type or "react.done" in event_type:
+                step_data["conclusion"] = payload.get("summary", "")
+                step_data["status"] = "completed"
+                step_data["completed_at"] = payload.get("ts")
+
+            elif "plan.step_failed" in event_type:
+                step_data["status"] = "failed"
+                step_data["completed_at"] = payload.get("ts")
+
+    # Convert to list and fill in missing steps from plan
+    result = []
+    for step_num, plan_info in plan_by_step.items():
+        if step_num in steps_map:
+            result.append(steps_map[step_num])
+        else:
+            # Placeholder for steps not yet started
+            result.append(
+                {
+                    "step_index": step_num,
+                    "step_title": plan_info.get("step_title", f"Step {step_num + 1}"),
+                    "step_description": plan_info.get("step_description", ""),
+                    "status": "pending",
+                    "thinking_blocks": [],
+                    "chain_of_thought_tokens": [],
+                    "tool_calls": [],
+                    "response_tokens": [],
+                    "conclusion": "",
+                    "sources_found": 0,
+                    "tokens_used": 0,
+                }
+            )
+
+    return sorted(result, key=lambda x: x.get("step_index", -1))
+
+
 @router.get("/{research_id}/resume", response_model=ResearchResumeResponse)
 async def get_research_resume(
     research_id: str,
@@ -628,6 +761,9 @@ async def get_research_resume(
         tail_limit=snapshot_tail,
     )
 
+    # Parse all events into step-wise granular details
+    steps_details = _aggregate_step_details(timeline_events, plan)
+
     if state is None:
         status_str = (
             "running" if active_session and active_session.get("started") else "ready"
@@ -653,6 +789,7 @@ async def get_research_resume(
             timeline_replay_count=len(timeline_events),
             timeline_events=timeline_events,
             streaming_snapshot=streaming_snapshot,
+            steps_details=steps_details,
         )
 
     return ResearchResumeResponse(
@@ -676,6 +813,7 @@ async def get_research_resume(
         timeline_replay_count=len(timeline_events),
         timeline_events=timeline_events,
         streaming_snapshot=streaming_snapshot,
+        steps_details=steps_details,
     )
 
 

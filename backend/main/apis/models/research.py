@@ -367,6 +367,50 @@ class ResearchReplayEvent(BaseModel):
     payload: dict[str, Any]
 
 
+class ToolCallDetail(BaseModel):
+    """Detailed record of a single tool invocation."""
+
+    tool_name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+    result_payload: list[dict[str, Any]] = Field(default_factory=list)
+    timestamp: str | None = None
+
+
+class ThinkingBlock(BaseModel):
+    """Aggregated thinking/reasoning tokens for a phase."""
+
+    text: str = ""
+    token_count: int = 0
+    timestamp: str | None = None
+
+
+class ChainOfThoughtEntry(BaseModel):
+    """Single token in chain of thought sequence."""
+
+    token: str
+    timestamp: str | None = None
+
+
+class StepDetail(BaseModel):
+    """Complete granular data for a single research step."""
+
+    step_index: int
+    step_title: str = ""
+    step_description: str = ""
+    status: str = "pending"  # pending | running | completed | failed
+    thinking_blocks: list[ThinkingBlock] = Field(default_factory=list)
+    chain_of_thought_tokens: list[ChainOfThoughtEntry] = Field(default_factory=list)
+    tool_calls: list[ToolCallDetail] = Field(default_factory=list)
+    response_tokens: list[str] = Field(default_factory=list)
+    conclusion: str = ""
+    coverage_notes: str = ""
+    sources_found: int = 0
+    tokens_used: int = 0
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
 class ResearchReplayResponse(BaseModel):
     research_id: str
     from_event_id: str
@@ -396,6 +440,8 @@ class ResearchResumeResponse(BaseModel):
     timeline_replay_count: int = 0
     timeline_events: list[ResearchReplayEvent] = Field(default_factory=list)
     streaming_snapshot: dict[str, Any] | None = None
+    # NEW: Comprehensive step-by-step granular data
+    steps_details: list[StepDetail] = Field(default_factory=list)
 
 
 # Optional compatibility aliases

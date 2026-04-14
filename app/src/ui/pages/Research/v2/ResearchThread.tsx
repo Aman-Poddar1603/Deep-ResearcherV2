@@ -165,45 +165,52 @@ const ToolRenderer = memo(({ tool }: { tool: LiveToolCall }) => {
 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <Tool>
-                <ToolHeader
-                    title={tool.tool_name}
-                    type="dynamic-tool"
-                    state={stateMap[tool.state]}
-                    toolName={tool.tool_name}
-                />
-                <ToolContent>
-                    {tool.args != null && typeof tool.args === 'object' && !Array.isArray(tool.args) && <ToolInput input={tool.args as Record<string, unknown>} />}
-                    
-                    {searchResults && searchResults.length > 0 && (
-                          <div className="mt-2 mb-2 pl-1">
-                               <ChainOfThoughtSearchResults>
-                                     {searchResults.map((r, i) => (
-                                          <ChainOfThoughtSearchResult key={i} className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap">
-                                               <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-1 w-full overflow-hidden text-ellipsis"><LinkIcon className="size-3 shrink-0" /> {r.title || r.url}</a>
-                                          </ChainOfThoughtSearchResult>
-                                     ))}
-                               </ChainOfThoughtSearchResults>
-                          </div>
-                    )}
-                    {imageResults && imageResults.length > 0 && (
-                          <div className="mt-2 mb-2 grid grid-cols-2 gap-2">
-                               {imageResults.map((r, i) => (
-                                   <ChainOfThoughtImage key={i} caption={r.caption || r.title}>
-                                        <img className="h-auto max-w-full overflow-hidden rounded-md" src={r.base64 ? `data:image/jpeg;base64,${r.base64}` : (r.url ?? '')} alt={r.caption || r.title || "Image result"} />
-                                   </ChainOfThoughtImage>
-                               ))}
-                          </div>
-                    )}
-
-                    {(!searchResults && !imageResults && (tool.result || tool.error)) && (
-                        <ToolOutput
-                            output={tool.result ? { result: tool.result } : {}}
-                            errorText={tool.state === 'error' ? (tool.error ?? 'Tool execution failed') : undefined}
+            <ChainOfThought>
+                <ChainOfThoughtHeader>
+                    {tool.tool_name} tool execution
+                </ChainOfThoughtHeader>
+                <ChainOfThoughtContent>
+                    <Tool>
+                        <ToolHeader
+                            title={tool.tool_name}
+                            type="dynamic-tool"
+                            state={stateMap[tool.state]}
+                            toolName={tool.tool_name}
                         />
-                    )}
-                </ToolContent>
-            </Tool>
+                        <ToolContent>
+                            {tool.args != null && typeof tool.args === 'object' && !Array.isArray(tool.args) && <ToolInput input={tool.args as Record<string, unknown>} />}
+                            
+                            {searchResults && searchResults.length > 0 && (
+                                  <div className="mt-2 mb-2 pl-1">
+                                       <ChainOfThoughtSearchResults>
+                                             {searchResults.map((r, i) => (
+                                                  <ChainOfThoughtSearchResult key={i} className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap">
+                                                       <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-1 w-full overflow-hidden text-ellipsis"><LinkIcon className="size-3 shrink-0" /> {r.title || r.url}</a>
+                                                  </ChainOfThoughtSearchResult>
+                                             ))}
+                                       </ChainOfThoughtSearchResults>
+                                  </div>
+                            )}
+                            {imageResults && imageResults.length > 0 && (
+                                  <div className="mt-2 mb-2 grid grid-cols-2 gap-2">
+                                       {imageResults.map((r, i) => (
+                                           <ChainOfThoughtImage key={i} caption={r.caption || r.title}>
+                                                <img className="h-auto max-w-full overflow-hidden rounded-md" src={r.base64 ? `data:image/jpeg;base64,${r.base64}` : (r.url ?? '')} alt={r.caption || r.title || "Image result"} />
+                                           </ChainOfThoughtImage>
+                                       ))}
+                                  </div>
+                            )}
+
+                            {(!searchResults && !imageResults && (tool.result || tool.error)) && (
+                                <ToolOutput
+                                    output={tool.result ? { result: tool.result } : {}}
+                                    errorText={tool.state === 'error' ? (tool.error ?? 'Tool execution failed') : undefined}
+                                />
+                            )}
+                        </ToolContent>
+                    </Tool>
+                </ChainOfThoughtContent>
+            </ChainOfThought>
         </div>
     )
 })
