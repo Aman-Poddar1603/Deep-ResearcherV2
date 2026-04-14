@@ -10,6 +10,7 @@ Responsibilities:
 
 import json
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -100,6 +101,7 @@ async def run_orchestrator2(
     Synthesizes gathered sources. Returns artifact_context dict for Groq artifact gen.
     """
     research_id = context.research_id
+    synth_started_at = time.monotonic()
 
     await update_session_status(research_id, "synthesizing")
     await emitter.emit(
@@ -447,7 +449,8 @@ async def run_orchestrator2(
     )
 
     # ── Persist research metadata via BG worker ───────────────────────────────
-    await _persist_metadata(context, unique_sources)
+    elapsed_seconds = max(0, int(time.monotonic() - synth_started_at))
+    await _persist_metadata(context, unique_sources, elapsed_seconds)
 
     return {
         "username": context.username,
@@ -586,7 +589,11 @@ async def _schedule_chroma_indexing(research_id: str, sources: list[dict]) -> No
         )
 
 
-async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> None:
+async def _persist_metadata(
+    context: ResearchContext,
+    sources: list[dict],
+    elapsed_seconds: int,
+) -> None:
     from main.src.utils.core.task_schedular import scheduler
     from main.src.store.DBManager import researches_db_manager
     from research.session import get_token_totals
@@ -604,37 +611,63 @@ async def _persist_metadata(context: ResearchContext, sources: list[dict]) -> No
     file_sources = [s for s in sources if s.get("tool") in file_tools]
     token_totals = await get_token_totals(context.research_id)
 
+    tool_invocation_count = len(
+        [s for s in sources if s.get("tool") not in ("", "agent_summary")]
+    )
+
+    metadata_payload = {
+        "models": json.dumps(
+            {
+                "preprocess_ollama": settings.OLLAMA_MODEL,
+                "reasoner_groq": settings.GROQ_MODEL,
+                "embedding_primary_ollama": settings.OLLAMA_EMBED_MODEL,
+                "embedding_fallback_gemini": (
+                    settings.GEMINI_EMBED_MODEL
+                    if settings.GEMINI_API_KEY.strip()
+                    else ""
+                ),
+            },
+            ensure_ascii=True,
+        ),
+        "workspace_id": context.workspace_id,
+        "research_id": context.research_id,
+        "connected_bucket": "",
+        "time_taken_sec": max(0, int(elapsed_seconds)),
+        "token_count": int(token_totals.get("grand_total", 0)),
+        "num_api_calls": tool_invocation_count,
+        "source_count": len(sources),
+        "websites_count": len(website_sources),
+        "file_count": len(file_sources),
+        "citations": json.dumps(_build_citations(sources), ensure_ascii=True),
+        "exported": "false",
+        "status": True,
+        "chats_referenced": "[]",
+    }
+
+    existing = researches_db_manager.fetch_one(
+        "research_metadata",
+        where={"research_id": context.research_id},
+    )
+    existing_row = existing.get("data") if existing.get("success") else None
+
+    if existing_row and existing_row.get("id"):
+        await scheduler.schedule(
+            researches_db_manager.update,
+            params={
+                "table_name": "research_metadata",
+                "data": metadata_payload,
+                "where": {"id": existing_row.get("id")},
+            },
+        )
+        return
+
     await scheduler.schedule(
         researches_db_manager.insert,
         params={
             "table_name": "research_metadata",
             "data": {
                 "id": str(uuid.uuid4()),
-                "models": json.dumps(
-                    {
-                        "preprocess_ollama": settings.OLLAMA_MODEL,
-                        "reasoner_groq": settings.GROQ_MODEL,
-                        "embedding_primary_ollama": settings.OLLAMA_EMBED_MODEL,
-                        "embedding_fallback_gemini": (
-                            settings.GEMINI_EMBED_MODEL
-                            if settings.GEMINI_API_KEY.strip()
-                            else ""
-                        ),
-                    }
-                ),
-                "workspace_id": context.workspace_id,
-                "research_id": context.research_id,
-                "connected_bucket": "",
-                "time_taken_sec": 0,
-                "token_count": int(token_totals.get("grand_total", 0)),
-                "num_api_calls": len(sources),
-                "source_count": len(sources),
-                "websites_count": len(website_sources),
-                "file_count": len(file_sources),
-                "citations": json.dumps(_build_citations(sources)),
-                "exported": "",
-                "status": True,
-                "chats_referenced": "",
+                **metadata_payload,
             },
         },
     )

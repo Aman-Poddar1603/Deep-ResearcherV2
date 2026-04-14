@@ -419,9 +419,35 @@ class ResearchReplayResponse(BaseModel):
     events: list[ResearchReplayEvent] = Field(default_factory=list)
 
 
+class PredictableStepContent(BaseModel):
+    think: str = ""
+    chain_of_thought: list[Any] = Field(default_factory=list)
+    tool_call: list[dict[str, Any]] = Field(default_factory=list)
+    summary: str = ""
+
+
+class PredictableStep(BaseModel):
+    step: int
+    step_index: int
+    title: str = ""
+    description: str = ""
+    status: str = "pending"
+    content: PredictableStepContent = Field(default_factory=PredictableStepContent)
+
+
+class ResearchArtifact(BaseModel):
+    type: str = "md"
+    content: str = ""
+    complete: bool = False
+    tokens_used: int | None = None
+    updated_at: str | None = None
+
+
 class ResearchResumeResponse(BaseModel):
     research_id: str
     status: str
+    resume_schema_version: str = "2"
+    prompt: str | None = None
     current_step: int = 0
     total_steps: int = 0
     created_at: datetime | None = None
@@ -440,6 +466,9 @@ class ResearchResumeResponse(BaseModel):
     timeline_replay_count: int = 0
     timeline_events: list[ResearchReplayEvent] = Field(default_factory=list)
     streaming_snapshot: dict[str, Any] | None = None
+    # New deterministic manipulation-friendly schema
+    steps: list[PredictableStep] = Field(default_factory=list)
+    artifact: ResearchArtifact | None = None
     # NEW: Comprehensive step-by-step granular data
     steps_details: list[StepDetail] = Field(default_factory=list)
 

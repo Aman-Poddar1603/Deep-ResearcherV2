@@ -30,6 +30,7 @@ from research.session import (
     save_context,
     save_plan,
 )
+from research.step_snapshots import seed_step_snapshots_from_plan
 from research.token_tracker import TokenTracker
 from research.layer1.cleaner import run_cleaner
 from research.layer1.guard import run_guard
@@ -241,6 +242,10 @@ async def run_layer1(
     # Save to Redis as reconnect restore point
     await save_context(research_id, context.model_dump())
     await save_plan(research_id, [s.model_dump() for s in approved_plan.steps])
+    await seed_step_snapshots_from_plan(
+        research_id,
+        [s.model_dump() for s in approved_plan.steps],
+    )
 
     # Save parent records synchronously to avoid FK race with research_sources inserts.
     from main.src.utils.core.task_schedular import scheduler

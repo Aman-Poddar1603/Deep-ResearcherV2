@@ -11,6 +11,7 @@ import {
 import type {
     ResearchSessionStatus, LiveStep, LiveToolCall, QAQuestion, TokenInfo,
     PendingInput, ResumeBundle, EventCursor, ResearchStartPayload,
+    PredictableStep, StructuredArtifact,
 } from './research_types'
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -130,6 +131,106 @@ function buildResumeSteps(planSource: unknown, currentStep: unknown, totalSteps:
         } else if (idx === 0 && runningLike) stepStatus = 'running'
         return { ...createEmptyStep(idx, title), status: stepStatus }
     })
+}
+
+function normalizeLiveStepStatus(value: unknown): LiveStep['status'] {
+    if (typeof value !== 'string') return 'pending'
+    const low = value.trim().toLowerCase()
+    if (low === 'running') return 'running'
+    if (low === 'completed' || low === 'done') return 'completed'
+    if (low === 'failed' || low === 'error') return 'failed'
+    return 'pending'
+}
+
+function toResultText(value: unknown): string {
+    if (value === null || value === undefined || value === '') return ''
+    if (typeof value === 'string') return value
+    try { return JSON.stringify(value, null, 2) } catch { return String(value) }
+}
+
+function buildStepsFromPredictable(
+    stepsSource: unknown,
+    fallbackStatus: ResearchSessionStatus,
+): LiveStep[] {
+    const rows = Array.isArray(stepsSource)
+        ? stepsSource.filter((r): r is PredictableStep => !!r && typeof r === 'object')
+        : []
+    if (rows.length === 0) return []
+
+    const steps: LiveStep[] = []
+
+    for (const row of rows) {
+        const directIdx = parseStepIndex(row.step_index)
+        const oneBased = parseStepIndex(row.step)
+        const idx = directIdx ?? (oneBased !== null ? Math.max(0, oneBased - 1) : null)
+        if (idx === null) continue
+
+        const title = typeof row.title === 'string' && row.title.trim()
+            ? row.title.trim()
+            : typeof row.description === 'string' && row.description.trim()
+                ? row.description.trim()
+                : `Step ${idx + 1}`
+
+        const content = row.content && typeof row.content === 'object'
+            ? row.content
+            : null
+
+        const chain = Array.isArray(content?.chain_of_thought) ? content?.chain_of_thought : []
+        const chainText = chain
+            .filter((item): item is string => typeof item === 'string')
+            .map(item => item.trim())
+            .filter(Boolean)
+            .join('\n')
+        const think = typeof content?.think === 'string' && content.think.trim()
+            ? content.think.trim()
+            : chainText
+
+        const summary = typeof content?.summary === 'string' ? content.summary.trim() : ''
+
+        const toolCallsRaw = Array.isArray(content?.tool_call) ? content.tool_call : []
+        const tools: LiveToolCall[] = toolCallsRaw
+            .map((entry, i): LiveToolCall | null => {
+                if (!entry || typeof entry !== 'object') return null
+                const e = entry as JO
+                const toolName = typeof e.tool === 'string' && e.tool.trim()
+                    ? e.tool.trim()
+                    : typeof e.tool_name === 'string' && e.tool_name.trim()
+                        ? e.tool_name.trim()
+                        : 'tool'
+                const args = e.input ?? e.args ?? undefined
+                const output = e.output ?? e.result_payload ?? e.result ?? ''
+                const result = toResultText(output)
+                return {
+                    id: typeof e.id === 'string' && e.id.trim() ? e.id.trim() : `resume-tool-${idx}-${i}`,
+                    tool_name: toolName,
+                    createdAt: Date.now(),
+                    args,
+                    result: result || undefined,
+                    state: result ? 'done' : 'called',
+                }
+            })
+            .filter((tool): tool is LiveToolCall => tool !== null)
+
+        const status = normalizeLiveStepStatus(row.status)
+        const stepStatus: LiveStep['status'] =
+            fallbackStatus === 'completed' ? 'completed' : status
+
+        steps[idx] = {
+            ...createEmptyStep(idx, title),
+            status: stepStatus,
+            summary,
+            error: stepStatus === 'failed' ? (summary || 'Step failed') : '',
+            thinking: think,
+            thinkingDone: stepStatus === 'completed' || stepStatus === 'failed',
+            tools,
+        }
+    }
+
+    for (let i = 0; i < steps.length; i++) {
+        if (!steps[i]) steps[i] = { ...createEmptyStep(i), status: 'pending' }
+    }
+
+    return steps
 }
 
 // ─── Hook return type ─────────────────────────────────────────────────────────
@@ -581,20 +682,46 @@ export function useResearchSession(options?: {
         const planSource = bundle.plan
         const planText = toPlanText(planSource)
         const tokens = normalizeTokenInfo(bundle.token_totals)
+        const structuredArtifact = (bundle.artifact && typeof bundle.artifact === 'object' && !Array.isArray(bundle.artifact))
+            ? bundle.artifact as StructuredArtifact
+            : null
+        const structuredArtifactText = structuredArtifact && typeof structuredArtifact.content === 'string'
+            ? structuredArtifact.content
+            : ''
         const snapshotArtifact = snapshot && typeof snapshot.artifact_text === 'string' ? snapshot.artifact_text : ''
+        const resumeArtifactText = structuredArtifactText || snapshotArtifact
+        const structuredArtifactDone = structuredArtifact?.complete === true
 
-        const recoveredContext = (bundle.context && typeof bundle.context === 'object' && !Array.isArray(bundle.context))
+        const recoveredContextRaw = (bundle.context && typeof bundle.context === 'object' && !Array.isArray(bundle.context))
             ? bundle.context as Partial<ResearchStartPayload>
             : (snapshot?.context && typeof snapshot.context === 'object' && !Array.isArray(snapshot.context))
                 ? snapshot.context as Partial<ResearchStartPayload>
                 : {}
+        const recoveredContextAny = recoveredContextRaw as JO
+        const contextPrompt = typeof recoveredContextAny.prompt === 'string' && recoveredContextAny.prompt.trim()
+            ? recoveredContextAny.prompt.trim()
+            : typeof recoveredContextAny.cleaned_prompt === 'string' && recoveredContextAny.cleaned_prompt.trim()
+                ? recoveredContextAny.cleaned_prompt.trim()
+                : ''
+        const bundlePrompt = typeof bundle.prompt === 'string' && bundle.prompt.trim()
+            ? bundle.prompt.trim()
+            : ''
+        const recoveredContext: Partial<ResearchStartPayload> = {
+            ...recoveredContextRaw,
+            ...(bundlePrompt || contextPrompt ? { prompt: bundlePrompt || contextPrompt } : {}),
+        }
 
-        
+
 
         s(prev => {
             const baseStatus = toSessionStatus(bundle.status, prev.status)
+            const predictableSteps = buildStepsFromPredictable(bundle.steps, baseStatus)
             const hydratedSteps = buildResumeSteps(planSource, bundle.current_step, bundle.total_steps, baseStatus)
-            let steps = hydratedSteps.length > 0 ? [...hydratedSteps] : [...prev.steps]
+            let steps = predictableSteps.length > 0
+                ? [...predictableSteps]
+                : hydratedSteps.length > 0
+                    ? [...hydratedSteps]
+                    : [...prev.steps]
             const currentStepIndex = typeof bundle.current_step === 'number' ? bundle.current_step : null
             const runningLike = ['running', 'starting', 'connected', 'connecting', 'stopping'].includes(baseStatus)
 
@@ -659,8 +786,8 @@ export function useResearchSession(options?: {
                 tokens: (tokens.input_tokens > 0 || tokens.output_tokens > 0) ? tokens : prev.tokens,
                 steps,
                 plan: planText ? { plan: planText } : prev.plan,
-                artifact: snapshotArtifact ? finalizeText(prev.artifact, snapshotArtifact) : prev.artifact,
-                artifactDone: snapshotArtifact ? isTerminalStatus(baseStatus) : prev.artifactDone,
+                artifact: resumeArtifactText ? finalizeText(prev.artifact, resumeArtifactText) : prev.artifact,
+                artifactDone: structuredArtifactDone || (resumeArtifactText ? isTerminalStatus(baseStatus) : prev.artifactDone),
                 planApproved: pending?.type === 'plan_approval' ? null : prev.planApproved,
                 error: null,
                 context: { ...prev.context, ...recoveredContext },
@@ -787,9 +914,9 @@ export function useResearchSession(options?: {
             stopped = true
             if (timer !== null) window.clearTimeout(timer)
         }
-    // We intentionally omit fast-changing deps; the ref pattern lets us
-    // always read the latest values inside the async closure.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // We intentionally omit fast-changing deps; the ref pattern lets us
+        // always read the latest values inside the async closure.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [apiService, setCursor, persist, applyPendingSnapshot])
 
 
@@ -933,7 +1060,7 @@ export function useResearchSession(options?: {
         if (options?.researchId) {
             void resumeSession(options.researchId)
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [options?.researchId, resumeSession])
 
     const isRunning = state.status === 'running' || state.status === 'starting' || state.status === 'connecting' || state.status === 'stopping'

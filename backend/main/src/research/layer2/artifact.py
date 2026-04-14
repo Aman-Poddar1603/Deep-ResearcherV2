@@ -8,6 +8,7 @@ research_template skeleton, cited sources, knowledge summary.
 import json
 import logging
 import uuid
+from datetime import datetime
 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
@@ -189,11 +190,17 @@ async def run_artifact_generation(
         )
     )
 
-    # Persist via BG worker
-    await _persist_artifact(research_id, workspace_id, artifact_context, full_artifact)
-
-    # Approximate token count from artifact length
     artifact_token_estimate = len(full_artifact.split())
+
+    # Persist via BG worker
+    await _persist_artifact(
+        research_id,
+        workspace_id,
+        artifact_context,
+        full_artifact,
+        artifact_token_estimate,
+    )
+
     await emitter.emit(
         ArtifactDoneEvent(
             research_id=research_id,
@@ -209,6 +216,7 @@ async def _persist_artifact(
     workspace_id: str,
     artifact_context: dict,
     artifact_text: str,
+    artifact_token_estimate: int,
 ) -> None:
     from main.src.utils.core.task_schedular import scheduler
     from main.src.store.DBManager import researches_db_manager, history_db_manager
@@ -216,14 +224,20 @@ async def _persist_artifact(
 
     token_totals = await get_token_totals(research_id)
 
-    # Update researches table with artifact
-    await scheduler.schedule(
-        researches_db_manager.update,
-        params={
-            "table_name": "researches",
-            "data": {"artifacts": artifact_text},
-            "where": {"id": research_id},
-        },
+    # Resume-critical write: persist artifact synchronously so resume can always load it.
+    artifact_payload = {
+        "type": "md",
+        "content": artifact_text,
+        "complete": True,
+        "tokens_used": artifact_token_estimate,
+        "updated_at": datetime.utcnow().isoformat(),
+        "title": artifact_context.get("title", ""),
+        "description": artifact_context.get("description", ""),
+    }
+    researches_db_manager.update(
+        "researches",
+        data={"artifacts": json.dumps(artifact_payload, ensure_ascii=True)},
+        where={"id": research_id},
     )
 
     # Save to history

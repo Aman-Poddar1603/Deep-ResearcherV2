@@ -480,6 +480,8 @@ async def get_streaming_snapshot(
     )
 
     artifact_text = ""
+    artifact_complete = False
+    artifact_total_tokens = 0
     recent_tool_results: list[dict[str, Any]] = []
 
     # xrevrange returns newest->oldest; process oldest->newest for natural accumulation.
@@ -493,6 +495,15 @@ async def get_streaming_snapshot(
                 artifact_text += chunk
                 if len(artifact_text) > 16000:
                     artifact_text = artifact_text[-16000:]
+
+        elif event_type == "artifact.done":
+            artifact_complete = True
+            try:
+                artifact_total_tokens = int(
+                    payload.get("total_tokens_in_artifact") or 0
+                )
+            except (TypeError, ValueError):
+                artifact_total_tokens = 0
 
         elif event_type == "tool.result":
             recent_tool_results.append(
@@ -512,6 +523,8 @@ async def get_streaming_snapshot(
     return {
         "latest_event_id": latest_event_id,
         "artifact_text": artifact_text,
+        "artifact_complete": artifact_complete,
+        "artifact_total_tokens": artifact_total_tokens,
         "thinking_by_step": reasoning_by_step,
         "recent_tool_results": recent_tool_results,
     }

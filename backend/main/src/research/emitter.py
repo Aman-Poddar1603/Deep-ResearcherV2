@@ -14,6 +14,7 @@ from fastapi import WebSocket
 
 from research.models import WSEvent
 from research.session import append_event, publish_event
+from research.step_snapshots import upsert_step_snapshot_from_event
 
 if TYPE_CHECKING:
     pass
@@ -46,6 +47,16 @@ class WSEmitter:
                 "[emitter] event stream append failed (%s): %s", self.research_id, exc
             )
 
+        # Persist manipulation-friendly step snapshots for resume reliability.
+        try:
+            await upsert_step_snapshot_from_event(self.research_id, payload, event_id)
+        except Exception as exc:
+            logger.warning(
+                "[emitter] step snapshot persistence failed (%s): %s",
+                self.research_id,
+                exc,
+            )
+
         # Publish for compatibility with existing live subscribers.
         try:
             await publish_event(self.research_id, payload)
@@ -73,6 +84,15 @@ class WSEmitter:
         except Exception as exc:
             logger.warning(
                 "[emitter] event stream append failed (%s): %s", self.research_id, exc
+            )
+
+        try:
+            await upsert_step_snapshot_from_event(self.research_id, payload, event_id)
+        except Exception as exc:
+            logger.warning(
+                "[emitter] step snapshot persistence failed (%s): %s",
+                self.research_id,
+                exc,
             )
 
         try:

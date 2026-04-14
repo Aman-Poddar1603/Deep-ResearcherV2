@@ -99,15 +99,44 @@ export interface StatusResponse {
 
 export interface ResumeBundle extends StatusResponse {
     research_id: string
+    resume_schema_version?: string
+    prompt?: string
     status_url?: string
     replay_url?: string
     resume_url?: string
     websocket_url?: string
     context?: unknown
     plan?: unknown
+    steps?: PredictableStep[]
+    artifact?: StructuredArtifact | null
+    steps_details?: Array<Record<string, unknown>>
     timeline_events?: Array<Record<string, unknown>>
     timeline_replay_count?: number
     timeline_next_event_id?: EventCursor
+}
+
+export interface PredictableStepContent {
+    think?: string
+    chain_of_thought?: unknown[]
+    tool_call?: Array<Record<string, unknown>>
+    summary?: string
+}
+
+export interface PredictableStep {
+    step?: number
+    step_index?: number
+    title?: string
+    description?: string
+    status?: string
+    content?: PredictableStepContent | null
+}
+
+export interface StructuredArtifact {
+    type?: string
+    content?: string
+    complete?: boolean
+    tokens_used?: number
+    updated_at?: string
 }
 
 export interface ReplayResponse {

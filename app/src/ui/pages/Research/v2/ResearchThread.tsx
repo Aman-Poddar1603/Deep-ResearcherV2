@@ -98,7 +98,7 @@ const PlanRenderer = memo(({ plan, steps, isRunning }: {
         const stepStatus = steps[i]?.status
         const status = stepStatus === 'completed' ? 'complete' as const
             : stepStatus === 'running' ? 'active' as const
-            : 'pending' as const
+                : 'pending' as const
         return { label: line.replace(/^\d+\.\s*/, ''), status }
     })
     return (
@@ -145,22 +145,22 @@ const ToolRenderer = memo(({ tool }: { tool: LiveToolCall }) => {
     let imageResults: Array<{ base64?: string, url?: string, caption?: string, title?: string }> | null = null;
 
     if (tool.tool_name.includes('search') && tool.result) {
-         try {
-             const parsed = JSON.parse(tool.result);
-             if (Array.isArray(parsed)) {
-                  searchResults = parsed.slice(0, 8);
-             }
-         } catch(e) {}
+        try {
+            const parsed = JSON.parse(tool.result);
+            if (Array.isArray(parsed)) {
+                searchResults = parsed.slice(0, 8);
+            }
+        } catch (e) { }
     }
     if (tool.tool_name.includes('image') && tool.result) {
-         try {
-             const parsed = JSON.parse(tool.result);
-             if (Array.isArray(parsed)) {
-                  imageResults = parsed.slice(0, 4);
-             } else if (parsed && typeof parsed === 'object') {
-                  imageResults = [parsed];
-             }
-         } catch(e) {}
+        try {
+            const parsed = JSON.parse(tool.result);
+            if (Array.isArray(parsed)) {
+                imageResults = parsed.slice(0, 4);
+            } else if (parsed && typeof parsed === 'object') {
+                imageResults = [parsed];
+            }
+        } catch (e) { }
     }
 
     return (
@@ -179,26 +179,26 @@ const ToolRenderer = memo(({ tool }: { tool: LiveToolCall }) => {
                         />
                         <ToolContent>
                             {tool.args != null && typeof tool.args === 'object' && !Array.isArray(tool.args) && <ToolInput input={tool.args as Record<string, unknown>} />}
-                            
+
                             {searchResults && searchResults.length > 0 && (
-                                  <div className="mt-2 mb-2 pl-1">
-                                       <ChainOfThoughtSearchResults>
-                                             {searchResults.map((r, i) => (
-                                                  <ChainOfThoughtSearchResult key={i} className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap">
-                                                       <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-1 w-full overflow-hidden text-ellipsis"><LinkIcon className="size-3 shrink-0" /> {r.title || r.url}</a>
-                                                  </ChainOfThoughtSearchResult>
-                                             ))}
-                                       </ChainOfThoughtSearchResults>
-                                  </div>
+                                <div className="mt-2 mb-2 pl-1">
+                                    <ChainOfThoughtSearchResults>
+                                        {searchResults.map((r, i) => (
+                                            <ChainOfThoughtSearchResult key={i} className="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap">
+                                                <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline flex items-center gap-1 w-full overflow-hidden text-ellipsis"><LinkIcon className="size-3 shrink-0" /> {r.title || r.url}</a>
+                                            </ChainOfThoughtSearchResult>
+                                        ))}
+                                    </ChainOfThoughtSearchResults>
+                                </div>
                             )}
                             {imageResults && imageResults.length > 0 && (
-                                  <div className="mt-2 mb-2 grid grid-cols-2 gap-2">
-                                       {imageResults.map((r, i) => (
-                                           <ChainOfThoughtImage key={i} caption={r.caption || r.title}>
-                                                <img className="h-auto max-w-full overflow-hidden rounded-md" src={r.base64 ? `data:image/jpeg;base64,${r.base64}` : (r.url ?? '')} alt={r.caption || r.title || "Image result"} />
-                                           </ChainOfThoughtImage>
-                                       ))}
-                                  </div>
+                                <div className="mt-2 mb-2 grid grid-cols-2 gap-2">
+                                    {imageResults.map((r, i) => (
+                                        <ChainOfThoughtImage key={i} caption={r.caption || r.title}>
+                                            <img className="h-auto max-w-full overflow-hidden rounded-md" src={r.base64 ? `data:image/jpeg;base64,${r.base64}` : (r.url ?? '')} alt={r.caption || r.title || "Image result"} />
+                                        </ChainOfThoughtImage>
+                                    ))}
+                                </div>
                             )}
 
                             {(!searchResults && !imageResults && (tool.result || tool.error)) && (
@@ -242,27 +242,27 @@ const StepRenderer = memo(({ step, isLast, isRunning }: { step: LiveStep; isLast
 
             {/* Tool calls */}
             {step.tools.length > 0 && (
-                 <div className="space-y-4 pb-2">
-                     {step.tools.map((tool) => {
-                          let Icon = undefined;
-                          if (tool.tool_name.includes('search')) Icon = SearchIcon;
-                          if (tool.tool_name.includes('image')) Icon = ImageIcon;
-                          
-                          return (
-                          <ChainOfThoughtStep 
-                              key={tool.id} 
-                              icon={Icon}
-                              label={<span><span className="font-semibold">{tool.tool_name}</span> execution</span>} 
-                              status={tool.state === 'done' ? 'complete' : tool.state === 'error' ? 'pending' : 'active'}
-                              className="font-medium"
-                          >
-                              <div className="-ml-6 mt-2">
-                                  <ToolRenderer tool={tool} />
-                              </div>
-                          </ChainOfThoughtStep>
-                          )
-                     })}
-                 </div>
+                <div className="space-y-4 pb-2">
+                    {step.tools.map((tool) => {
+                        let Icon = undefined;
+                        if (tool.tool_name.includes('search')) Icon = SearchIcon;
+                        if (tool.tool_name.includes('image')) Icon = ImageIcon;
+
+                        return (
+                            <ChainOfThoughtStep
+                                key={tool.id}
+                                icon={Icon}
+                                label={<span><span className="font-semibold">{tool.tool_name}</span> execution</span>}
+                                status={tool.state === 'done' ? 'complete' : tool.state === 'error' ? 'pending' : 'active'}
+                                className="font-medium"
+                            >
+                                <div className="-ml-6 mt-2">
+                                    <ToolRenderer tool={tool} />
+                                </div>
+                            </ChainOfThoughtStep>
+                        )
+                    })}
+                </div>
             )}
         </div>
 
@@ -682,8 +682,8 @@ const ResearchThread = () => {
     /** `/researches/new` is a launcher route; real IDs resume existing sessions. */
     const sessionResearchId =
         urlResearchId &&
-        urlResearchId !== NEW_RESEARCH_ROUTE_ID &&
-        urlResearchId.trim() !== ''
+            urlResearchId !== NEW_RESEARCH_ROUTE_ID &&
+            urlResearchId.trim() !== ''
             ? urlResearchId
             : undefined
 
@@ -739,22 +739,43 @@ const ResearchThread = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    // Defensive guard: manipulated resume payloads can inject sparse/invalid
+    // entries and crash render paths that assume every item is a full LiveStep.
+    const safeSteps = useMemo(
+        () => steps.filter((step): step is LiveStep => !!step && typeof step === 'object'),
+        [steps],
+    )
+
+    const allTools = useMemo(
+        () => safeSteps
+            .flatMap(step => Array.isArray(step.tools) ? step.tools : [])
+            .filter((tool): tool is LiveToolCall => !!tool && typeof tool === 'object' && typeof tool.tool_name === 'string'),
+        [safeSteps],
+    )
+
     const handleCopyAll = useCallback(async () => {
         setCopyStatus('loading')
         try {
-            const text = artifact || steps.map(s => s.summary).filter(Boolean).join('\n\n')
+            const text = artifact || safeSteps.map(s => s.summary).filter(Boolean).join('\n\n')
             await navigator.clipboard.writeText(text)
             setCopyStatus('success')
             setTimeout(() => setCopyStatus('idle'), 2000)
         } catch { setCopyStatus('idle') }
-    }, [artifact, steps])
+    }, [artifact, safeSteps])
 
     const recoveredContext = context || {}
+    const recoveredContextAny = recoveredContext as Record<string, unknown>
+    const recoveredPrompt = typeof recoveredContext.prompt === 'string' && recoveredContext.prompt.trim()
+        ? recoveredContext.prompt.trim()
+        : typeof recoveredContextAny.cleaned_prompt === 'string' && recoveredContextAny.cleaned_prompt.trim()
+            ? recoveredContextAny.cleaned_prompt.trim()
+            : ''
     const researchTitle = state?.title || recoveredContext.title || 'Deep Research'
     const workspaceName = state?.workspaceName || recoveredContext.workspace_id || 'Research Workspace'
-    const userPrompt = state?.prompt || recoveredContext.prompt || ''
+    const userPrompt = state?.prompt?.trim() || recoveredPrompt || ''
     const userSources = state?.sources || recoveredContext.sources || []
-    const hasContent = steps.length > 0 || artifact
+    const safeUserSources = Array.isArray(userSources) ? userSources : []
+    const hasContent = safeSteps.length > 0 || artifact
 
     // Persist brief for QA UI if user refreshes mid-session
     useEffect(() => {
@@ -786,16 +807,13 @@ const ResearchThread = () => {
         return {
             title: state?.title ?? recoveredContext.title ?? cached.title ?? researchTitle,
             description: state?.description ?? recoveredContext.description ?? cached.description ?? '',
-            prompt: (state?.prompt ?? recoveredContext.prompt ?? cached.prompt ?? userPrompt) || '',
+            prompt: state?.prompt?.trim() || recoveredPrompt || cached.prompt || userPrompt || '',
             workspaceName:
                 state?.workspaceName ?? recoveredContext.workspace_id ?? cached.workspaceName ?? workspaceName,
             customInstructions:
                 state?.preferences?.customInstructions ?? recoveredContext.custom_prompt ?? cached.customInstructions,
         }
-    }, [state, researchTitle, workspaceName, userPrompt, recoveredContext])
-
-    // All tools flat for sidebar
-    const allTools = steps.flatMap(s => s.tools)
+    }, [state, researchTitle, workspaceName, userPrompt, recoveredContext, recoveredPrompt])
 
     return (
         <div className="flex flex-col h-full w-full text-foreground animate-in fade-in duration-500 overflow-hidden relative">
@@ -807,7 +825,7 @@ const ResearchThread = () => {
                     </Button>
                     {isRunning && (
                         <Persona
-                            state={steps.length > 0 && steps[steps.length - 1]?.status === 'running' ? 'thinking' : 'speaking'}
+                            state={safeSteps.length > 0 && safeSteps[safeSteps.length - 1]?.status === 'running' ? 'thinking' : 'speaking'}
                             className="size-5"
                             variant="glint"
                         />
@@ -875,15 +893,15 @@ const ResearchThread = () => {
                             <Message from="user" className="pl-12 ml-auto max-w-full">
                                 <MessageContent className="shadow-sm text-foreground">
                                     <MessageResponse>{qaContext.prompt}</MessageResponse>
-                                    {userSources.length > 0 && (
+                                    {safeUserSources.length > 0 && (
                                         <div className="mt-3 pt-3 border-t border-border/30 space-y-2">
                                             <span className="text-xs font-medium text-muted-foreground">Attached Sources</span>
                                             <div className="flex flex-wrap gap-2">
-                                                {userSources.map((source, i) => (
+                                                {safeUserSources.map((source, i) => (
                                                     <Badge key={i} variant="secondary" className="gap-1.5 text-xs">
                                                         {source.type === 'youtube' ? <Youtube className="size-3 text-red-500" />
                                                             : source.type === 'file' ? <FileText className="size-3 text-orange-500" />
-                                                            : <LinkIcon className="size-3 text-blue-500" />}
+                                                                : <LinkIcon className="size-3 text-blue-500" />}
                                                         {source.name || source.value}
                                                     </Badge>
                                                 ))}
@@ -909,15 +927,15 @@ const ResearchThread = () => {
 
                     {/* Plan */}
                     {plan && (
-                        <PlanRenderer plan={plan.plan} steps={steps} isRunning={isRunning} />
+                        <PlanRenderer plan={plan.plan} steps={safeSteps} isRunning={isRunning} />
                     )}
 
                     {/* Steps */}
-                    {steps.map((step, idx) => (
+                    {safeSteps.map((step, idx) => (
                         <StepRenderer
                             key={`step-${step.index}`}
                             step={step}
-                            isLast={idx === steps.length - 1}
+                            isLast={idx === safeSteps.length - 1}
                             isRunning={isRunning}
                         />
                     ))}
@@ -975,7 +993,7 @@ const ResearchThread = () => {
                     )}
 
                     {/* Not started yet shimmer */}
-                    {(status === 'connecting' || status === 'starting') && steps.length === 0 && (
+                    {(status === 'connecting' || status === 'starting') && safeSteps.length === 0 && (
                         <div className="flex items-center gap-2 animate-in fade-in duration-300">
                             <Persona state="thinking" className="size-5" variant="glint" />
                             <Shimmer className="text-sm font-medium">Initializing research pipeline…</Shimmer>
@@ -1019,7 +1037,7 @@ const ResearchThread = () => {
                             <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleCopyAll} disabled={copyStatus !== 'idle'}>
                                 {copyStatus === 'success' ? <><CheckIcon className="size-3.5 text-green-500" />Copied</>
                                     : copyStatus === 'loading' ? <><Loader2 className="size-3.5 animate-spin" />Copying…</>
-                                    : <><CopyIcon className="size-3.5" />Copy Report</>}
+                                        : <><CopyIcon className="size-3.5" />Copy Report</>}
                             </Button>
                         )}
                         {isRunning && (

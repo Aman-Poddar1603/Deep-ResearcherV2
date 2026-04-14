@@ -46,6 +46,12 @@ from main.src.research.session import (
     replay_events,
     update_session_status,
 )
+from main.src.research.step_snapshots import (
+    load_predictable_steps,
+    parse_structured_artifact,
+    predictable_steps_from_step_details,
+    seed_step_snapshots_from_plan,
+)
 from main.src.research.stop_manager import request_stop
 from main.src.store.DBManager import researches_db_manager
 
@@ -718,6 +724,94 @@ def _aggregate_step_details(
     return sorted(result, key=lambda x: x.get("step_index", -1))
 
 
+def _load_research_record(research_id: str) -> dict[str, Any] | None:
+    record_result = researches_db_manager.fetch_one(
+        "researches",
+        where={"id": research_id},
+    )
+    record = record_result.get("data") if record_result.get("success") else None
+    return record if isinstance(record, dict) else None
+
+
+def _load_resume_artifact(
+    research_record: dict[str, Any] | None,
+    state: dict[str, Any] | None,
+    streaming_snapshot: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    raw_artifact = (
+        research_record.get("artifacts") if isinstance(research_record, dict) else None
+    )
+
+    artifact = parse_structured_artifact(raw_artifact)
+
+    if artifact is None:
+        snapshot_text = ""
+        if isinstance(streaming_snapshot, dict):
+            snapshot_text = str(streaming_snapshot.get("artifact_text") or "")
+        if snapshot_text:
+            artifact = {
+                "type": "md",
+                "content": snapshot_text,
+                "complete": bool(
+                    (streaming_snapshot or {}).get("artifact_complete", False)
+                ),
+            }
+
+    if artifact is None:
+        return None
+
+    if isinstance(streaming_snapshot, dict):
+        if artifact.get("tokens_used") in (None, 0):
+            try:
+                tokens = int(streaming_snapshot.get("artifact_total_tokens") or 0)
+            except (TypeError, ValueError):
+                tokens = 0
+            if tokens > 0:
+                artifact["tokens_used"] = tokens
+
+    status_value = str((state or {}).get("status", "")).lower()
+    if status_value == "completed":
+        artifact["complete"] = True
+
+    return artifact
+
+
+def _load_resume_prompt(
+    context: dict[str, Any] | None,
+    streaming_snapshot: dict[str, Any] | None,
+    research_record: dict[str, Any] | None,
+) -> str | None:
+    def _extract_prompt(source: dict[str, Any] | None) -> str | None:
+        if not isinstance(source, dict):
+            return None
+        for key in ("prompt", "cleaned_prompt"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    prompt = _extract_prompt(context)
+    if prompt:
+        return prompt
+
+    snapshot_context = (
+        streaming_snapshot.get("context")
+        if isinstance(streaming_snapshot, dict)
+        and isinstance(streaming_snapshot.get("context"), dict)
+        else None
+    )
+    prompt = _extract_prompt(snapshot_context)
+    if prompt:
+        return prompt
+
+    if isinstance(research_record, dict):
+        record_prompt = research_record.get("prompt")
+        if isinstance(record_prompt, str) and record_prompt.strip():
+            return record_prompt.strip()
+
+    return None
+
+
 @router.get("/{research_id}/resume", response_model=ResearchResumeResponse)
 async def get_research_resume(
     research_id: str,
@@ -744,6 +838,7 @@ async def get_research_resume(
     context = await load_context(research_id)
     plan = await load_plan(research_id) or []
     urls = _runtime_urls(request, research_id)
+    research_record = _load_research_record(research_id)
 
     replay_rows: list[dict[str, Any]] = []
     if include_timeline:
@@ -764,6 +859,36 @@ async def get_research_resume(
     # Parse all events into step-wise granular details
     steps_details = _aggregate_step_details(timeline_events, plan)
 
+    # Seed deterministic step rows from plan and load DB-backed predictable steps.
+    try:
+        await seed_step_snapshots_from_plan(research_id, plan)
+    except Exception as exc:
+        logger.warning(
+            "[research_urls] Failed to seed step snapshots for %s: %s",
+            research_id,
+            exc,
+        )
+
+    predictable_steps = await load_predictable_steps(research_id, plan)
+    if not predictable_steps and steps_details:
+        predictable_steps = predictable_steps_from_step_details(steps_details, plan)
+
+    artifact = _load_resume_artifact(research_record, state, streaming_snapshot)
+    prompt = _load_resume_prompt(context, streaming_snapshot, research_record)
+
+    context_payload: dict[str, Any] | None
+    if isinstance(context, dict):
+        context_payload = dict(context)
+    else:
+        context_payload = None
+
+    if prompt:
+        if context_payload is None:
+            context_payload = {}
+        existing_prompt = context_payload.get("prompt")
+        if not isinstance(existing_prompt, str) or not existing_prompt.strip():
+            context_payload["prompt"] = prompt
+
     if state is None:
         status_str = (
             "running" if active_session and active_session.get("started") else "ready"
@@ -771,6 +896,7 @@ async def get_research_resume(
         return ResearchResumeResponse(
             research_id=research_id,
             status=status_str,
+            prompt=prompt,
             current_step=0,
             total_steps=0,
             created_at=None,
@@ -778,7 +904,7 @@ async def get_research_resume(
             token_totals=token_totals,
             latest_event_id=latest_event_id,
             pending_input=pending_input,
-            context=context,
+            context=context_payload,
             plan=plan,
             status_url=urls["status_url"],
             replay_url=urls["replay_url"],
@@ -789,12 +915,16 @@ async def get_research_resume(
             timeline_replay_count=len(timeline_events),
             timeline_events=timeline_events,
             streaming_snapshot=streaming_snapshot,
+            steps=predictable_steps,
+            artifact=artifact,
             steps_details=steps_details,
         )
 
     return ResearchResumeResponse(
         research_id=research_id,
+        resume_schema_version="2",
         status=str(state.get("status", "unknown")),
+        prompt=prompt,
         current_step=int(state.get("current_step", 0)),
         total_steps=int(state.get("total_steps", 0)),
         created_at=state.get("created_at"),
@@ -802,7 +932,7 @@ async def get_research_resume(
         token_totals=token_totals,
         latest_event_id=latest_event_id,
         pending_input=pending_input,
-        context=context,
+        context=context_payload,
         plan=plan,
         status_url=urls["status_url"],
         replay_url=urls["replay_url"],
@@ -813,6 +943,8 @@ async def get_research_resume(
         timeline_replay_count=len(timeline_events),
         timeline_events=timeline_events,
         streaming_snapshot=streaming_snapshot,
+        steps=predictable_steps,
+        artifact=artifact,
         steps_details=steps_details,
     )
 

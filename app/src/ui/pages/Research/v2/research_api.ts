@@ -1,7 +1,15 @@
 import {
     readBackendBase, parseBackendBase, normalizeRuntimeUrls, toAbsoluteUrl, DEFAULT_REPLAY_LIMIT,
 } from './research_utils'
-import type { EventCursor, StartResponse, ResumeBundle, ReplayResponse, StatusResponse } from './research_types'
+import type {
+    EventCursor,
+    StartResponse,
+    ResumeBundle,
+    ReplayResponse,
+    StatusResponse,
+    PredictableStep,
+    StructuredArtifact,
+} from './research_types'
 
 // ─── Stream Manager ───────────────────────────────────────────────────────────
 type StreamCallbacks = {
@@ -210,10 +218,20 @@ export class ResearchApiService {
         const timelineEvents = Array.isArray(data.timeline_events)
             ? data.timeline_events.filter((e): e is Record<string, unknown> => !!e && typeof e === 'object')
             : []
+        const predictableSteps = Array.isArray(data.steps)
+            ? data.steps.filter((s): s is PredictableStep => !!s && typeof s === 'object')
+            : []
+        const artifact = (data.artifact && typeof data.artifact === 'object' && !Array.isArray(data.artifact))
+            ? data.artifact as StructuredArtifact
+            : null
         return {
             ...data,
             research_id: String(data.research_id ?? researchId),
+            resume_schema_version: typeof data.resume_schema_version === 'string' ? data.resume_schema_version : undefined,
+            prompt: typeof data.prompt === 'string' ? data.prompt : undefined,
             ...resolvedUrls,
+            steps: predictableSteps,
+            artifact,
             timeline_events: timelineEvents,
             timeline_replay_count: typeof data.timeline_replay_count === 'number' ? data.timeline_replay_count : timelineEvents.length,
             timeline_next_event_id: (typeof data.timeline_next_event_id === 'string' || typeof data.timeline_next_event_id === 'number')

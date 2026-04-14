@@ -17,7 +17,9 @@ Iterates over every plan step. At each step:
 
 import json
 import logging
+import re
 import uuid
+from datetime import datetime
 from typing import Any
 
 from langchain_ollama import ChatOllama
@@ -79,13 +81,22 @@ You must use external MCP tools (web/video/image/document/url tools) to gather e
 
 Wait for the tool output before proceeding. Do not guess or assume results.
 
-Available tools in this step:
+Allowed tools in this step (strict):
 {available_tools}
 
+Priority tools for this step (use first when possible):
+{suggested_tools}
+
 Tool policy:
-1. Call at least one MCP tool before finalizing the step.
-2. Prefer multiple independent MCP sources for better coverage.
-3. Do not skip tool usage.
+1. You may ONLY call tools from the Allowed tools list.
+2. Call at least one MCP tool before finalizing the step.
+3. Use at least one Priority tool when available.
+4. Prefer multiple independent MCP sources for better coverage.
+5. Do not skip tool usage.
+
+Media output policy:
+- If image results are found, include markdown image lines in reasoning: ![alt](url)
+- If YouTube/video results are found, include markdown links in reasoning: [title](url)
 
 Always think out loud. Your reasoning trace is shown to the user.
 
@@ -98,6 +109,217 @@ Research topic: {cleaned_prompt}
 
 Gather comprehensive, high-quality knowledge for this step. Use multiple sources.
 When done, summarise what you found in a clear paragraph."""
+
+
+_TOOL_NAME_ALIASES = {
+    "websearch": "web_search",
+    "web": "web_search",
+    "readwebpage": "read_webpages",
+    "readwebpages": "read_webpages",
+    "searchurls": "search_urls_tool",
+    "searchurlstool": "search_urls_tool",
+    "urlsearch": "search_urls_tool",
+    "youtube": "youtube_search",
+    "youtubesearch": "youtube_search",
+    "video": "youtube_search",
+    "videosearch": "youtube_search",
+    "image": "image_search_tool",
+    "images": "image_search_tool",
+    "imagesearch": "image_search_tool",
+    "imagesearchtool": "image_search_tool",
+    "scrape": "scrape_single_url",
+    "scrapeurl": "scrape_single_url",
+    "scrapesingleurl": "scrape_single_url",
+    "document": "process_docs",
+    "documents": "process_docs",
+    "doc": "process_docs",
+    "pdf": "process_docs",
+}
+
+
+def _tool_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").strip().lower())
+
+
+def _normalize_tool_name_for_routing(tool_name: str) -> str:
+    name = (tool_name or "").strip().lower()
+    if not name:
+        return ""
+    if "::" in name:
+        name = name.split("::")[-1]
+    if "/" in name:
+        name = name.split("/")[-1]
+    if "." in name:
+        name = name.split(".")[-1]
+    return name
+
+
+def _canonical_tool_name(tool_name: str) -> str:
+    normalized = _normalize_tool_name_for_routing(tool_name)
+    key = _tool_key(normalized)
+    return _TOOL_NAME_ALIASES.get(key, normalized)
+
+
+def _resolve_requested_tool_names(
+    requested: list[str],
+    available_tool_names: list[str],
+) -> list[str]:
+    if not requested or not available_tool_names:
+        return []
+
+    available_by_key = {
+        _tool_key(name): name for name in available_tool_names if isinstance(name, str)
+    }
+    available_exact = {
+        name.strip(): name for name in available_tool_names if isinstance(name, str)
+    }
+
+    resolved: list[str] = []
+    for raw in requested:
+        candidate = (raw or "").strip()
+        if not candidate:
+            continue
+
+        matched = available_exact.get(candidate)
+        if matched is None:
+            candidate_key = _tool_key(candidate)
+            alias = _TOOL_NAME_ALIASES.get(candidate_key)
+            matched = available_by_key.get(candidate_key)
+            if matched is None and alias:
+                matched = available_exact.get(alias) or available_by_key.get(
+                    _tool_key(alias)
+                )
+
+        if matched and matched not in resolved:
+            resolved.append(matched)
+
+    return resolved
+
+
+def _infer_tool_names_from_step(
+    step: PlanStep,
+    available_tool_names: list[str],
+) -> list[str]:
+    text = f"{step.step_title} {step.step_description}".lower()
+    inferred: list[str] = []
+
+    def add(name: str) -> None:
+        if name in available_tool_names and name not in inferred:
+            inferred.append(name)
+
+    if any(token in text for token in ("youtube", "video", "podcast", "interview")):
+        add("youtube_search")
+    if any(
+        token in text
+        for token in ("image", "photo", "visual", "diagram", "infographic")
+    ):
+        add("image_search_tool")
+    if any(
+        token in text for token in ("pdf", "document", "file", "whitepaper", "report")
+    ):
+        add("process_docs")
+    if any(token in text for token in ("url", "link", "website list", "directory")):
+        add("search_urls_tool")
+    if any(token in text for token in ("scrape", "crawl", "extract", "webpage")):
+        add("read_webpages")
+
+    if not inferred:
+        for fallback_name in ("web_search", "read_webpages", "search_urls_tool"):
+            if fallback_name in available_tool_names:
+                inferred.append(fallback_name)
+                break
+
+    return inferred
+
+
+def _select_step_tools(
+    step: PlanStep, mcp_tools: list[Any]
+) -> tuple[list[Any], list[str], list[str]]:
+    all_tool_names = [
+        getattr(tool, "name", "") for tool in mcp_tools if getattr(tool, "name", "")
+    ]
+
+    resolved_requested = _resolve_requested_tool_names(
+        step.suggested_tools,
+        all_tool_names,
+    )
+    if not resolved_requested:
+        resolved_requested = _infer_tool_names_from_step(step, all_tool_names)
+
+    if resolved_requested:
+        by_name = {
+            getattr(tool, "name", ""): tool
+            for tool in mcp_tools
+            if getattr(tool, "name", "")
+        }
+        selected = [by_name[name] for name in resolved_requested if name in by_name]
+        if selected:
+            return selected, resolved_requested, resolved_requested
+
+    return list(mcp_tools), all_tool_names, []
+
+
+def _source_uses_required_tool(source_tool: Any, required_tools: list[str]) -> bool:
+    if not required_tools:
+        return True
+
+    source_key = _tool_key(_canonical_tool_name(str(source_tool or "")))
+    required_keys = {_tool_key(_canonical_tool_name(name)) for name in required_tools}
+    return source_key in required_keys
+
+
+def _media_markdown_for_chain_of_thought(
+    tool_name: str, parsed: list[dict[str, Any]]
+) -> str:
+    normalized = _normalize_tool_name_for_routing(tool_name)
+
+    if normalized in {"image_search_tool", "image_search"}:
+        lines: list[str] = []
+        for item in parsed[:8]:
+            url = str(item.get("url", "")).strip()
+            if not url:
+                continue
+            title = str(item.get("title") or "Image result").strip() or "Image result"
+            lines.append(f"- ![{title}]({url})")
+
+        if lines:
+            return "### Image Findings\n" + "\n".join(lines)
+
+    if normalized == "youtube_search":
+        lines = []
+        for item in parsed[:8]:
+            url = str(item.get("url", "")).strip()
+            if not url:
+                continue
+            title = str(item.get("title") or url).strip() or url
+            lines.append(f"- [{title}]({url})")
+
+        if lines:
+            return "### YouTube Findings\n" + "\n".join(lines)
+
+    return ""
+
+
+def _append_media_links_to_summary(
+    tool_name: str,
+    summary: str,
+    parsed: list[dict[str, Any]],
+) -> str:
+    normalized = _normalize_tool_name_for_routing(tool_name)
+
+    if normalized == "youtube_search":
+        links: list[str] = []
+        for item in parsed[:5]:
+            url = str(item.get("url", "")).strip()
+            if not url:
+                continue
+            title = str(item.get("title") or url).strip() or url
+            links.append(f"- [{title}]({url})")
+
+        if links:
+            return f"{summary}\nYouTube links:\n" + "\n".join(links)
+
+    return summary
 
 
 def _build_system_message(
@@ -240,13 +462,17 @@ async def run_orchestrator1(
         )
 
         try:
-            step_tools = list(mcp_tools)
+            step_tools, available_tool_names, required_tool_names = _select_step_tools(
+                step,
+                mcp_tools,
+            )
 
-            available_tool_names = [
-                getattr(tool, "name", "")
-                for tool in step_tools
-                if getattr(tool, "name", "")
-            ]
+            if required_tool_names:
+                logger.info(
+                    "[orc1] Step %s scoped to tool set: %s",
+                    step_idx,
+                    required_tool_names,
+                )
 
             step_sources = await _run_step(
                 step=step,
@@ -254,6 +480,7 @@ async def run_orchestrator1(
                 total_steps=total_steps,
                 step_tools=step_tools,
                 available_tool_names=available_tool_names,
+                required_tool_names=required_tool_names,
                 llm=llm,
                 checkpointer=checkpointer,
                 thread_id=f"{base_thread_id}_step_{step_idx}_{uuid.uuid4().hex[:8]}",
@@ -339,6 +566,7 @@ async def _run_step(
     total_steps: int,
     step_tools: list,
     available_tool_names: list[str],
+    required_tool_names: list[str],
     llm: ChatOllama,
     checkpointer,
     thread_id: str,
@@ -516,6 +744,7 @@ async def _run_step(
 
             summary = summarise_tool_output(tool_name, output)
             parsed = parse_tool_output(tool_name, output)
+            summary = _append_media_links_to_summary(tool_name, summary, parsed)
             compact_payload = _compact_tool_payload(parsed, extended_mode=extended_mode)
 
             # Emit tool output events
@@ -553,6 +782,28 @@ async def _run_step(
                 )
             )
 
+            media_markdown = _media_markdown_for_chain_of_thought(tool_name, parsed)
+            if media_markdown:
+                await emitter.emit(
+                    ChainOfThoughtEvent(
+                        research_id=research_id,
+                        step_index=step.step_index,
+                        token=media_markdown,
+                    )
+                )
+                await emitter.emit(
+                    ReActEvent(
+                        research_id=research_id,
+                        step_index=step.step_index,
+                        sub_type="reason",
+                        data={
+                            "token": media_markdown,
+                            "format": "markdown",
+                            "mode": "media_links",
+                        },
+                    )
+                )
+
             # Collect normalised sources — one entry per parsed item
             for item in parsed:
                 step_sources.append(
@@ -589,16 +840,26 @@ async def _run_step(
                 )
             )
 
-    # Ensure at least one external MCP source exists for this step.
-    if not any(
-        s.get("tool") not in ("agent_summary", "rag_search") for s in step_sources
-    ):
+    # Ensure at least one external MCP source exists for this step and that
+    # suggested/required tools are actually used when provided.
+    external_sources = [
+        s for s in step_sources if s.get("tool") not in ("agent_summary", "rag_search")
+    ]
+    used_required_tool = True
+    if required_tool_names:
+        used_required_tool = any(
+            _source_uses_required_tool(s.get("tool", ""), required_tool_names)
+            for s in external_sources
+        )
+
+    if not external_sources or not used_required_tool:
         fallback_sources = await _force_single_mcp_call(
             tools=step_tools,
             step=step,
             context=context,
             emitter=emitter,
             research_id=research_id,
+            preferred_tool_names=required_tool_names,
         )
         step_sources.extend(fallback_sources)
 
@@ -670,12 +931,13 @@ async def _force_single_mcp_call(
     context: ResearchContext,
     emitter: WSEmitter,
     research_id: str,
+    preferred_tool_names: list[str] | None = None,
 ) -> list[dict]:
     """Fallback: run one MCP tool directly if the LLM skipped tool calls."""
     if not tools:
         return []
 
-    preferred = [
+    fallback_order = [
         "web_search",
         "read_webpages",
         "search_urls_tool",
@@ -686,8 +948,15 @@ async def _force_single_mcp_call(
 
     selected = tools[0]
     selected_from_suggestion = False
-    suggested = [s.strip() for s in step.suggested_tools if s.strip()]
-    for name in suggested:
+
+    pool_names = [
+        getattr(tool, "name", "") for tool in tools if getattr(tool, "name", "")
+    ]
+
+    preferred = _resolve_requested_tool_names(preferred_tool_names or [], pool_names)
+    suggested = _resolve_requested_tool_names(step.suggested_tools, pool_names)
+
+    for name in preferred + suggested:
         match = next((t for t in tools if getattr(t, "name", "") == name), None)
         if match is not None:
             selected = match
@@ -695,7 +964,7 @@ async def _force_single_mcp_call(
             break
 
     if not selected_from_suggestion:
-        for name in preferred:
+        for name in fallback_order:
             match = next((t for t in tools if getattr(t, "name", "") == name), None)
             if match is not None:
                 selected = match
@@ -717,6 +986,21 @@ async def _force_single_mcp_call(
         output = await selected.ainvoke(payload)
         summary = summarise_tool_output(tool_name, output)
         parsed = parse_tool_output(tool_name, output)
+        summary = _append_media_links_to_summary(tool_name, summary, parsed)
+        compact_payload = _compact_tool_payload(
+            parsed,
+            extended_mode=context.extended_mode,
+        )
+
+        await emitter.emit(
+            ToolOutputEvent(
+                research_id=research_id,
+                step_index=step.step_index,
+                tool_name=tool_name,
+                summary=summary,
+                result_payload=compact_payload,
+            )
+        )
 
         await emitter.emit(
             ToolResultEvent(
@@ -724,8 +1008,31 @@ async def _force_single_mcp_call(
                 tool_name=tool_name,
                 result_summary=summary,
                 step_index=step.step_index,
+                result_payload=compact_payload,
             )
         )
+
+        media_markdown = _media_markdown_for_chain_of_thought(tool_name, parsed)
+        if media_markdown:
+            await emitter.emit(
+                ChainOfThoughtEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    token=media_markdown,
+                )
+            )
+            await emitter.emit(
+                ReActEvent(
+                    research_id=research_id,
+                    step_index=step.step_index,
+                    sub_type="reason",
+                    data={
+                        "token": media_markdown,
+                        "format": "markdown",
+                        "mode": "media_links",
+                    },
+                )
+            )
 
         items: list[dict] = []
         for item in parsed:
@@ -823,6 +1130,7 @@ async def _persist_step_sources(
                 "research_id": research_id,
                 "source_type": tool,
                 "source_url": url,
+                "source_title": source.get("title", ""),
                 "source_content": persisted_content,
                 "step_index": step_index,
                 "step_file_path": step_file_path,
@@ -834,12 +1142,13 @@ def _insert_research_source_row(
     research_id: str,
     source_type: str,
     source_url: str,
+    source_title: str,
     source_content: str,
     step_index: int,
     step_file_path: str,
 ) -> None:
     """Insert source row with graceful fallback for older DB schemas."""
-    from main.src.store.DBManager import researches_db_manager
+    from main.src.store.DBManager import researches_db_manager, scrapes_db_manager
 
     full_data = {
         "id": str(uuid.uuid4()),
@@ -855,6 +1164,16 @@ def _insert_research_source_row(
 
     result = researches_db_manager.insert("research_sources", full_data)
     if result.get("success"):
+        _upsert_scrape_rows(
+            scrapes_db_manager=scrapes_db_manager,
+            research_id=research_id,
+            source_type=source_type,
+            source_url=source_url,
+            source_title=source_title,
+            source_content=source_content,
+            step_index=step_index,
+            step_file_path=step_file_path,
+        )
         return
 
     # Older DBs may not yet have tracking columns; retry without them.
@@ -876,6 +1195,145 @@ def _insert_research_source_row(
             logger.warning(
                 "[orc1] Inserted research source without tracking columns (legacy schema)."
             )
+            _upsert_scrape_rows(
+                scrapes_db_manager=scrapes_db_manager,
+                research_id=research_id,
+                source_type=source_type,
+                source_url=source_url,
+                source_title=source_title,
+                source_content=source_content,
+                step_index=step_index,
+                step_file_path=step_file_path,
+            )
             return
 
     logger.warning("[orc1] Failed to persist research source: %s", message)
+
+    _upsert_scrape_rows(
+        scrapes_db_manager=scrapes_db_manager,
+        research_id=research_id,
+        source_type=source_type,
+        source_url=source_url,
+        source_title=source_title,
+        source_content=source_content,
+        step_index=step_index,
+        step_file_path=step_file_path,
+    )
+
+
+def _upsert_scrape_rows(
+    *,
+    scrapes_db_manager,
+    research_id: str,
+    source_type: str,
+    source_url: str,
+    source_title: str,
+    source_content: str,
+    step_index: int,
+    step_file_path: str,
+) -> None:
+    """Persist web-like sources into scrapes + scrapes_metadata tables."""
+    if not source_url:
+        return
+
+    normalized_source_type = str(source_type or "").strip().lower()
+
+    web_source_types = {
+        "web_search",
+        "read_webpages",
+        "scrape_single_url",
+        "search_urls_tool",
+        "youtube_search",
+    }
+    if normalized_source_type not in web_source_types:
+        return
+
+    now = datetime.utcnow().isoformat()
+    metadata_payload = {
+        "tool": normalized_source_type,
+        "step_index": step_index,
+        "temp_file_path": step_file_path,
+    }
+
+    existing_scrape = scrapes_db_manager.fetch_one(
+        "scrapes",
+        where={"origin_research_id": research_id, "url": source_url},
+    )
+    existing_scrape_row = (
+        existing_scrape.get("data") if existing_scrape.get("success") else None
+    )
+
+    if existing_scrape_row and existing_scrape_row.get("id"):
+        scrape_id = str(existing_scrape_row.get("id"))
+        scrapes_db_manager.update(
+            "scrapes",
+            data={
+                "title": source_title or existing_scrape_row.get("title", ""),
+                "content": source_content,
+                "metadata": json.dumps(metadata_payload, ensure_ascii=True),
+                "updated_at": now,
+            },
+            where={"id": scrape_id},
+        )
+    else:
+        scrape_id = str(uuid.uuid4())
+        scrapes_db_manager.insert(
+            "scrapes",
+            {
+                "id": scrape_id,
+                "url": source_url,
+                "title": source_title or source_url,
+                "favicon": "",
+                "content": source_content,
+                "metadata": json.dumps(metadata_payload, ensure_ascii=True),
+                "is_vector_stored": False,
+                "origin_research_id": research_id,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+
+    existing_scrape_meta = scrapes_db_manager.fetch_one(
+        "scrapes_metadata",
+        where={"scrape_id": scrape_id},
+    )
+    existing_scrape_meta_row = (
+        existing_scrape_meta.get("data")
+        if existing_scrape_meta.get("success")
+        else None
+    )
+    word_count = len(source_content.split()) if source_content else 0
+
+    if existing_scrape_meta_row and existing_scrape_meta_row.get("id"):
+        next_crawls = int(existing_scrape_meta_row.get("num_crawls") or 0) + 1
+        scrapes_db_manager.update(
+            "scrapes_metadata",
+            data={
+                "search_engine": "SearXNG",
+                "clawler": normalized_source_type,
+                "clawling_time_sec": 0,
+                "no_words": word_count,
+                "research_cited": research_id,
+                "num_crawls": next_crawls,
+                "updated_at": now,
+            },
+            where={"id": existing_scrape_meta_row.get("id")},
+        )
+    else:
+        scrapes_db_manager.insert(
+            "scrapes_metadata",
+            {
+                "id": str(uuid.uuid4()),
+                "search_engine": "SearXNG",
+                "clawler": normalized_source_type,
+                "clawling_time_sec": 0,
+                "scrape_id": scrape_id,
+                "no_words": word_count,
+                "chats_cited": "",
+                "research_cited": research_id,
+                "num_crawls": 1,
+                "num_cited": 0,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )

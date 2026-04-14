@@ -419,6 +419,7 @@ def create_research_tables() -> None:
     - `research_plans`: Stores information about the research plans.
     - `research_workflow`: Stores information about the reserch workflow per research.
     - `research_metadata`: Stores information about the additional metadata for researches.
+    - `research_step_snapshots`: Stores deterministic per-step snapshots for resume/reconnect.
     - `research_sources`: Stores information about the research sources.
 
     Returns: None
@@ -522,6 +523,29 @@ def create_research_tables() -> None:
             },
         )
         logger.info("Created research_metadata table...")
+        logger.info("Creating research_step_snapshots table...")
+        researches_db_manager.create_table(
+            "research_step_snapshots",
+            {
+                "id": "TEXT PRIMARY KEY UNIQUE",
+                "research_id": "TEXT",
+                "step_index": "INTEGER",
+                "step_title": "TEXT",
+                "step_description": "TEXT",
+                "status": "TEXT DEFAULT 'pending'",
+                "content_json": "TEXT",
+                "last_event_id": "TEXT",
+                "started_at": "TEXT",
+                "completed_at": "TEXT",
+                "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            },
+            indexes=[
+                ["id", "research_id", "step_index"],
+                ["research_id", "step_index"],
+            ],
+        )
+        logger.info("Created research_step_snapshots table...")
         logger.info("Creating research_sources table...")
         researches_db_manager.create_table(
             "research_sources",
@@ -571,6 +595,38 @@ def ensure_research_source_tracking_columns() -> None:
     except (ValueError, sqlite3.Error, OSError) as e:
         logger.error(
             "Failed ensuring research_sources tracking columns: %s",
+            e,
+            stack_info=True,
+        )
+
+
+def ensure_research_step_snapshot_table() -> None:
+    """Ensure deterministic step snapshot table exists on legacy databases."""
+    try:
+        researches_db_manager.create_table(
+            "research_step_snapshots",
+            {
+                "id": "TEXT PRIMARY KEY UNIQUE",
+                "research_id": "TEXT",
+                "step_index": "INTEGER",
+                "step_title": "TEXT",
+                "step_description": "TEXT",
+                "status": "TEXT DEFAULT 'pending'",
+                "content_json": "TEXT",
+                "last_event_id": "TEXT",
+                "started_at": "TEXT",
+                "completed_at": "TEXT",
+                "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            },
+            indexes=[
+                ["id", "research_id", "step_index"],
+                ["research_id", "step_index"],
+            ],
+        )
+    except (ValueError, sqlite3.Error, OSError) as e:
+        logger.error(
+            "Failed ensuring research_step_snapshots table: %s",
             e,
             stack_info=True,
         )
@@ -1263,6 +1319,7 @@ if __name__ == "__main__":
     create_chat_tables()
     create_research_tables()
     ensure_research_source_tracking_columns()
+    ensure_research_step_snapshot_table()
     create_bucket_tables()
     create_settings_table()
     create_scrapes_database()
