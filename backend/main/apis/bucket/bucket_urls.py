@@ -16,6 +16,8 @@ from main.apis.models.bucket import (
 )
 from main.src.bucket import bucket_orchestrator
 from main.src.bucket.bucket_store import bucket_store
+from main.src.utils.DRLogger import quickLog
+from main.src.utils.core.task_schedular import scheduler
 
 router = APIRouter(prefix="/bucket", tags=["bucket"])
 
@@ -78,12 +80,17 @@ def list_buckets(
 
 
 @router.get("/assets/{asset_path:path}")
-def get_asset(asset_path: str) -> FileResponse:
+def get_asset(
+    asset_path: str,
+    download: bool = Query(default=False),
+) -> FileResponse:
     """Serve files stored under src/store/bucket using relative asset paths."""
     try:
         resolved_path = bucket_store.resolve_asset_path(asset_path)
         if not resolved_path.exists() or not resolved_path.is_file():
             raise KeyError(f"Asset {asset_path} not found")
+        if download:
+            return FileResponse(path=resolved_path, filename=resolved_path.name)
         return FileResponse(path=resolved_path)
     except Exception as exc:
         _raise_bucket_http_error(f"Fetch asset {asset_path}", exc)
@@ -215,13 +222,18 @@ def get_bucket_item(item_id: str) -> BucketItemRecord:
 
 
 @router.get("/items/{item_id}/asset")
-def get_bucket_item_asset(item_id: str) -> FileResponse:
+def get_bucket_item_asset(
+    item_id: str,
+    download: bool = Query(default=False),
+) -> FileResponse:
     """Serve an uploaded bucket file directly by item id."""
     try:
         item = bucket_view.getBucketItem(item_id)
         resolved_path = bucket_store.resolve_asset_path(item.file_path)
         if not resolved_path.exists() or not resolved_path.is_file():
             raise KeyError(f"Asset for bucket item {item_id} not found")
+        if download:
+            return FileResponse(path=resolved_path, filename=resolved_path.name)
         return FileResponse(path=resolved_path)
     except Exception as exc:
         _raise_bucket_http_error(f"Fetch asset for bucket item {item_id}", exc)
@@ -257,7 +269,15 @@ def patch_bucket_item(item_id: str, payload: BucketItemPatch) -> BucketItemRecor
 async def delete_bucket_item(item_id: str) -> Response:
     try:
         bucket_view.deleteBucketItem(item_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted bucket item {item_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": "Successfully deleted bucket item {item_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_bucket_http_error(f"Delete bucket item {item_id}", exc)
@@ -291,7 +311,15 @@ def patch_bucket(bucket_id: str, payload: BucketPatch) -> BucketRecord:
 async def delete_bucket(bucket_id: str) -> Response:
     try:
         bucket_view.deleteBucket(bucket_id)
-        await scheduler.schedule(quickLog, params={'message': 'Successfully deleted bucket {bucket_id} from API', 'level': 'warning', 'urgency': 'moderate', 'module': ['API']})
+        await scheduler.schedule(
+            quickLog,
+            params={
+                "message": "Successfully deleted bucket {bucket_id} from API",
+                "level": "warning",
+                "urgency": "moderate",
+                "module": ["API"],
+            },
+        )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         _raise_bucket_http_error(f"Delete bucket {bucket_id}", exc)

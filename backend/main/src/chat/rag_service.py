@@ -13,7 +13,9 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from langchain_community.chat_models import ChatOllama
@@ -38,6 +40,9 @@ CHAT_MODEL = settings.OLLAMA_MODEL
 VISION_MODEL = settings.OLLAMA_VISION_MODEL or CHAT_MODEL
 EMBED_MODEL = settings.OLLAMA_EMBED_MODEL
 TOP_K = settings.RAG_TOP_K
+BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000").rstrip(
+    "/"
+)
 
 _raw_collection_override = [
     c.strip() for c in os.getenv("CHAT_RAG_COLLECTIONS", "").split(",") if c.strip()
@@ -193,6 +198,87 @@ def _build_source_blocks(chunks: list[dict[str, Any]]) -> str:
     return "\n".join(lines).strip()
 
 
+def _is_http_url(value: str) -> bool:
+    lowered = value.lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _append_query_param(url: str, key: str, value: str) -> str:
+    parsed = urlsplit(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query[key] = value
+    return urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            urlencode(query),
+            parsed.fragment,
+        )
+    )
+
+
+def _build_backend_asset_url(asset_relative_path: str) -> str:
+    normalized = asset_relative_path.lstrip("/")
+    return f"{BACKEND_PUBLIC_URL}/bucket/assets/{normalized}"
+
+
+def _normalize_source_display(source: str) -> str:
+    clean = source.strip()
+    if not clean:
+        return "unknown"
+
+    if _is_http_url(clean):
+        try:
+            parsed = urlsplit(clean)
+            if parsed.path:
+                file_name = Path(parsed.path).name
+                if file_name:
+                    return file_name
+        except Exception:
+            pass
+        return clean
+
+    return Path(clean).name or clean
+
+
+def _resolve_source_download_url(source: str) -> str | None:
+    raw = source.strip()
+    if not raw or raw.lower() == "unknown":
+        return None
+
+    if _is_http_url(raw):
+        parsed = urlsplit(raw)
+        if "/bucket/assets/" in parsed.path:
+            return _append_query_param(raw, "download", "1")
+        return raw
+
+    if raw.startswith("/") and raw.startswith("/bucket/assets/"):
+        return _append_query_param(f"{BACKEND_PUBLIC_URL}{raw}", "download", "1")
+
+    normalized = raw.lstrip("/")
+    if normalized.startswith("bucket/assets/"):
+        relative_path = normalized[len("bucket/assets/") :]
+        return _append_query_param(
+            _build_backend_asset_url(relative_path), "download", "1"
+        )
+
+    marker = "/store/bucket/"
+    if marker in raw:
+        relative_path = raw.split(marker, 1)[1].lstrip("/")
+        return _append_query_param(
+            _build_backend_asset_url(relative_path), "download", "1"
+        )
+
+    # Handles stored bucket-relative paths such as "chat-attachments/files/doc.pdf".
+    if "/" in normalized and Path(normalized).suffix:
+        return _append_query_param(
+            _build_backend_asset_url(normalized), "download", "1"
+        )
+
+    return None
+
+
 def _build_sources_section(
     chunks: list[dict[str, Any]],
     cited_ids: list[int] | None = None,
@@ -217,27 +303,41 @@ def _build_sources_section(
             continue
         source = str(chunk.get("source") or "unknown")
         collection = str(chunk.get("collection") or "unknown")
-        lines.append(f"- [Source {source_id}] {collection} | {source}")
+        display_source = _normalize_source_display(source)
+        download_url = _resolve_source_download_url(source)
+        if download_url:
+            lines.append(
+                f"- Source {source_id}: [{display_source}]({download_url}) ({collection})"
+            )
+        else:
+            lines.append(f"- Source {source_id}: {display_source} ({collection})")
 
     return "\n".join(lines)
+
+
+def _strip_existing_sources_section(response_text: str) -> str:
+    marker = re.search(r"(^|\n)##\s+sources\b", response_text, flags=re.IGNORECASE)
+    if not marker:
+        return response_text.rstrip()
+    return response_text[: marker.start()].rstrip()
 
 
 def ensure_sources_section(response_text: str, chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return response_text
-    if "## sources" in response_text.lower():
-        return response_text
+
+    text_without_sources = _strip_existing_sources_section(response_text)
 
     cited = {
         int(match)
-        for match in re.findall(r"\[Source\s+(\d+)\]", response_text)
+        for match in re.findall(r"\[Source\s+(\d+)\]", text_without_sources)
         if match.isdigit()
     }
     cited_ids = sorted(source_id for source_id in cited if source_id > 0)
     sources_section = _build_sources_section(chunks, cited_ids)
     if not sources_section:
         return response_text
-    return f"{response_text.rstrip()}\n\n{sources_section}\n"
+    return f"{text_without_sources}\n\n{sources_section}\n"
 
 
 async def retrieve_chunks(query: str, k: int = TOP_K) -> list[dict[str, Any]]:
@@ -289,8 +389,8 @@ def build_context(
         f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in history
     )
     docs_text = _build_source_blocks(chunks) if chunks else ""
-    server_now = datetime.now(timezone.utc).astimezone().strftime(
-        "%Y-%m-%d %H:%M:%S %Z"
+    server_now = (
+        datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     )
 
     parts = [

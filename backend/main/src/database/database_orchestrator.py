@@ -26,7 +26,11 @@ from main.src.store.DBManager import (
 try:
     import chromadb
 
-    from main.src.store.vector.DBVector import COLLECTIONS, _CHROMA_PATH, db_vector_manager
+    from main.src.store.vector.DBVector import (
+        COLLECTIONS,
+        _CHROMA_PATH,
+        db_vector_manager,
+    )
 
     VECTOR_ENABLED = True
     CHROMA_VERSION = getattr(chromadb, "__version__", "unknown")
@@ -96,7 +100,9 @@ class DatabaseOrchestrator:
             }
 
     @staticmethod
-    def _paginate(items: list[Any], page: int, size: int) -> tuple[list[Any], int, int, int]:
+    def _paginate(
+        items: list[Any], page: int, size: int
+    ) -> tuple[list[Any], int, int, int]:
         safe_page = max(1, int(page))
         safe_size = max(1, int(size))
         total_items = len(items)
@@ -210,7 +216,9 @@ class DatabaseOrchestrator:
                 result = health.get(collection_name, {})
                 if result.get("success"):
                     data = result.get("data") or {}
-                    counts[collection_name] = self._safe_int(data.get("count"), default=0)
+                    counts[collection_name] = self._safe_int(
+                        data.get("count"), default=0
+                    )
         except Exception:  # pylint: disable=broad-except
             pass
 
@@ -222,9 +230,7 @@ class DatabaseOrchestrator:
             if chroma_path.exists():
                 return chroma_path
 
-        fallback = (
-            Path(__file__).resolve().parents[1] / "store" / "vector" / "chroma"
-        )
+        fallback = Path(__file__).resolve().parents[1] / "store" / "vector" / "chroma"
         return fallback
 
     def _build_sqlite_tables(self, database_id: str) -> tuple[list[TableMeta], int]:
@@ -233,7 +239,9 @@ class DatabaseOrchestrator:
 
         table_names_result = manager.list_tables(include_internal=False)
         if not table_names_result.get("success"):
-            raise ValueError(table_names_result.get("message") or "Failed to list tables")
+            raise ValueError(
+                table_names_result.get("message") or "Failed to list tables"
+            )
 
         table_names = table_names_result.get("data") or []
         db_file_path = Path(manager.db_path)
@@ -439,7 +447,9 @@ class DatabaseOrchestrator:
 
         records.sort(key=lambda item: (item.type, item.name.lower()))
 
-        page_items, total_items, total_pages, offset = self._paginate(records, page, size)
+        page_items, total_items, total_pages, offset = self._paginate(
+            records, page, size
+        )
 
         return DatabaseListResponse(
             items=page_items,
@@ -458,7 +468,9 @@ class DatabaseOrchestrator:
     ) -> DatabaseTableListResponse:
         detail = await self.get_database(database_id)
         tables = sorted(detail.tables, key=lambda table: table.name.lower())
-        page_items, total_items, total_pages, offset = self._paginate(tables, page, size)
+        page_items, total_items, total_pages, offset = self._paginate(
+            tables, page, size
+        )
 
         return DatabaseTableListResponse(
             items=page_items,
@@ -486,7 +498,9 @@ class DatabaseOrchestrator:
 
             schema_result = manager.get_table_schema(table_name)
             if not schema_result.get("success"):
-                raise ValueError(schema_result.get("message") or "Failed to read schema")
+                raise ValueError(
+                    schema_result.get("message") or "Failed to read schema"
+                )
 
             schema_rows = schema_result.get("data") or []
             if not schema_rows:
@@ -510,10 +524,7 @@ class DatabaseOrchestrator:
             payload = paginated_result.get("data") or {}
             raw_items = payload.get("items") or []
             items = [
-                {
-                    key: self._serialize_cell_value(value)
-                    for key, value in row.items()
-                }
+                {key: self._serialize_cell_value(value) for key, value in row.items()}
                 for row in raw_items
             ]
 
@@ -553,7 +564,9 @@ class DatabaseOrchestrator:
             offset = (safe_page - 1) * safe_size
             counts = await self._vector_counts()
             total_items = self._safe_int(counts.get(table_name), default=0)
-            total_pages = ((total_items + safe_size - 1) // safe_size) if total_items else 0
+            total_pages = (
+                ((total_items + safe_size - 1) // safe_size) if total_items else 0
+            )
 
             result = await db_vector_manager.fetch_all(
                 collection_name=table_name,

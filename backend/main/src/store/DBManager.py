@@ -1576,9 +1576,7 @@ class SQLiteManager:
                 conn.execute(query)
                 conn.commit()
 
-            _log_db_event(
-                f"FTS5 table '{valid_fts}' created.", "info", urgency="none"
-            )
+            _log_db_event(f"FTS5 table '{valid_fts}' created.", "info", urgency="none")
             return {
                 "success": True,
                 "message": f"FTS5 table '{valid_fts}' created",
@@ -1628,9 +1626,7 @@ class SQLiteManager:
         try:
             valid_fts = self._validate_identifier(fts_table_name)
             with self._get_connection() as conn:
-                conn.execute(
-                    f"INSERT INTO {valid_fts}({valid_fts}) VALUES('rebuild')"
-                )
+                conn.execute(f"INSERT INTO {valid_fts}({valid_fts}) VALUES('rebuild')")
                 conn.commit()
 
             return {
@@ -1890,9 +1886,7 @@ class SQLiteManager:
                     select_expr = "*"
 
                 # Build WHERE clause: col1 LIKE ? OR col2 LIKE ? ...
-                like_conditions = [
-                    f"LOWER({col}) LIKE ?" for col in valid_search_cols
-                ]
+                like_conditions = [f"LOWER({col}) LIKE ?" for col in valid_search_cols]
                 where_clause = " OR ".join(like_conditions)
                 like_param = f"%{lower_query}%"
                 params: list = [like_param] * len(valid_search_cols)
@@ -1901,21 +1895,16 @@ class SQLiteManager:
                 # Priority 1: exact match in any column
                 # Priority 2: starts-with in any column
                 # Priority 3: contains (default)
-                exact_cases = [
-                    f"LOWER({col}) = ?" for col in valid_search_cols
-                ]
-                starts_cases = [
-                    f"LOWER({col}) LIKE ?" for col in valid_search_cols
-                ]
+                exact_cases = [f"LOWER({col}) = ?" for col in valid_search_cols]
+                starts_cases = [f"LOWER({col}) LIKE ?" for col in valid_search_cols]
                 order_expr = (
                     f"CASE WHEN {' OR '.join(exact_cases)} THEN 0 "
                     f"WHEN {' OR '.join(starts_cases)} THEN 1 "
                     f"ELSE 2 END"
                 )
-                order_params = (
-                    [lower_query] * len(valid_search_cols)
-                    + [f"{lower_query}%"] * len(valid_search_cols)
-                )
+                order_params = [lower_query] * len(valid_search_cols) + [
+                    f"{lower_query}%"
+                ] * len(valid_search_cols)
 
                 # Count total matches
                 count_sql = (
