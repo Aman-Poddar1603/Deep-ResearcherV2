@@ -3,6 +3,8 @@ import { Square, Copy, X, Minus } from 'lucide-react'
 import { ThemeSwitcher } from '../ThemeSwitcher'
 import { useInternalLogo } from '@/ui/components/GetLogo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import StatusPopover from './StatusPopover'
+import { useConnectionInitialization } from '@/hooks/useConnectionInitialization'
 
 interface DraggableStyle extends React.CSSProperties {
     WebkitAppRegion: 'drag' | 'no-drag';
@@ -11,6 +13,10 @@ interface DraggableStyle extends React.CSSProperties {
 const Titlebar = () => {
     const [isMaximized, setIsMaximized] = React.useState(true); // Default to true as we force maximize on start
     const internalLogo = useInternalLogo()
+
+    // Initialize connection when titlebar mounts
+    useConnectionInitialization()
+
     const handleMinimize = () => {
         window.electron.minimizeWindow();
     }
@@ -53,6 +59,8 @@ const Titlebar = () => {
             </div>
             <div className='flex items-center gap-1' style={{ WebkitAppRegion: 'no-drag' } as DraggableStyle}>
                 <TooltipProvider disableHoverableContent>
+                    <StatusPopover />
+                    <div className='w-px h-5 bg-border/30' />
                     <ThemeSwitcher />
                     <div className='flex items-center -mr-4'>
                         <Tooltip delayDuration={700}>

@@ -26,6 +26,7 @@ from main.src.chat.router import router as chat_runtime_router
 from main.src.research.layer2.tools import shutdown_mcp_runtime
 from main.src.research.router import router as research_runtime_router
 from main.src.utils.core.task_schedular import scheduler
+from main.src.utils.system_status_broadcaster import broadcast_status_loop
 from main.sse.event_bus import event_bus
 
 research_router = getattr(research_urls, "router")
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI):
     """
     # -------- SERVER START --------
     await scheduler.start()
+    await scheduler.schedule(broadcast_status_loop, params={})
 
     yield
 
@@ -160,10 +162,14 @@ async def research_ws_protocol() -> dict[str, object]:
 
 @app.get("/events/{client_id}")
 async def stream(request: Request, client_id: str):
+    from main.src.utils.system_status_broadcaster import LATEST_STATUS_PAYLOAD
     queue = event_bus.register(client_id)
 
     async def event_generator():
         try:
+            if client_id == "frontend_monitor" and LATEST_STATUS_PAYLOAD:
+                yield format_sse(LATEST_STATUS_PAYLOAD)
+                
             while True:
                 if await request.is_disconnected():
                     break
