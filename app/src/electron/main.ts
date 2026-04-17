@@ -59,6 +59,27 @@ app.on("ready", () => {
         mainWindow.webContents.toggleDevTools();
     });
 
+    ipcMainHandle("getZoomLevel", () => {
+        return mainWindow.webContents.zoomLevel;
+    });
+
+    ipcMain.on("zoomIn", () => {
+        const newZoom = Math.min(mainWindow.webContents.zoomLevel + 0.1, 3);
+        mainWindow.webContents.zoomLevel = newZoom;
+        ipcWebContentsSend("zoomLevelChanged", mainWindow.webContents, newZoom);
+    });
+
+    ipcMain.on("zoomOut", () => {
+        const newZoom = Math.max(mainWindow.webContents.zoomLevel - 0.1, 0.3);
+        mainWindow.webContents.zoomLevel = newZoom;
+        ipcWebContentsSend("zoomLevelChanged", mainWindow.webContents, newZoom);
+    });
+
+    ipcMain.on("resetZoom", () => {
+        mainWindow.webContents.zoomLevel = 0;
+        ipcWebContentsSend("zoomLevelChanged", mainWindow.webContents, 0);
+    });
+
     mainWindow.webContents.on('before-input-event', (_, input) => {
         if (input.type === 'keyDown' && input.key === 'F5') {
             mainWindow.webContents.reload();

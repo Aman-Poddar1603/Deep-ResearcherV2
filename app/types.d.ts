@@ -20,16 +20,26 @@ type EventPayloadMapping = {
     maximizeWindow: void;
     resizeWindow: boolean;
     toggleDevTools: void;
+    zoomIn: void;
+    zoomOut: void;
+    resetZoom: void;
+    getZoomLevel: number;
+    zoomLevelChanged: number;
 }
 
 interface Window {
     electron: {
         subscribeStatistics: (callback: (statistics: Statistics) => void) => UnsubscribeFunction;
         subscribeWindowResize: (callback: (isMaximized: boolean) => void) => UnsubscribeFunction;
+        subscribeZoomLevel: (callback: (level: number) => void) => UnsubscribeFunction;
         getStaticData: () => Promise<StaticData>;
+        getZoomLevel: () => Promise<number>;
         closeWindow: () => void;
         minimizeWindow: () => void;
         maximizeWindow: () => void;
         toggleDevTools: () => void;
+        zoomIn: () => void;
+        zoomOut: () => void;
+        resetZoom: () => void;
     }
 }

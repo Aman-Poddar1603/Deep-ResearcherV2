@@ -61,7 +61,7 @@ export class StatusService {
                     // Extract the actual data from the wrapper
                     if (message.success === 'true' && message.data) {
                         const statusData = message.data as ConnectionStatus
-                        
+
                         // Check if it's a full status (has internet property)
                         if (statusData.internet !== undefined) {
                             onStatusReceived(statusData)

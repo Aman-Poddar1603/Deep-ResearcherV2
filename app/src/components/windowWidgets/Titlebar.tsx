@@ -4,6 +4,7 @@ import { ThemeSwitcher } from '../ThemeSwitcher'
 import { useInternalLogo } from '@/ui/components/GetLogo'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import StatusPopover from './StatusPopover'
+import ZoomControl from './ZoomControl'
 import { useConnectionInitialization } from '@/hooks/useConnectionInitialization'
 
 interface DraggableStyle extends React.CSSProperties {
@@ -62,6 +63,8 @@ const Titlebar = () => {
                     <StatusPopover />
                     <div className='w-px h-5 bg-border/30' />
                     <ThemeSwitcher />
+                    <div className='w-px h-5 bg-border/30' />
+                    <ZoomControl />
                     <div className='flex items-center -mr-4'>
                         <Tooltip delayDuration={700}>
                             <TooltipTrigger asChild>

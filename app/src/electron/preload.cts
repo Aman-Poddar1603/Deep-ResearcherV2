@@ -14,6 +14,14 @@ electron.contextBridge.exposeInMainWorld("electron", {
     minimizeWindow: () => ipcSend("minimizeWindow"),
     maximizeWindow: () => ipcSend("maximizeWindow"),
     toggleDevTools: () => ipcSend("toggleDevTools"),
+    zoomIn: () => ipcSend("zoomIn"),
+    zoomOut: () => ipcSend("zoomOut"),
+    resetZoom: () => ipcSend("resetZoom"),
+    getZoomLevel: () => ipcInvoke("getZoomLevel"),
+    subscribeZoomLevel: (callback: any) =>
+        ipcOn("zoomLevelChanged", (level: any) => {
+            callback(level);
+        }),
 } as any)
 
 function ipcSend<Key extends keyof EventPayloadMapping>(key: Key) {
