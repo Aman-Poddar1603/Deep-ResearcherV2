@@ -11,7 +11,6 @@ import {
 import type {
     ResearchSessionStatus, LiveStep, LiveToolCall, QAQuestion, TokenInfo,
     PendingInput, ResumeBundle, EventCursor, ResearchStartPayload,
-    PredictableStep, StructuredArtifact,
 } from './research_types'
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -38,14 +37,229 @@ function toSessionStatus(value: unknown, fallback: ResearchSessionStatus): Resea
 }
 
 function parseStepIndex(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) return value >= 0 ? Math.floor(value) : null
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value))
     if (typeof value !== 'string') return null
-    const m = value.trim().match(/[-]?\d+/)
-    if (m) {
-        const num = Number.parseInt(m[0], 10)
-        return num >= 0 ? num : null
+    const raw = value.trim().toLowerCase()
+    if (!raw) return null
+    if (/^-?\d+$/.test(raw)) {
+        const n = Number.parseInt(raw, 10)
+        return n >= 0 ? n : null
     }
-    return null
+    const stepLike = raw.match(/^step[_:\-\s]*(-?\d+)$/)
+    if (stepLike) {
+        const n = Number.parseInt(stepLike[1], 10)
+        return n >= 0 ? n : null
+    }
+    const m = raw.match(/^(\d+)/)
+    return m ? Number.parseInt(m[1], 10) : null
+}
+
+function toLiveStepStatus(value: unknown, fallback: LiveStep['status'] = 'pending'): LiveStep['status'] {
+    if (typeof value !== 'string') return fallback
+    const map: Record<string, LiveStep['status']> = {
+        pending: 'pending',
+        queued: 'pending',
+        not_started: 'pending',
+        todo: 'pending',
+        running: 'running',
+        started: 'running',
+        active: 'running',
+        in_progress: 'running',
+        completed: 'completed',
+        complete: 'completed',
+        done: 'completed',
+        success: 'completed',
+        failed: 'failed',
+        error: 'failed',
+        cancelled: 'failed',
+        canceled: 'failed',
+    }
+    return map[value.trim().toLowerCase()] ?? fallback
+}
+
+function toTrimmedString(value: unknown): string | null {
+    if (typeof value !== 'string') return null
+    const trimmed = value.trim()
+    return trimmed ? trimmed : null
+}
+
+function toNormalizedSourceList(value: unknown): ResearchStartPayload['sources'] | undefined {
+    if (!Array.isArray(value)) return undefined
+    const rows = value.filter((item): item is JO => !!item && typeof item === 'object')
+    const sources: ResearchStartPayload['sources'] = []
+
+    for (const row of rows) {
+        const type = toTrimmedString(row.type)
+        const sourceValue = toTrimmedString(row.value) ?? toTrimmedString(row.url)
+        const name = toTrimmedString(row.name)
+        if (!type || !sourceValue) continue
+
+        if (name) {
+            sources.push({ type, value: sourceValue, name })
+        } else {
+            sources.push({ type, value: sourceValue })
+        }
+    }
+
+    return sources.length > 0 ? sources : undefined
+}
+
+function extractResumeContext(bundle: ResumeBundle): Partial<ResearchStartPayload> {
+    const context = bundle.context && typeof bundle.context === 'object' && !Array.isArray(bundle.context)
+        ? bundle.context as JO
+        : null
+
+    const prompt = toTrimmedString(bundle.prompt)
+        ?? toTrimmedString(context?.cleaned_prompt)
+        ?? toTrimmedString(context?.prompt)
+    const title = toTrimmedString(context?.title)
+    const description = toTrimmedString(context?.description)
+    const workspaceId = toTrimmedString(context?.workspace_id)
+    const systemPrompt = toTrimmedString(context?.system_prompt)
+    const customPrompt = toTrimmedString(context?.custom_prompt)
+    const template = toTrimmedString(context?.research_template)
+    const personality = toTrimmedString(context?.ai_personality)
+    const username = toTrimmedString(context?.username)
+    const sources = toNormalizedSourceList(context?.sources)
+
+    const next: Partial<ResearchStartPayload> = {}
+    if (prompt) next.prompt = prompt
+    if (title) next.title = title
+    if (description) next.description = description
+    if (workspaceId) next.workspace_id = workspaceId
+    if (systemPrompt) next.system_prompt = systemPrompt
+    if (customPrompt) next.custom_prompt = customPrompt
+    if (template) next.research_template = template
+    if (personality) next.ai_personality = personality
+    if (username) next.username = username
+    if (sources) next.sources = sources
+
+    return next
+}
+
+function extractPlanRows(planSource: unknown): JO[] {
+    if (Array.isArray(planSource)) {
+        return planSource.filter((r): r is JO => !!r && typeof r === 'object')
+    }
+    if (planSource && typeof planSource === 'object' && !Array.isArray(planSource)) {
+        const nested = (planSource as JO).plan
+        if (Array.isArray(nested)) {
+            return nested.filter((r): r is JO => !!r && typeof r === 'object')
+        }
+    }
+    return []
+}
+
+function resolveResumeStepIndex(row: JO, fallbackIndex: number): number {
+    const fromStepIndex = parseStepIndex(row.step_index ?? row.index ?? row.step_id)
+    if (fromStepIndex !== null) return fromStepIndex
+
+    const fromStepNumber = parseStepIndex(row.step)
+    if (fromStepNumber !== null) {
+        return Math.max(0, fromStepNumber - 1)
+    }
+
+    const fromId = parseStepIndex(row.id)
+    if (fromId !== null) return fromId
+
+    return fallbackIndex
+}
+
+function normalizeToolOutput(value: unknown): string {
+    if (value == null) return ''
+    if (typeof value === 'string') return value
+    try {
+        return JSON.stringify(value, null, 2)
+    } catch {
+        return String(value)
+    }
+}
+
+function parseResumeToolCalls(rows: unknown): LiveToolCall[] {
+    if (!Array.isArray(rows)) return []
+    const now = Date.now()
+    const parsed: LiveToolCall[] = []
+
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+        const obj = row as JO
+        const toolName = toTrimmedString(obj.tool_name)
+            ?? toTrimmedString(obj.tool)
+            ?? toTrimmedString(obj.name)
+            ?? 'tool'
+        const args = obj.args ?? obj.arguments ?? obj.input ?? obj.params
+        const resultText = normalizeToolOutput(obj.result ?? obj.output ?? obj.result_summary)
+        const errorText = toTrimmedString(obj.error)
+        const state: LiveToolCall['state'] = errorText
+            ? 'error'
+            : resultText
+                ? 'done'
+                : 'called'
+        const id = toTrimmedString(obj.id)
+            ?? toTrimmedString(obj.event_id)
+            ?? toTrimmedString(obj.tool_call_id)
+            ?? toTrimmedString(obj.call_id)
+            ?? genId()
+
+        const tool: LiveToolCall = {
+            id,
+            tool_name: toolName,
+            createdAt: now + i,
+            args,
+            result: resultText || undefined,
+            error: errorText ?? undefined,
+            state,
+        }
+
+        const duplicate = parsed.some(t => t.id === tool.id || sameToolSig(t.tool_name, t.args, tool.tool_name, tool.args))
+        if (!duplicate) parsed.push(tool)
+    }
+
+    return parsed
+}
+
+function mergeToolCalls(existing: LiveToolCall[], incoming: LiveToolCall[]): LiveToolCall[] {
+    if (incoming.length === 0) return existing
+    const merged = [...existing]
+    for (const tool of incoming) {
+        const duplicate = merged.some(t => t.id === tool.id || sameToolSig(t.tool_name, t.args, tool.tool_name, tool.args))
+        if (!duplicate) merged.push(tool)
+    }
+    return merged
+}
+
+function parseResumeStepContent(content: unknown): { thinking: string; summary?: string; tools: LiveToolCall[] } {
+    if (!content || typeof content !== 'object' || Array.isArray(content)) {
+        return { thinking: '', tools: [] }
+    }
+
+    const obj = content as JO
+    let thinking = toTrimmedString(obj.think) ?? toTrimmedString(obj.thought) ?? ''
+    const summary = toTrimmedString(obj.summary) ?? undefined
+
+    const chain = Array.isArray(obj.chain_of_thought) ? obj.chain_of_thought : []
+    for (const item of chain) {
+        if (typeof item === 'string') {
+            thinking = finalizeText(thinking, item)
+            continue
+        }
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+            const candidate = toTrimmedString((item as JO).think)
+                ?? toTrimmedString((item as JO).thought)
+                ?? toTrimmedString((item as JO).reasoning)
+            if (candidate) thinking = finalizeText(thinking, candidate)
+        }
+    }
+
+    const directTools = parseResumeToolCalls(obj.tool_call ?? obj.tool_calls)
+    const chainTools = parseResumeToolCalls(chain)
+
+    return {
+        thinking,
+        summary,
+        tools: mergeToolCalls(directTools, chainTools),
+    }
 }
 
 function sameToolSig(aName: string, aArgs: unknown, bName: string, bArgs: unknown): boolean {
@@ -72,6 +286,72 @@ function progressLabel(cur: unknown, tot: unknown, fallback: string): string {
 function toPercent(v: unknown): number | null {
     if (typeof v !== 'number' || Number.isNaN(v)) return null
     return v >= 0 && v <= 1 ? Math.round(v * 100) : Math.round(v)
+}
+
+function parseArtifactObjectString(value: string): JO | null {
+    const raw = value.trim()
+    if (!raw) return null
+
+    const candidates = [raw]
+    const unwrappedFence = raw
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim()
+    if (unwrappedFence && unwrappedFence !== raw) candidates.push(unwrappedFence)
+
+    const trimmedAsterisk = raw.endsWith('*') ? raw.slice(0, -1).trim() : ''
+    if (trimmedAsterisk) candidates.push(trimmedAsterisk)
+
+    for (const candidate of candidates) {
+        if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue
+        try {
+            const parsed = JSON.parse(candidate)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                return parsed as JO
+            }
+        } catch {
+            // ignore invalid JSON payloads
+        }
+    }
+    return null
+}
+
+function normalizeArtifactMarkdown(value: unknown): string {
+    if (value == null) return ''
+
+    if (typeof value === 'string') {
+        const parsedObject = parseArtifactObjectString(value)
+        if (parsedObject) {
+            const fromParsed = normalizeArtifactMarkdown(parsedObject)
+            if (fromParsed) return fromParsed
+        }
+        return value
+    }
+
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        const obj = value as JO
+        if (typeof obj.content === 'string' && obj.content.trim()) {
+            return obj.content
+        }
+        if (obj.artifact !== undefined) {
+            const nested = normalizeArtifactMarkdown(obj.artifact)
+            if (nested) return nested
+        }
+    }
+
+    return ''
+}
+
+function mergeArtifactText(current: string, incoming: string): string {
+    if (!incoming) return current
+    if (!current) return incoming
+
+    // If the current text is serialized JSON, trust parsed markdown from incoming.
+    if (parseArtifactObjectString(current)) {
+        return incoming
+    }
+
+    return finalizeText(current, incoming)
 }
 
 function extractPendingQuestion(pending: PendingInput | null): QAQuestion | null {
@@ -110,8 +390,7 @@ function extractPendingPlanText(pending: PendingInput | null, fallbackPlan?: unk
 }
 
 function buildResumeSteps(planSource: unknown, currentStep: unknown, totalSteps: unknown, status: ResearchSessionStatus): LiveStep[] {
-    const planRows = Array.isArray(planSource)
-        ? planSource.filter((r): r is JO => !!r && typeof r === 'object') : []
+    const planRows = extractPlanRows(planSource)
     const current = parseStepIndex(currentStep)
     const total = typeof totalSteps === 'number' && totalSteps > 0 ? totalSteps : planRows.length
     const count = Math.max(total, planRows.length)
@@ -133,101 +412,75 @@ function buildResumeSteps(planSource: unknown, currentStep: unknown, totalSteps:
     })
 }
 
-function normalizeLiveStepStatus(value: unknown): LiveStep['status'] {
-    if (typeof value !== 'string') return 'pending'
-    const low = value.trim().toLowerCase()
-    if (low === 'running') return 'running'
-    if (low === 'completed' || low === 'done') return 'completed'
-    if (low === 'failed' || low === 'error') return 'failed'
-    return 'pending'
-}
+function buildResumeStepsFromBundle(bundle: ResumeBundle, planSource: unknown, status: ResearchSessionStatus): LiveStep[] {
+    let steps = buildResumeSteps(planSource, bundle.current_step, bundle.total_steps, status)
+    const stepRows = Array.isArray(bundle.steps) && bundle.steps.length > 0
+        ? bundle.steps.filter((s): s is JO => !!s && typeof s === 'object')
+        : Array.isArray(bundle.steps_details)
+            ? bundle.steps_details.filter((s): s is JO => !!s && typeof s === 'object')
+            : []
 
-function toResultText(value: unknown): string {
-    if (value === null || value === undefined || value === '') return ''
-    if (typeof value === 'string') return value
-    try { return JSON.stringify(value, null, 2) } catch { return String(value) }
-}
+    if (stepRows.length === 0) return steps
 
-function buildStepsFromPredictable(
-    stepsSource: unknown,
-    fallbackStatus: ResearchSessionStatus,
-): LiveStep[] {
-    const rows = Array.isArray(stepsSource)
-        ? stepsSource.filter((r): r is PredictableStep => !!r && typeof r === 'object')
-        : []
-    if (rows.length === 0) return []
+    const planRows = extractPlanRows(planSource)
+    const currentIndex = parseStepIndex(bundle.current_step)
+    const runningLike = ['running', 'starting', 'connected', 'connecting', 'stopping'].includes(status)
 
-    const steps: LiveStep[] = []
+    const ensureAt = (idx: number): LiveStep => {
+        if (!steps[idx]) {
+            const planItem = planRows.find(r => parseStepIndex(r.step_index) === idx)
+            const title = (planItem && typeof planItem.step_title === 'string' ? planItem.step_title.trim() : '')
+                || (planItem && typeof planItem.step_name === 'string' ? planItem.step_name.trim() : '')
+                || `Step ${idx + 1}`
 
-    for (const row of rows) {
-        const directIdx = parseStepIndex(row.step_index)
-        const oneBased = parseStepIndex(row.step)
-        const idx = directIdx ?? (oneBased !== null ? Math.max(0, oneBased - 1) : null)
-        if (idx === null) continue
+            let stepStatus: LiveStep['status'] = 'pending'
+            if (status === 'completed') stepStatus = 'completed'
+            else if (status === 'failed' && currentIndex !== null && idx === currentIndex) stepStatus = 'failed'
+            else if (currentIndex !== null) {
+                if (idx < currentIndex) stepStatus = 'completed'
+                else if (idx === currentIndex && runningLike) stepStatus = 'running'
+            }
 
-        const title = typeof row.title === 'string' && row.title.trim()
-            ? row.title.trim()
-            : typeof row.description === 'string' && row.description.trim()
-                ? row.description.trim()
-                : `Step ${idx + 1}`
+            steps[idx] = { ...createEmptyStep(idx, title), status: stepStatus }
+        }
 
-        const content = row.content && typeof row.content === 'object'
-            ? row.content
-            : null
+        return steps[idx]
+    }
 
-        const chain = Array.isArray(content?.chain_of_thought) ? content?.chain_of_thought : []
-        const chainText = chain
-            .filter((item): item is string => typeof item === 'string')
-            .map(item => item.trim())
-            .filter(Boolean)
-            .join('\n')
-        const think = typeof content?.think === 'string' && content.think.trim()
-            ? content.think.trim()
-            : chainText
+    for (let i = 0; i < stepRows.length; i++) {
+        const row = stepRows[i]
+        const idx = resolveResumeStepIndex(row, i)
+        const existing = ensureAt(idx)
 
-        const summary = typeof content?.summary === 'string' ? content.summary.trim() : ''
+        const rowTitle = toTrimmedString(row.title)
+            ?? toTrimmedString(row.step_title)
+            ?? toTrimmedString(row.step_name)
+            ?? existing.title
+        const rowStatus = toLiveStepStatus(row.status, existing.status)
+        const rowError = toTrimmedString(row.error)
+        const rowSummary = toTrimmedString(row.summary)
+            ?? toTrimmedString(row.conclusion)
+            ?? toTrimmedString(row.description)
+            ?? existing.summary
 
-        const toolCallsRaw = Array.isArray(content?.tool_call) ? content.tool_call : []
-        const tools: LiveToolCall[] = toolCallsRaw
-            .map((entry, i): LiveToolCall | null => {
-                if (!entry || typeof entry !== 'object') return null
-                const e = entry as JO
-                const toolName = typeof e.tool === 'string' && e.tool.trim()
-                    ? e.tool.trim()
-                    : typeof e.tool_name === 'string' && e.tool_name.trim()
-                        ? e.tool_name.trim()
-                        : 'tool'
-                const args = e.input ?? e.args ?? undefined
-                const output = e.output ?? e.result_payload ?? e.result ?? ''
-                const result = toResultText(output)
-                return {
-                    id: typeof e.id === 'string' && e.id.trim() ? e.id.trim() : `resume-tool-${idx}-${i}`,
-                    tool_name: toolName,
-                    createdAt: Date.now(),
-                    args,
-                    result: result || undefined,
-                    state: result ? 'done' : 'called',
-                }
-            })
-            .filter((tool): tool is LiveToolCall => tool !== null)
-
-        const status = normalizeLiveStepStatus(row.status)
-        const stepStatus: LiveStep['status'] =
-            fallbackStatus === 'completed' ? 'completed' : status
+        const parsedContent = parseResumeStepContent(row.content ?? row.details)
+        const nextThinking = parsedContent.thinking ? finalizeText(existing.thinking, parsedContent.thinking) : existing.thinking
+        const nextTools = mergeToolCalls(existing.tools, parsedContent.tools)
 
         steps[idx] = {
-            ...createEmptyStep(idx, title),
-            status: stepStatus,
-            summary,
-            error: stepStatus === 'failed' ? (summary || 'Step failed') : '',
-            thinking: think,
-            thinkingDone: stepStatus === 'completed' || stepStatus === 'failed',
-            tools,
+            ...existing,
+            title: rowTitle,
+            status: rowStatus,
+            summary: parsedContent.summary ?? rowSummary,
+            thinking: nextThinking,
+            thinkingDone: existing.thinkingDone || rowStatus === 'completed' || rowStatus === 'failed',
+            error: rowStatus === 'failed' ? (rowError ?? existing.error) : existing.error,
+            tools: nextTools,
         }
     }
 
     for (let i = 0; i < steps.length; i++) {
-        if (!steps[i]) steps[i] = { ...createEmptyStep(i), status: 'pending' }
+        if (!steps[i]) steps[i] = createEmptyStep(i)
     }
 
     return steps
@@ -295,9 +548,6 @@ export function useResearchSession(options?: {
     })
 
     // Refs that don't trigger re-renders
-    const optionsRef = useRef(options)
-    useEffect(() => { optionsRef.current = options }, [options])
-
     const stateRef = useRef(state)
     const cursorRef = useRef<EventCursor>(null)
     const cursorSourceRef = useRef<'timeline' | 'stream' | 'status'>('status')
@@ -313,9 +563,16 @@ export function useResearchSession(options?: {
     const timelineTracker = useRef(createTimelineTracker())
     const apiService = useMemo(() => new ResearchApiService(backendBaseRef.current), [])
 
+    const refreshBackendBase = useCallback(() => {
+        const latestBase = readBackendBase()
+        backendBaseRef.current = latestBase
+        apiService.setBase(latestBase)
+        return latestBase
+    }, [apiService])
+
     useEffect(() => { stateRef.current = state }, [state])
 
-    const s = useCallback((fn: (prev: StepState) => StepState) => setState(fn), [])
+    const s = (fn: (prev: StepState) => StepState) => setState(fn)
 
     const applyPendingSnapshot = useCallback((base: StepState, pending: PendingInput | null, planFallback?: unknown): StepState => {
         const pendingQuestion = extractPendingQuestion(pending)
@@ -455,11 +712,16 @@ export function useResearchSession(options?: {
                             : next.tokens,
                     }
 
-                case 'system.progress':
-                case 'synthesis.analysis_started':
-                case 'synthesis.analysis_progress': {
+                case 'system.progress': {
+                    if (next.status === 'completed') {
+                        return {
+                            ...next,
+                            progress: 100,
+                            progressMsg: next.progressMsg || 'Research complete',
+                        }
+                    }
                     const pct = toPercent(eventField(msg, 'progress') ?? eventField(msg, 'percent'))
-                    return { ...next, status: 'running', progress: pct ?? next.progress, progressMsg: eventString(msg, 'message') ?? next.progressMsg }
+                    return { ...next, progress: pct ?? next.progress, progressMsg: eventString(msg, 'message') ?? next.progressMsg }
                 }
 
                 case 'system.error': {
@@ -526,12 +788,10 @@ export function useResearchSession(options?: {
                     return { ...next, progress: 100, status: 'completed', progressMsg: 'Research complete' }
 
                 case 'react.reason':
-                case 'think.chunk':
-                case 'stream_event':
-                case 'think_event': {
+                case 'think.chunk': {
                     const idx = eventNumber(msg, 'step_index') ?? Math.max(0, next.steps.length - 1)
                     const steps = ensureStep(next.steps, idx)
-                    const rawChunk = eventString(msg, 'chunk', 'reasoning', 'thought', 'text', 'token') ?? ''
+                    const rawChunk = eventString(msg, 'chunk', 'reasoning', 'thought', 'text') ?? ''
                     if (!rawChunk) return next
                     steps[idx] = { ...steps[idx], thinking: appendStreamChunk(steps[idx].thinking, rawChunk) }
                     return { ...next, steps }
@@ -551,14 +811,12 @@ export function useResearchSession(options?: {
                     return { ...next, steps }
                 }
 
-                case 'tool.called':
-                case 'tool_call_query':
-                case 'react.act': {
+                case 'tool.called': {
                     const idx = eventNumber(msg, 'step_index') ?? 0
                     const steps = ensureStep(next.steps, idx)
                     const toolName = eventString(msg, 'tool_name', 'name') ?? 'tool'
                     const toolId = eventString(msg, 'tool_id', 'tool_call_id', 'call_id', 'toolCallId', 'toolId', 'callId')
-                    const toolArgs = eventField(msg, 'args') ?? eventField(msg, 'arguments') ?? eventField(msg, 'inputs') ?? {}
+                    const toolArgs = eventField(msg, 'args') ?? eventField(msg, 'arguments')
                     if (toolId && steps[idx].tools.some(t => t.id === toolId)) return next
                     if (!toolId && steps[idx].tools.some(t => sameToolSig(t.tool_name, t.args, toolName, toolArgs))) return next
                     const tool: LiveToolCall = { id: toolId ?? genId(), tool_name: toolName, createdAt: Date.now(), args: toolArgs, state: 'called' }
@@ -566,9 +824,7 @@ export function useResearchSession(options?: {
                     return { ...next, status: 'running', steps }
                 }
 
-                case 'tool.result':
-                case 'tool_call_output':
-                case 'react.observe': {
+                case 'tool.result': {
                     const idx = eventNumber(msg, 'step_index') ?? 0
                     const steps = [...next.steps]
                     if (steps[idx]) {
@@ -576,9 +832,8 @@ export function useResearchSession(options?: {
                         const toolId = eventString(msg, 'tool_id', 'tool_call_id', 'call_id', 'toolCallId', 'toolId', 'callId')
                         const toolName = eventString(msg, 'tool_name', 'name')
                         const args = eventField(msg, 'args') ?? eventField(msg, 'arguments')
-                        const raw = eventField(msg, 'result_summary') ?? eventField(msg, 'result') ?? eventField(msg, 'output') ?? eventField(msg, 'summary') ?? eventString(msg, 'observation_summary')
-                        const resultPayload = eventField(msg, 'result_payload')
-                        const result = typeof raw === 'string' ? raw : raw != null ? JSON.stringify(raw, null, 2) : (resultPayload != null ? JSON.stringify(resultPayload, null, 2) : '')
+                        const raw = eventField(msg, 'result_summary') ?? eventField(msg, 'result') ?? eventField(msg, 'output')
+                        const result = typeof raw === 'string' ? raw : raw != null ? JSON.stringify(raw, null, 2) : ''
                         const ti = toolId ? tools.findIndex(t => t.id === toolId)
                             : tools.findIndex(t => toolName && sameToolSig(t.tool_name, t.args, toolName, args) && (t.state === 'called' || t.state === 'running'))
                         if (ti !== -1) {
@@ -619,9 +874,16 @@ export function useResearchSession(options?: {
                 }
 
                 case 'artifact.done': {
-                    const art = eventField(msg, 'artifact')
-                    const artText = typeof art === 'string' ? art : next.artifact
-                    return { ...next, artifact: finalizeText(next.artifact, artText), artifactDone: true, status: 'completed' }
+                    const rawArtifact = eventField(msg, 'artifact') ?? eventField(msg, 'content')
+                    const artText = normalizeArtifactMarkdown(rawArtifact) || next.artifact
+                    return {
+                        ...next,
+                        artifact: mergeArtifactText(next.artifact, artText),
+                        artifactDone: true,
+                        progress: 100,
+                        progressMsg: 'Research complete',
+                        status: 'completed',
+                    }
                 }
 
                 case 'stop.requested': return { ...next, status: 'stopping' }
@@ -633,16 +895,17 @@ export function useResearchSession(options?: {
         })
 
         persist(stateRef.current.researchId)
-    }, [setCursor, persist, s])
+    }, [setCursor, persist])
 
     // ── Open WebSocket ───────────────────────────────────────────────────────
     const openSocket = useCallback((rid: string, options?: { websocketUrl?: string; lastEventId?: EventCursor; replayLimit?: number }) => {
+        const activeBase = refreshBackendBase()
         const urls = normalizeRuntimeUrls(rid, {
             status_url: statusUrlRef.current,
             replay_url: replayUrlRef.current,
             resume_url: resumeUrlRef.current,
             websocket_url: options?.websocketUrl || websocketUrlRef.current,
-        }, backendBaseRef.current)
+        }, activeBase)
         statusUrlRef.current = urls.status_url
         replayUrlRef.current = urls.replay_url
         resumeUrlRef.current = urls.resume_url
@@ -658,11 +921,12 @@ export function useResearchSession(options?: {
             replayLimit: options?.replayLimit ?? DEFAULT_REPLAY_LIMIT,
         })
         persist(rid, { status_url: urls.status_url, replay_url: urls.replay_url, resume_url: urls.resume_url, websocket_url: urls.websocket_url })
-    }, [setCursor, persist])
+    }, [setCursor, persist, refreshBackendBase])
 
     // ── Hydrate from resume bundle ───────────────────────────────────────────
     const hydrateBundle = useCallback((bundle: ResumeBundle, rid: string) => {
-        const urls = normalizeRuntimeUrls(rid, bundle, backendBaseRef.current)
+        const activeBase = refreshBackendBase()
+        const urls = normalizeRuntimeUrls(rid, bundle, activeBase)
         statusUrlRef.current = urls.status_url
         replayUrlRef.current = urls.replay_url
         resumeUrlRef.current = urls.resume_url
@@ -679,49 +943,23 @@ export function useResearchSession(options?: {
         }
 
         pendingInputRef.current = bundle.pending_input ?? null
-        const planSource = bundle.plan
-        const planText = toPlanText(planSource)
-        const tokens = normalizeTokenInfo(bundle.token_totals)
-        const structuredArtifact = (bundle.artifact && typeof bundle.artifact === 'object' && !Array.isArray(bundle.artifact))
-            ? bundle.artifact as StructuredArtifact
+        const contextObj = bundle.context && typeof bundle.context === 'object' && !Array.isArray(bundle.context)
+            ? bundle.context as JO
             : null
-        const structuredArtifactText = structuredArtifact && typeof structuredArtifact.content === 'string'
-            ? structuredArtifact.content
-            : ''
-        const snapshotArtifact = snapshot && typeof snapshot.artifact_text === 'string' ? snapshot.artifact_text : ''
-        const resumeArtifactText = structuredArtifactText || snapshotArtifact
-        const structuredArtifactDone = structuredArtifact?.complete === true
-
-        const recoveredContextRaw = (bundle.context && typeof bundle.context === 'object' && !Array.isArray(bundle.context))
-            ? bundle.context as Partial<ResearchStartPayload>
-            : (snapshot?.context && typeof snapshot.context === 'object' && !Array.isArray(snapshot.context))
-                ? snapshot.context as Partial<ResearchStartPayload>
-                : {}
-        const recoveredContextAny = recoveredContextRaw as JO
-        const contextPrompt = typeof recoveredContextAny.prompt === 'string' && recoveredContextAny.prompt.trim()
-            ? recoveredContextAny.prompt.trim()
-            : typeof recoveredContextAny.cleaned_prompt === 'string' && recoveredContextAny.cleaned_prompt.trim()
-                ? recoveredContextAny.cleaned_prompt.trim()
-                : ''
-        const bundlePrompt = typeof bundle.prompt === 'string' && bundle.prompt.trim()
-            ? bundle.prompt.trim()
-            : ''
-        const recoveredContext: Partial<ResearchStartPayload> = {
-            ...recoveredContextRaw,
-            ...(bundlePrompt || contextPrompt ? { prompt: bundlePrompt || contextPrompt } : {}),
-        }
-
+        const planSource = bundle.plan ?? contextObj?.plan
+        const planText = toPlanText(planSource)
+        const resumeContext = extractResumeContext(bundle)
+        const tokens = normalizeTokenInfo(bundle.token_totals)
+        const snapshotArtifact = normalizeArtifactMarkdown(snapshot?.artifact_text)
+        const bundleArtifact = normalizeArtifactMarkdown(bundle.artifact)
+        const resumeArtifact = bundleArtifact || snapshotArtifact
+        const bundleArtifactComplete = bundle.artifact?.complete === true
 
 
         s(prev => {
             const baseStatus = toSessionStatus(bundle.status, prev.status)
-            const predictableSteps = buildStepsFromPredictable(bundle.steps, baseStatus)
-            const hydratedSteps = buildResumeSteps(planSource, bundle.current_step, bundle.total_steps, baseStatus)
-            let steps = predictableSteps.length > 0
-                ? [...predictableSteps]
-                : hydratedSteps.length > 0
-                    ? [...hydratedSteps]
-                    : [...prev.steps]
+            const hydratedSteps = buildResumeStepsFromBundle(bundle, planSource, baseStatus)
+            let steps = hydratedSteps.length > 0 ? [...hydratedSteps] : [...prev.steps]
             const currentStepIndex = typeof bundle.current_step === 'number' ? bundle.current_step : null
             const runningLike = ['running', 'starting', 'connected', 'connecting', 'stopping'].includes(baseStatus)
 
@@ -776,32 +1014,38 @@ export function useResearchSession(options?: {
                 : pending?.type === 'plan_approval'
                     ? 'waiting_for_approval'
                     : baseStatus
+            const completedProgress = finalStatus === 'completed'
 
             const base: StepState = {
                 ...prev,
                 researchId: rid,
                 status: finalStatus,
-                progress: progressFromCounts(bundle.current_step, bundle.total_steps, prev.progress),
-                progressMsg: progressLabel(bundle.current_step, bundle.total_steps, prev.progressMsg),
+                progress: completedProgress
+                    ? 100
+                    : progressFromCounts(bundle.current_step, bundle.total_steps, prev.progress),
+                progressMsg: completedProgress
+                    ? 'Research complete'
+                    : progressLabel(bundle.current_step, bundle.total_steps, prev.progressMsg),
                 tokens: (tokens.input_tokens > 0 || tokens.output_tokens > 0) ? tokens : prev.tokens,
+                context: { ...prev.context, ...resumeContext },
                 steps,
                 plan: planText ? { plan: planText } : prev.plan,
-                artifact: resumeArtifactText ? finalizeText(prev.artifact, resumeArtifactText) : prev.artifact,
-                artifactDone: structuredArtifactDone || (resumeArtifactText ? isTerminalStatus(baseStatus) : prev.artifactDone),
+                artifact: resumeArtifact ? mergeArtifactText(prev.artifact, resumeArtifact) : prev.artifact,
+                artifactDone: bundleArtifactComplete || (resumeArtifact ? isTerminalStatus(baseStatus) : prev.artifactDone),
                 planApproved: pending?.type === 'plan_approval' ? null : prev.planApproved,
                 error: null,
-                context: { ...prev.context, ...recoveredContext },
             }
 
             return applyPendingSnapshot(base, pending, planSource)
         })
 
         persist(rid, { ...urls, last_known_event_id: cursorRef.current, pending_input: pendingInputRef.current })
-    }, [setCursor, persist, applyPendingSnapshot])
+    }, [setCursor, persist, applyPendingSnapshot, refreshBackendBase])
 
     // ── Replay missed events ─────────────────────────────────────────────────
     const replayMissed = useCallback(async (rid: string, fromCursor: EventCursor) => {
         if (!fromCursor) return
+        refreshBackendBase()
         let cursor = fromCursor
         for (let pass = 0; pass < 20; pass++) {
             const response = await apiService.replay(rid, cursor, DEFAULT_REPLAY_LIMIT, replayUrlRef.current || undefined)
@@ -811,7 +1055,7 @@ export function useResearchSession(options?: {
             const count = typeof response.replay_count === 'number' ? response.replay_count : response.events.length
             if (count < DEFAULT_REPLAY_LIMIT || !response.next_event_id) break
         }
-    }, [apiService, applyMessage, setCursor])
+    }, [apiService, applyMessage, setCursor, refreshBackendBase])
 
     // ── WebSocket lifecycle ──────────────────────────────────────────────────
     useEffect(() => {
@@ -855,6 +1099,7 @@ export function useResearchSession(options?: {
             const currentState = stateRef.current
             if (!currentState.researchId || !POLL_ACTIVE_STATUSES.has(currentState.status)) return
             try {
+                refreshBackendBase()
                 const statusResp = await apiService.status(
                     currentState.researchId,
                     statusUrlRef.current || undefined,
@@ -880,11 +1125,16 @@ export function useResearchSession(options?: {
                 s(prev => {
                     const newStatus = toSessionStatus(statusResp.status, prev.status)
                     const tokens = normalizeTokenInfo(statusResp.token_totals)
+                    const completedProgress = newStatus === 'completed'
                     const base: StepState = {
                         ...prev,
                         status: newStatus,
-                        progress: progressFromCounts(statusResp.current_step, statusResp.total_steps, prev.progress),
-                        progressMsg: progressLabel(statusResp.current_step, statusResp.total_steps, prev.progressMsg),
+                        progress: completedProgress
+                            ? 100
+                            : progressFromCounts(statusResp.current_step, statusResp.total_steps, prev.progress),
+                        progressMsg: completedProgress
+                            ? 'Research complete'
+                            : progressLabel(statusResp.current_step, statusResp.total_steps, prev.progressMsg),
                         tokens: (tokens.input_tokens > 0 || tokens.output_tokens > 0) ? tokens : prev.tokens,
                     }
 
@@ -917,9 +1167,15 @@ export function useResearchSession(options?: {
         // We intentionally omit fast-changing deps; the ref pattern lets us
         // always read the latest values inside the async closure.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [apiService, setCursor, persist, applyPendingSnapshot])
+    }, [apiService, setCursor, persist, applyPendingSnapshot, refreshBackendBase])
 
-
+    // ── Auto-resume if researchId was provided ───────────────────────────────
+    useEffect(() => {
+        if (options?.researchId) {
+            void resumeSession(options.researchId)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // ── Public actions ───────────────────────────────────────────────────────
     const startResearch = useCallback(async (payload: ResearchStartPayload) => {
@@ -927,6 +1183,7 @@ export function useResearchSession(options?: {
         streamManagerRef.current?.disconnect(true)
         manualDisconnectRef.current = false
         resetRunState('', 'starting')
+        refreshBackendBase()
 
         const started = await apiService.start(payload as unknown as Record<string, unknown>)
         const rid = started.research_id
@@ -938,16 +1195,22 @@ export function useResearchSession(options?: {
         resumeUrlRef.current = urls.resume_url
         websocketUrlRef.current = urls.websocket_url
 
-        s(prev => ({ ...prev, researchId: rid, status: toSessionStatus(started.status, 'starting') }))
+        s(prev => ({
+            ...prev,
+            researchId: rid,
+            status: toSessionStatus(started.status, 'starting'),
+            context: { ...payload },
+        }))
         persist(rid, { ...urls })
-        optionsRef.current?.onNavigateToSession?.(rid, true)
+        options?.onNavigateToSession?.(rid, true)
         openSocket(rid, { websocketUrl: urls.websocket_url, lastEventId: cursorRef.current })
-    }, [apiService, openSocket, persist, resetRunState])
+    }, [apiService, openSocket, persist, resetRunState, options, refreshBackendBase])
 
-    const resumeSession = useCallback(async (researchIdInput: string) => {
+    async function resumeSession(researchIdInput: string) {
         const rid = researchIdInput.trim()
         if (!rid) { s(prev => ({ ...prev, status: 'failed', error: 'Invalid research ID' })); return }
 
+        refreshBackendBase()
         manualDisconnectRef.current = false
         streamManagerRef.current?.disconnect(true)
         resetRunState(rid, 'connecting')
@@ -982,7 +1245,7 @@ export function useResearchSession(options?: {
             const tlCount = typeof bundle.timeline_replay_count === 'number' ? bundle.timeline_replay_count : (bundle.timeline_events?.length ?? 0)
             if (tlCount >= 1000 && tlNextCursor != null) await replayMissed(rid, tlNextCursor)
 
-            optionsRef.current?.onNavigateToSession?.(rid, true)
+            options?.onNavigateToSession?.(rid, true)
 
             const bundleStatus = toSessionStatus(bundle.status, 'connected')
             if (!isTerminalStatus(bundleStatus)) {
@@ -997,15 +1260,16 @@ export function useResearchSession(options?: {
                 s(prev => ({ ...prev, researchId: rid, status: 'not_found', error: 'This session is no longer available.' }))
                 return
             }
-            s(prev => ({ ...prev, status: 'failed', error: String(err) }))
+            s(prev => ({ ...prev, status: 'failed', error: String(err), errorRecoverable: true }))
         }
-    }, [apiService, hydrateBundle, applyMessage, replayMissed, openSocket, resetRunState, s, setCursor])
+    }
 
     const stopResearch = useCallback(async () => {
         streamManagerRef.current?.send({ type: 'stop.request' })
         s(prev => ({ ...prev, status: 'stopping' }))
+        refreshBackendBase()
         await apiService.stop(stateRef.current.researchId)
-    }, [apiService])
+    }, [apiService, refreshBackendBase])
 
     const submitAnswer = useCallback((answer: string) => {
         const a = answer.trim()
@@ -1054,14 +1318,6 @@ export function useResearchSession(options?: {
         streamManagerRef.current?.disconnect(true)
         s(prev => ({ ...prev, status: 'idle' }))
     }, [])
-
-    // ── Auto-resume if researchId was provided ───────────────────────────────
-    useEffect(() => {
-        if (options?.researchId) {
-            void resumeSession(options.researchId)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [options?.researchId, resumeSession])
 
     const isRunning = state.status === 'running' || state.status === 'starting' || state.status === 'connecting' || state.status === 'stopping'
 

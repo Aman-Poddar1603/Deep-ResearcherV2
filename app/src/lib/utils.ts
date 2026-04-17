@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { getRuntimeBackendBaseUrl } from '@/lib/backend-config'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -9,9 +10,7 @@ export function resolveApiAssetUrl(path?: string | null) {
   if (!path) return null
   if (/^https?:\/\//i.test(path)) return path
 
-  const baseUrl =
-    (import.meta.env.VITE_BACKEND_URL as string | undefined) ??
-    'http://localhost:8000'
+  const baseUrl = getRuntimeBackendBaseUrl()
   const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return `${normalizedBase}${normalizedPath}`

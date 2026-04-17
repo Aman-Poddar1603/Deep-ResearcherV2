@@ -53,6 +53,16 @@ _WHITESPACE_PATTERN = re.compile(r"\s+")
 _WEB_TOOL_PREFERENCES = ("read_webpages", "scrape_single_url", "web_search")
 _MAX_WEB_SOURCE_ITEMS = 3
 _MAX_WEB_SOURCE_CHARS = 4500
+_CAPABILITY_QUERY_PHRASES = (
+    "who are you",
+    "what are your abilities",
+    "what are your capabilities",
+    "what can you do",
+    "what tools do you have",
+    "what do you do",
+    "what can i ask you",
+    "tell me about yourself",
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -106,6 +116,72 @@ def _normalize_tool_name(tool_name: str) -> str:
         if name.startswith(prefix):
             name = name[len(prefix) :]
     return name
+
+
+def _normalize_query_text(query: str) -> str:
+    return re.sub(r"\s+", " ", (query or "").strip().lower())
+
+
+def _is_capability_query(query: str) -> bool:
+    normalized = _normalize_query_text(query)
+    if not normalized:
+        return False
+
+    if any(phrase in normalized for phrase in _CAPABILITY_QUERY_PHRASES):
+        return True
+
+    return "abilities" in normalized or "capabilities" in normalized
+
+
+def _summarize_mcp_tool(tool: Any) -> str:
+    name = str(getattr(tool, "name", "")).strip() or "unknown"
+    description = " ".join(str(getattr(tool, "description", "")).split())
+
+    args_schema = getattr(tool, "args_schema", None)
+    fields = list(getattr(args_schema, "model_fields", {}).keys()) if args_schema else []
+    if fields:
+        input_text = ", ".join(fields)
+        if description:
+            description = f"{description} Inputs: {input_text}."
+        else:
+            description = f"Inputs: {input_text}."
+
+    if not description:
+        description = "MCP tool."
+
+    description = description.strip()
+    if len(description) > 180:
+        description = description[:177].rstrip() + "..."
+
+    display_name = name.replace("_", " ")
+    return f"- {display_name}: {description}"
+
+
+async def _build_capability_response() -> str:
+    tools = await get_mcp_tools()
+    if not tools:
+        return (
+            "I’m a chat assistant connected to the app’s live MCP server, but I couldn’t "
+            "load the tool list right now. I can still help with general questions, and "
+            "I’ll use the MCP tools as soon as they are available."
+        )
+
+    lines = [
+        "I’m a chat assistant connected to the app’s live MCP server.",
+        "",
+        "These are the tools I can use right now:",
+    ]
+    lines.extend(_summarize_mcp_tool(tool) for tool in tools)
+    lines.append("")
+    lines.append(
+        "If you want, I can also use these tools to search, read documents, inspect images, or pull live web content for a question."
+    )
+    return "\n".join(lines)
+
+
+async def _single_chunk_stream(text: str):
+    if text:
+        yield text
 
 
 def _select_web_tool(tools: list[Any]) -> Any | None:
@@ -370,6 +446,8 @@ async def _process_turn(
         message_id=user_msg_id,
     )
 
+    history = chat_service.get_recent_history(thread_id, limit=10)
+
     for attachment_meta in attachment_payload:
         try:
             chat_service.save_attachment_now(
@@ -420,8 +498,30 @@ async def _process_turn(
                 },
             )
 
+    if _is_capability_query(user_query):
+        await _send(
+            ws,
+            {
+                "type": "thinking",
+                "content": "Fetching live MCP tools...",
+            },
+        )
+        full_response = await _build_capability_response()
+
+        async for token in _single_chunk_stream(full_response):
+            await _send(ws, {"type": "token", "content": token})
+
+        await chat_service.bg_save_assistant_message(
+            thread_id,
+            full_response,
+            seq + 1,
+            citations={},
+        )
+        await _maybe_generate_title(ws, thread_id, history, user_query, full_response)
+        await _send(ws, {"type": "done"})
+        return
+
     # ── 3. Retrieve RAG chunks ─────────────────────────────────────────────
-    history = chat_service.get_recent_history(thread_id, limit=10)
     live_web_sources: list[dict[str, str]] = []
 
     if query_urls:

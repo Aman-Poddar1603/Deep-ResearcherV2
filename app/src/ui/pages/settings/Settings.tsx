@@ -48,6 +48,14 @@ import { ResearchTemplateSelector } from '@/ui/components/ResearchTemplateSelect
 import { cn, getVersion } from '@/lib/utils'
 import { useInternalLogo } from '@/ui/components/GetLogo'
 import {
+    BACKEND_PORT,
+    buildBackendBaseUrl,
+    DEFAULT_BACKEND_HOST,
+    normalizeBackendHost,
+    readBackendHost,
+    saveBackendHost,
+} from '@/lib/backend-config'
+import {
     getSettings,
     patchSettings,
     type DefaultReportFormat,
@@ -177,6 +185,8 @@ const Settings = () => {
 
     // Research Settings
     const [maxSearchDepth, setMaxSearchDepth] = useState('3')
+    const [backendHost, setBackendHost] = useState(() => readBackendHost())
+    const [backendHostError, setBackendHostError] = useState<string | null>(null)
     const [defaultReportFormat, setDefaultReportFormat] = useState('markdown')
 
     // Notification Settings
@@ -315,6 +325,37 @@ const Settings = () => {
         setResearcherName(e.target.value)
     }, [])
 
+    const handleBackendHostChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value
+        setBackendHost(value)
+        if (!value.trim()) {
+            setBackendHostError('Backend host cannot be empty')
+            return
+        }
+        const normalized = normalizeBackendHost(value)
+        setBackendHostError(
+            normalized
+                ? null
+                : 'Enter a valid IPv4, localhost, or domain',
+        )
+    }, [])
+
+    const handleBackendHostBlur = useCallback(() => {
+        if (!backendHost.trim()) {
+            const fallbackHost = readBackendHost()
+            setBackendHost(fallbackHost)
+            setBackendHostError(null)
+            return
+        }
+        const normalized = normalizeBackendHost(backendHost)
+        if (!normalized) {
+            setBackendHostError('Enter a valid IPv4, localhost, or domain')
+            return
+        }
+        setBackendHost(normalized)
+        setBackendHostError(null)
+    }, [backendHost])
+
     const handleUserCodeInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         setUserCodeInput(e.target.value)
     }, [])
@@ -336,10 +377,15 @@ const Settings = () => {
 
             if (researcherName) localStorage.setItem('dr_researcher_name', researcherName)
             else localStorage.removeItem('dr_researcher_name')
+
+            const normalizedBackendHost = normalizeBackendHost(backendHost)
+            if (normalizedBackendHost) {
+                saveBackendHost(normalizedBackendHost)
+            }
         }, 1000) // Debounce for 1 second
 
         return () => clearTimeout(timeoutId)
-    }, [profileAvatar, profileName, profileEmail, profileBio, researcherName])
+    }, [profileAvatar, profileName, profileEmail, profileBio, researcherName, backendHost])
 
     const handleAvatarClick = () => {
         fileInputRef.current?.click()
@@ -382,6 +428,9 @@ const Settings = () => {
 
         setResearcherName('Alfred')
         localStorage.removeItem('dr_researcher_name')
+        setBackendHost(DEFAULT_BACKEND_HOST)
+        setBackendHostError(null)
+        saveBackendHost(DEFAULT_BACKEND_HOST)
 
         // Reset other settings
         setTheme('system')
@@ -457,6 +506,10 @@ const Settings = () => {
                 return { title: '', description: '' }
         }
     }
+
+    const backendBasePreview = buildBackendBaseUrl(
+        normalizeBackendHost(backendHost) ?? readBackendHost(),
+    )
 
 
     return (
@@ -643,6 +696,35 @@ const Settings = () => {
                                     <SelectItem value="5">5 Levels</SelectItem>
                                 </SelectContent>
                             </Select>
+                        </SettingItem>
+                        <SettingItem
+                            label="Backend Server Host"
+                            description={`Core backend host/IP used across the app. Port ${BACKEND_PORT} is fixed.`}
+                        >
+                            <div className="w-60 space-y-1">
+                                <Input
+                                    value={backendHost}
+                                    onChange={handleBackendHostChange}
+                                    onBlur={handleBackendHostBlur}
+                                    placeholder="192.168.1.20"
+                                    className={cn(
+                                        'bg-background',
+                                        backendHostError
+                                            ? 'border-destructive focus-visible:ring-destructive/40'
+                                            : '',
+                                    )}
+                                />
+                                <p
+                                    className={cn(
+                                        'text-[11px] text-right',
+                                        backendHostError
+                                            ? 'text-destructive'
+                                            : 'text-muted-foreground',
+                                    )}
+                                >
+                                    {backendHostError ?? `Using ${backendBasePreview}`}
+                                </p>
+                            </div>
                         </SettingItem>
                         <SettingItem label="Default Report Format" description="Preferred format for generated reports">
                             <Select value={defaultReportFormat} onValueChange={setDefaultReportFormat}>

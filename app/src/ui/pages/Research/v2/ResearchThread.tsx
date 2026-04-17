@@ -776,6 +776,9 @@ const ResearchThread = () => {
     const userSources = state?.sources || recoveredContext.sources || []
     const safeUserSources = Array.isArray(userSources) ? userSources : []
     const hasContent = safeSteps.length > 0 || artifact
+    const isResearchComplete = status === 'completed' || (!isRunning && artifactDone)
+    const headerProgress = Math.max(0, Math.min(100, isResearchComplete ? 100 : progress))
+    const showHeaderProgress = headerProgress > 0 && (headerProgress < 100 || isResearchComplete)
 
     // Persist brief for QA UI if user refreshes mid-session
     useEffect(() => {
@@ -839,12 +842,18 @@ const ResearchThread = () => {
                         </p>
                     </div>
                     <ConnectionBadge status={status} />
-                    {progress > 0 && progress < 100 && (
+                    {showHeaderProgress && (
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
                             <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+                                <div
+                                    className={cn(
+                                        "h-full rounded-full transition-all duration-500",
+                                        isResearchComplete ? "bg-green-500" : "bg-primary",
+                                    )}
+                                    style={{ width: `${headerProgress}%` }}
+                                />
                             </div>
-                            <span>{progress}%</span>
+                            <span>{isResearchComplete ? 'Complete' : `${headerProgress}%`}</span>
                         </div>
                     )}
                 </div>

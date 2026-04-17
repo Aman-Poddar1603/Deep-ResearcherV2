@@ -5,6 +5,7 @@ import {
     createChatThread,
     getChatRuntimeWsUrl,
 } from '@/lib/apis';
+import { getRuntimeBackendBaseUrl } from '@/lib/backend-config';
 
 export interface ChatMessage {
     id: string;
@@ -353,7 +354,7 @@ export function useChatSimulator(options: UseChatSimulatorOptions = {}) {
                 if (last?.id === assistantMessageId) {
                     return [...prev.slice(0, -1), {
                         ...last,
-                        content: `Error: ${error instanceof Error ? error.message : 'Could not connect to backend chat service'}. Make sure backend is running on http://localhost:8000.`
+                        content: `Error: ${error instanceof Error ? error.message : 'Could not connect to backend chat service'}. Make sure backend is running on ${getRuntimeBackendBaseUrl()}.`
                     }];
                 }
                 return prev;

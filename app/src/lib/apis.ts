@@ -1,23 +1,13 @@
 import axios, { AxiosError, type AxiosResponse } from "axios";
-
-const backendUrl =
-  (import.meta.env.VITE_BACKEND_URL as string | undefined) ??
-  "http://localhost:8000";
-
-const toWebsocketBaseUrl = (url: string): string => {
-  if (/^wss?:\/\//i.test(url)) return url;
-  if (url.startsWith("https://")) return `wss://${url.slice("https://".length)}`;
-  if (url.startsWith("http://")) return `ws://${url.slice("http://".length)}`;
-  return url;
-};
-
-const backendWsUrl =
-  (import.meta.env.VITE_BACKEND_WS_URL as string | undefined) ??
-  toWebsocketBaseUrl(backendUrl);
+import {
+  getRuntimeBackendBaseUrl,
+  getRuntimeBackendWsBaseUrl,
+} from "@/lib/backend-config";
 
 export const resolveApiUrl = (path?: string | null): string | null => {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;
+  const backendUrl = getRuntimeBackendBaseUrl();
   const normalizedBase = backendUrl.endsWith("/")
     ? backendUrl.slice(0, -1)
     : backendUrl;
@@ -28,6 +18,7 @@ export const resolveApiUrl = (path?: string | null): string | null => {
 export const resolveWsUrl = (path?: string | null): string | null => {
   if (!path) return null;
   if (/^wss?:\/\//i.test(path)) return path;
+  const backendWsUrl = getRuntimeBackendWsBaseUrl();
   const normalizedBase = backendWsUrl.endsWith("/")
     ? backendWsUrl.slice(0, -1)
     : backendWsUrl;
@@ -42,8 +33,20 @@ export const getChatRuntimeWsUrl = (threadId: string): string => {
   return resolved ?? "";
 };
 
-const api = axios.create({
-  baseURL: backendUrl,
+const api = axios.create();
+
+api.interceptors.request.use((config) => {
+  const rawUrl = config.url ?? "";
+  if (/^https?:\/\//i.test(rawUrl)) {
+    return config;
+  }
+
+  const normalizedUrl = rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`;
+  return {
+    ...config,
+    baseURL: getRuntimeBackendBaseUrl(),
+    url: normalizedUrl,
+  };
 });
 
 type QueryPrimitive =

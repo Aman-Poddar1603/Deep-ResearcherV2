@@ -35,10 +35,11 @@ The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
 The integration MUST use these constants unless runtime code changes:
 
-- DEFAULT_BASE_URL: http://localhost:8000
+- DEFAULT_BASE_URL: http://{backend-host}:8000 (default host: localhost)
 - DEFAULT_REPLAY_LIMIT: 500
 - Resume storage key: research.resume.sessions.v1
-- Backend base URL storage key: research.backend.base_url.v1
+- Backend host storage key (primary): dr_backend.host.v1
+- Backend base URL storage key (legacy compatibility): research.backend.base_url.v1
 - WS backoff base: 500 ms
 - WS backoff cap: 8000 ms
 - Resume replay pagination hard pass cap: 20 loops

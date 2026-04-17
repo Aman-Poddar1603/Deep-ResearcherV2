@@ -115,6 +115,49 @@ const parseSourceCount = (sources: string | null): number => {
     return sources.split(',').filter((s) => s.trim()).length
 }
 
+const parseArtifactObjectString = (value: string): Record<string, unknown> | null => {
+    const raw = value.trim()
+    if (!raw) return null
+
+    const candidates = [raw]
+    const unwrappedFence = raw
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim()
+    if (unwrappedFence && unwrappedFence !== raw) candidates.push(unwrappedFence)
+
+    const trimmedAsterisk = raw.endsWith('*') ? raw.slice(0, -1).trim() : ''
+    if (trimmedAsterisk) candidates.push(trimmedAsterisk)
+
+    for (const candidate of candidates) {
+        if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue
+        try {
+            const parsed = JSON.parse(candidate)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                return parsed as Record<string, unknown>
+            }
+        } catch {
+            // Ignore invalid JSON payloads and fallback to raw markdown string.
+        }
+    }
+
+    return null
+}
+
+const normalizeArtifactMarkdown = (artifact: string | null): string => {
+    if (!artifact) return ''
+
+    const parsed = parseArtifactObjectString(artifact)
+    if (parsed) {
+        const content = parsed.content
+        if (typeof content === 'string' && content.trim()) {
+            return content
+        }
+    }
+
+    return artifact
+}
+
 
 const mapResearch = (record: ResearchRecord): Research => ({
     id: record.id,
@@ -544,6 +587,8 @@ const AllResearches = () => {
                         const ws = getWorkspaceFor(previewResearch.workspaceId)
                         const accent = getAccentClasses(ws?.color ?? 'purple-400')
                         const statusCfg = STATUS_CONFIG[previewResearch.status]
+                        const artifactMarkdown = normalizeArtifactMarkdown(previewResearch.artifacts)
+                        const hasArtifact = artifactMarkdown.trim().length > 0
 
                         return (
                             <>
@@ -583,14 +628,14 @@ const AllResearches = () => {
                                         )}
                                     </div>
 
-                                    {previewResearch.artifacts ? (
+                                    {hasArtifact ? (
                                         <>
                                             <Separator className="my-6 bg-border/50" />
                                             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Research Artifact</h4>
                                             <div className="rounded-2xl border border-border bg-background p-6 shadow-sm">
                                                 <Message from="assistant" className="max-w-none w-full">
                                                     <MessageContent className="max-w-none w-full bg-transparent p-0 text-base leading-relaxed">
-                                                        <MessageResponse>{previewResearch.artifacts}</MessageResponse>
+                                                        <MessageResponse>{artifactMarkdown}</MessageResponse>
                                                     </MessageContent>
                                                 </Message>
                                             </div>

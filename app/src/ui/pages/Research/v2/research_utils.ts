@@ -1,40 +1,31 @@
 import type { EventCursor, TokenInfo, ResumeSessionRecord, PendingInput } from './research_types'
+import {
+    buildBackendBaseUrl,
+    DEFAULT_BACKEND_HOST,
+    getRuntimeBackendBaseUrl,
+    normalizeBackendHost,
+    saveBackendHost,
+} from '@/lib/backend-config'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-export const DEFAULT_BACKEND_BASE = 'http://localhost:8000'
+export const DEFAULT_BACKEND_BASE = buildBackendBaseUrl(DEFAULT_BACKEND_HOST)
 export const DEFAULT_REPLAY_LIMIT = 500
-const BACKEND_STORAGE_KEY = 'research.backend.base_url.v1'
 const SESSION_STORAGE_KEY = 'research.resume.sessions.v1'
 
 // ─── Backend URL helpers ──────────────────────────────────────────────────────
-function trimSlashes(v: string) { return v.replace(/\/+$/, '') }
-const SCHEME_RE = /^[a-z][a-z\d+.-]*:\/\//i
-
 export function parseBackendBase(value: unknown): string | null {
-    if (typeof value !== 'string') return null
-    const raw = value.trim()
-    if (!raw) return null
-    const candidate = SCHEME_RE.test(raw) ? raw : `http://${raw}`
-    try {
-        const p = new URL(candidate)
-        if (!p.hostname) return null
-        p.search = ''; p.hash = ''
-        return trimSlashes(p.toString())
-    } catch { return null }
+    const host = normalizeBackendHost(typeof value === 'string' ? value : '')
+    if (!host) return null
+    return buildBackendBaseUrl(host)
 }
 
 export function readBackendBase(): string {
-    try {
-        const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY)
-        return parseBackendBase(stored) ?? DEFAULT_BACKEND_BASE
-    } catch { return DEFAULT_BACKEND_BASE }
+    return getRuntimeBackendBaseUrl()
 }
 
 export function saveBackendBase(value: string): string {
-    const parsed = parseBackendBase(value)
-    if (!parsed) throw new Error('Invalid server URL')
-    try { window.localStorage.setItem(BACKEND_STORAGE_KEY, parsed) } catch { /* ignore */ }
-    return parsed
+    const host = saveBackendHost(value)
+    return buildBackendBaseUrl(host)
 }
 
 // ─── URL normalization ────────────────────────────────────────────────────────
@@ -259,10 +250,10 @@ export function parseEventEnvelope(input: unknown): ParsedEvent | null {
 
     const event =
         typeof data.event === 'string' ? data.event
-        : typeof data.event_type === 'string' ? data.event_type
-        : typeof data.type === 'string' && (data.type as string).includes('.') ? data.type as string
-        : payload && typeof payload.event === 'string' ? payload.event
-        : null
+            : typeof data.event_type === 'string' ? data.event_type
+                : typeof data.type === 'string' && (data.type as string).includes('.') ? data.type as string
+                    : payload && typeof payload.event === 'string' ? payload.event
+                        : null
 
     if (!event) return null
     const normalizedEvent = normalizeEventName(event)
