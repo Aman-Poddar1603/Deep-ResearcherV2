@@ -162,12 +162,17 @@ async def research_ws_protocol() -> dict[str, object]:
 
 @app.get("/events/{client_id}")
 async def stream(request: Request, client_id: str):
-    from main.src.utils.system_status_broadcaster import LATEST_STATUS_PAYLOAD
+    from main.src.utils.system_status_broadcaster import LATEST_STATUS_PAYLOAD, get_system_status
+    import main.src.utils.system_status_broadcaster as broadcaster
     queue = event_bus.register(client_id)
 
     async def event_generator():
         try:
-            if client_id == "frontend_monitor" and LATEST_STATUS_PAYLOAD:
+            if client_id == "frontend_monitor":
+                new_status = await get_system_status(force_mcp=True)
+                broadcaster.LATEST_STATUS_PAYLOAD = new_status
+                yield format_sse(new_status)
+            elif LATEST_STATUS_PAYLOAD:
                 yield format_sse(LATEST_STATUS_PAYLOAD)
                 
             while True:

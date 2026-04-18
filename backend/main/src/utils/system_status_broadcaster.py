@@ -42,6 +42,7 @@ from main.src.store.DBManager import researches_db_manager
 from main.sse.event_bus import event_bus
 
 LATEST_STATUS_PAYLOAD: Dict[str, Any] = {}
+CACHED_MCP_STATUS: bool | None = None
 
 
 
@@ -105,7 +106,7 @@ async def _check_port_open(host: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
-async def get_system_status() -> Dict[str, Any]:
+async def get_system_status(force_mcp: bool = False) -> Dict[str, Any]:
     """
     ## Description
 
@@ -179,25 +180,27 @@ async def get_system_status() -> Dict[str, Any]:
         pass
 
     # 4. MCP Server 
-    mcp_server = False
-    mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp")
-    try:
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
-        
-        async def _check_mcp():
-            async with streamablehttp_client(mcp_server_url) as (read, write, *_):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    await session.list_tools()
-                    return True
-                    
-        mcp_server = await asyncio.wait_for(_check_mcp(), timeout=5.0)
-    except Exception:
-        mcp_server = False
-        pass
+    global CACHED_MCP_STATUS
+    if CACHED_MCP_STATUS is None or force_mcp:
+        CACHED_MCP_STATUS = False
+        mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp")
+        try:
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamablehttp_client
+            
+            async def _check_mcp():
+                async with streamablehttp_client(mcp_server_url) as (read, write, *_):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        await session.list_tools()
+                        return True
+                        
+            CACHED_MCP_STATUS = await asyncio.wait_for(_check_mcp(), timeout=5.0)
+        except Exception:
+            pass
     
-    mcp_client = mcp_server # Assuming client availability is tied to server reachability here
+    mcp_server = CACHED_MCP_STATUS
+    mcp_client = CACHED_MCP_STATUS # Assuming client availability is tied to server reachability here
 
     # 5. DB Vector (Assuming Chroma/Qdrant on a specific port or local directory)
     # Ping common Chroma port 8000 (wait, our backend is on 8000, so we just assume True or check local dir)
