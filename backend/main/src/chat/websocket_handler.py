@@ -40,8 +40,10 @@ async def _log(msg: str, level: str = "info", urgency: str = "none") -> None:
     )
 
 
-# Decide agent vs RAG based on env flag or per-request field
-USE_AGENT_DEFAULT = os.getenv("USE_AGENT", "false").lower() == "true"
+# Decide agent vs RAG based on env flag or per-request field.
+# Defaults to True so MCP tools are always bound — set USE_AGENT=false to revert
+# to the plain RAG-only path.
+USE_AGENT_DEFAULT = os.getenv("USE_AGENT", "true").lower() != "false"
 _IMAGE_FORMATS = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 _URL_PATTERN = re.compile(r"https?://[^\s<>()\[\]\{\}\"']+", flags=re.IGNORECASE)
 _SCRIPT_STYLE_PATTERN = re.compile(
@@ -53,15 +55,57 @@ _WHITESPACE_PATTERN = re.compile(r"\s+")
 _WEB_TOOL_PREFERENCES = ("read_webpages", "scrape_single_url", "web_search")
 _MAX_WEB_SOURCE_ITEMS = 3
 _MAX_WEB_SOURCE_CHARS = 4500
+_MAX_SEARCH_RESULT_CHARS = 6000
+
+# Keywords used to detect search intent directly from the user's query.
+# The server calls the MCP tool directly — no LLM involvement in the decision.
+_YOUTUBE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "youtube", "video", "videos", "watch", "channel", "vlog", "vlogs",
+        "clip", "clips", "tutorial", "tutorials", "playlist", "stream",
+    }
+)
+_IMAGE_SEARCH_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "image", "images", "picture", "pictures", "photo", "photos",
+        "pic", "pics", "wallpaper", "wallpapers", "artwork", "illustration",
+    }
+)
+_WEB_SEARCH_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "search", "find", "look up", "lookup", "google", "latest", "news",
+        "article", "articles", "trending", "results", "information about",
+        "tell me about", "what is", "who is", "where is", "when is",
+    }
+)
+# Phrases that, when detected, bypass the agent and return a live tool listing.
 _CAPABILITY_QUERY_PHRASES = (
     "who are you",
     "what are your abilities",
     "what are your capabilities",
     "what can you do",
     "what tools do you have",
+    "what tools you have",
+    "tools do you have",
+    "tools you have",
+    "what tools are available",
+    "list your tools",
+    "list tools",
+    "show tools",
+    "show your tools",
     "what do you do",
     "what can i ask you",
     "tell me about yourself",
+)
+# If the query contains ALL keywords in any of these tuples, treat it as a
+# capability query regardless of phrasing order.
+_CAPABILITY_KEYWORD_COMBOS: tuple[tuple[str, ...], ...] = (
+    ("tool", "have"),
+    ("tool", "use"),
+    ("tool", "access"),
+    ("tools", "available"),
+    ("what", "tool"),
+    ("which", "tool"),
 )
 
 
@@ -130,7 +174,16 @@ def _is_capability_query(query: str) -> bool:
     if any(phrase in normalized for phrase in _CAPABILITY_QUERY_PHRASES):
         return True
 
-    return "abilities" in normalized or "capabilities" in normalized
+    if "abilities" in normalized or "capabilities" in normalized:
+        return True
+
+    # Keyword-combo check: if the query contains ALL words in any combo tuple,
+    # treat it as a capability query regardless of phrasing order.
+    words = set(normalized.split())
+    if any(all(kw in words for kw in combo) for combo in _CAPABILITY_KEYWORD_COMBOS):
+        return True
+
+    return False
 
 
 def _summarize_mcp_tool(tool: Any) -> str:
@@ -182,6 +235,264 @@ async def _build_capability_response() -> str:
 async def _single_chunk_stream(text: str):
     if text:
         yield text
+
+
+def _select_tool_by_names(
+    tools: list[Any],
+    candidates: list[str],
+) -> Any | None:
+    """Select the first matching tool from candidates (priority order)."""
+    for candidate in candidates:
+        for tool in tools:
+            if _normalize_tool_name(getattr(tool, "name", "")) == candidate:
+                return tool
+    return None
+
+
+def _build_query_payload(tool: Any, query: str) -> dict[str, Any]:
+    """
+    Map a plain search query string to the tool's actual argument schema.
+
+    Handles the special case of ``image_search_tool`` which takes
+    ``queries: list[tuple[str, int]]`` instead of a plain ``query: str``.
+    """
+    args_schema = getattr(tool, "args_schema", None)
+    fields = (
+        list(getattr(args_schema, "model_fields", {}).keys()) if args_schema else []
+    )
+    lower_to_field = {f.lower(): f for f in fields}
+
+    # image_search_tool uses "queries" which is list[tuple[str, int]]
+    if "queries" in lower_to_field:
+        return {lower_to_field["queries"]: [[query, 10]]}
+
+    for key in ("query", "q", "search", "term", "keywords"):
+        if key in lower_to_field:
+            return {lower_to_field[key]: query}
+    if fields:
+        return {fields[0]: query}
+    return {"query": query}
+
+
+
+
+def _detect_search_intent(query: str) -> tuple[str | None, str]:
+    """
+    Detect YouTube / image / web search intent from the user's plain-text
+    query.  Returns (category, cleaned_search_query) where category is
+    ``"youtube"``, ``"image"``, or ``None`` if no search intent found.
+    """
+    normalized = re.sub(r"\s+", " ", (query or "").strip().lower())
+    words = set(normalized.split())
+
+    # Strip common request prefixes to get a clean search query
+    cleaned = re.sub(
+        r"^(search(\s+for)?|find(\s+me)?|can\s+you\s+(search|find)|"
+        r"show(\s+me)?|get(\s+me)?|fetch|look(\s+up)?)\s+",
+        "",
+        normalized,
+    ).strip()
+
+    if words & _YOUTUBE_KEYWORDS:
+        core = re.sub(
+            r"\b(youtube|video|videos|watch|vlog|vlogs|clip|clips|stream|playlist|tutorial|tutorials)\b",
+            "",
+            cleaned,
+        ).strip(" ,-")
+        return "youtube", core or cleaned
+
+    if words & _IMAGE_SEARCH_KEYWORDS:
+        core = re.sub(
+            r"\b(image|images|picture|pictures|photo|photos|pic|pics|wallpaper|wallpapers|artwork|illustration)\b",
+            "",
+            cleaned,
+        ).strip(" ,-")
+        return "image", core or cleaned
+
+    return None, cleaned
+
+
+async def _fetch_search_context(
+    query: str,
+) -> tuple[str, list[dict[str, str]], str]:
+    """
+    Detect search intent, select the right MCP tool, call it DIRECTLY
+    (server-side, no LLM involvement), and return formatted context.
+
+    Follows the exact same pattern as ``attachment_service.extract_mcp_content``
+    and ``_fetch_live_website_context`` — both of which bypass the LLM for
+    tool selection and call ``tool.ainvoke()`` directly.
+
+    Returns:
+        (context_text, sources, status)
+        status: ``"youtube"`` | ``"image"`` | ``"none"`` | ``"failed"``
+    """
+    tool_category, search_query = _detect_search_intent(query)
+    if not tool_category:
+        return "", [], "none"
+
+    if not search_query.strip():
+        search_query = query
+
+    try:
+        tools = await get_mcp_tools()
+        if not tools:
+            return "", [], "failed"
+
+        if tool_category == "youtube":
+            tool = _select_tool_by_names(tools, ["youtube_search", "youtube"])
+        else:
+            tool = _select_tool_by_names(
+                tools, ["image_search_tool", "image_search"]
+            )
+
+        if tool is None:
+            await _log(
+                f"No MCP tool found for search category '{tool_category}'",
+                level="warning",
+                urgency="none",
+            )
+            return "", [], "failed"
+
+        payload = _build_query_payload(tool, search_query)
+        tool_name = getattr(tool, "name", tool_category)
+
+        raw_output = await tool.ainvoke(payload)
+        parsed = parse_tool_output(tool_name, raw_output)
+
+        if not parsed:
+            return "", [], "failed"
+
+        sources: list[dict[str, str]] = []
+        context_text = ""
+
+        if tool_category == "youtube":
+            context_text = _format_youtube_results(search_query, parsed, sources)
+        else:
+            context_text = _format_image_results(search_query, parsed, sources)
+
+        if not context_text.strip():
+            return "", [], "failed"
+
+        if len(context_text) > _MAX_SEARCH_RESULT_CHARS:
+            context_text = (
+                context_text[:_MAX_SEARCH_RESULT_CHARS] + "\n\n[...truncated]"
+            )
+
+        return context_text, sources, tool_category
+
+    except Exception as exc:
+        await _log(
+            f"_fetch_search_context failed ({tool_category}): {exc}",
+            level="warning",
+            urgency="moderate",
+        )
+        return "", [], "failed"
+
+
+def _format_youtube_results(
+    query: str,
+    parsed: list[dict[str, Any]],
+    sources: list[dict[str, str]],
+) -> str:
+    """
+    Format youtube_search parsed output as a numbered markdown list with
+    bold clickable titles, channel, duration, views, and a short description.
+    """
+    lines: list[str] = [
+        f'> **YouTube Search Results for \u201c{query}\u201d** \u2014 '
+        f'include these links and details in your answer.\n',
+    ]
+    for i, item in enumerate(parsed[:8], start=1):
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        title = str(item.get("title") or "Video").strip()
+        content = str(item.get("content") or "").strip()
+        if not url:
+            continue
+
+        # Parse the pre-formatted content block from parse_tool_output:
+        # "Title: X\nChannel: Y\nDescription: Z\nViews: N\nDuration: Ds\n..."
+        meta: dict[str, str] = {}
+        for line in content.splitlines():
+            if ": " in line:
+                k, _, v = line.partition(": ")
+                meta[k.strip().lower()] = v.strip()
+
+        channel = meta.get("channel", "")
+        duration_s = meta.get("duration", "")
+        views = meta.get("views", "")
+        desc = meta.get("description", "")[:200]
+
+        # Build duration string e.g. "12m 34s"
+        dur_str = ""
+        try:
+            secs = int(float(duration_s))
+            dur_str = f"{secs // 60}m {secs % 60}s" if secs else ""
+        except (ValueError, TypeError):
+            dur_str = duration_s
+
+        meta_parts = [p for p in [channel, dur_str, views] if p]
+        meta_line = " \u2022 ".join(meta_parts)
+
+        if url:
+            sources.append({"href": url, "title": title})
+
+        lines.append(f"{i}. **{title}**")
+        lines.append(f"   URL: {url}")
+        if meta_line:
+            lines.append(f"   {meta_line}")
+        if desc:
+            lines.append(f"   > {desc}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _format_image_results(
+    query: str,
+    parsed: list[dict[str, Any]],
+    sources: list[dict[str, str]],
+) -> str:
+    """
+    Format image_search_tool parsed output as a markdown inline image gallery.
+    Images are rendered using ``![alt](url)`` syntax so the frontend displays
+    them directly rather than showing raw URLs.  Multiple images appear on the
+    same line as a horizontal row.
+    """
+    image_tags: list[str] = []
+    for item in parsed[:12]:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        # Only include likely image URLs (not HTML pages)
+        if not url:
+            continue
+        ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
+        if ext not in {"jpg", "jpeg", "png", "webp", "gif", "bmp", "svg"}:
+            # Heuristic: include anyway if the URL path looks like an image
+            if not any(k in url.lower() for k in ("image", "photo", "img", "pic")):
+                continue
+        alt = query.replace('"', "")
+        image_tags.append(f"![{alt}]({url})")
+        sources.append({"href": url, "title": alt})
+
+    if not image_tags:
+        return ""
+
+    # Group into rows of 4 images separated by a space (renders inline on most
+    # markdown frontends; each group is on its own line so they wrap nicely).
+    rows: list[str] = []
+    for i in range(0, len(image_tags), 4):
+        rows.append(" ".join(image_tags[i : i + 4]))
+
+    header = (
+        f'> **Image Search Results for \u201c{query}\u201d** \u2014 '
+        "show these images in your answer using the markdown below.\n"
+    )
+    return header + "\n".join(rows)
+
 
 
 def _select_web_tool(tools: list[Any]) -> Any | None:
@@ -364,17 +675,32 @@ async def handle_chat_websocket(ws: WebSocket, thread_id: str) -> None:
         while True:
             raw = await ws.receive_text()
             data = _parse_client_message(raw)
-            await _process_turn(ws, thread_id, data)
+            try:
+                await _process_turn(ws, thread_id, data)
+            except Exception as exc:
+                # Log the failure but keep the WebSocket open for the next turn.
+                asyncio.ensure_future(
+                    _log(
+                        f"WS turn error thread={thread_id}: {exc}",
+                        level="error",
+                        urgency="critical",
+                    )
+                )
+                await _send(ws, {"type": "error", "content": str(exc)})
+                await _send(ws, {"type": "done"})
 
     except WebSocketDisconnect:
-        asyncio.ensure_future(_log(f"WS disconnected thread={thread_id}", level="info"))
+        asyncio.ensure_future(
+            _log(f"WS disconnected thread={thread_id}", level="info")
+        )
     except Exception as exc:
         asyncio.ensure_future(
             _log(
-                f"WS error thread={thread_id}: {exc}", level="error", urgency="critical"
+                f"WS fatal error thread={thread_id}: {exc}",
+                level="error",
+                urgency="critical",
             )
         )
-        await _send(ws, {"type": "error", "content": str(exc)})
 
 
 async def _process_turn(
@@ -521,15 +847,18 @@ async def _process_turn(
         await _send(ws, {"type": "done"})
         return
 
-    # ── 3. Retrieve RAG chunks ─────────────────────────────────────────────
+    # ── 3. Retrieve RAG chunks + direct search context ────────────────────
     live_web_sources: list[dict[str, str]] = []
 
     if query_urls:
+        first_url = query_urls[0]
+        short_url = first_url[:60] + "..." if len(first_url) > 60 else first_url
+        extra = f" (+{len(query_urls) - 1} more)" if len(query_urls) > 1 else ""
         await _send(
             ws,
             {
                 "type": "thinking",
-                "content": "Fetching live website content...",
+                "content": f"Fetching page: {short_url}{extra}",
             },
         )
         web_context, live_web_sources, web_status = await _fetch_live_website_context(
@@ -543,9 +872,10 @@ async def _process_turn(
                 ws,
                 {
                     "type": "thinking",
-                    "content": "Read website content. Preparing answer...",
+                    "content": f"Page loaded. Preparing answer...",
                 },
             )
+
         else:
             await _send(
                 ws,
@@ -563,8 +893,57 @@ async def _process_turn(
                 urgency="none",
             )
 
+    # Server-side MCP search: detect YouTube / image / web intent and call
+    # the tool directly.  Emit a descriptive thinking frame BEFORE the call
+    # so the user sees what the agent is doing in real time.
+    _search_category, _search_query = _detect_search_intent(user_query)
+    if _search_category == "youtube":
+        await _send(
+            ws,
+            {
+                "type": "thinking",
+                "content": f"Searching YouTube videos on '{_search_query}'...",
+            },
+        )
+    elif _search_category == "image":
+        await _send(
+            ws,
+            {
+                "type": "thinking",
+                "content": f"Searching images of '{_search_query}'...",
+            },
+        )
+
+    search_context, search_sources, search_status = await _fetch_search_context(
+        user_query
+    )
+    if search_context.strip():
+        if search_status == "youtube":
+            done_msg = f"Found YouTube results for '{_search_query}'. Preparing answer..."
+        elif search_status == "image":
+            done_msg = f"Found images for '{_search_query}'. Preparing answer..."
+        else:
+            done_msg = "Search complete. Preparing answer..."
+        await _send(ws, {"type": "thinking", "content": done_msg})
+        mcp_content = "\n\n".join(
+            part for part in [mcp_content, search_context] if part.strip()
+        )
+        live_web_sources = _merge_sources(live_web_sources, search_sources)
+    elif search_status != "none":
+        await _send(
+            ws,
+            {
+                "type": "thinking",
+                "content": "Search returned no results. Answering with available context.",
+            },
+        )
+
     chunks: list[dict[str, Any]] = []
-    should_query_rag = rag_service.should_use_rag(user_query) and not query_urls
+    should_query_rag = (
+        rag_service.should_use_rag(user_query)
+        and not query_urls
+        and search_status == "none"  # skip RAG when live search already ran
+    )
     if should_query_rag:
         await _send(
             ws,
@@ -601,6 +980,15 @@ async def _process_turn(
         )
 
     async for token in stream:
+        if token.startswith("__THINKING__:"):
+            await _send(
+                ws,
+                {
+                    "type": "thinking",
+                    "content": token[len("__THINKING__:"):],
+                },
+            )
+            continue
         full_response += token
         await _send(ws, {"type": "token", "content": token})
 
