@@ -182,11 +182,19 @@ async def get_system_status() -> Dict[str, Any]:
     mcp_server = False
     mcp_server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8001/mcp")
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            response = await client.get(mcp_server_url)
-            # If it returns something, it is works (even if it's 404/405 due to SSE handler)
-            mcp_server = True
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+        
+        async def _check_mcp():
+            async with streamablehttp_client(mcp_server_url) as (read, write, *_):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    await session.list_tools()
+                    return True
+                    
+        mcp_server = await asyncio.wait_for(_check_mcp(), timeout=5.0)
     except Exception:
+        mcp_server = False
         pass
     
     mcp_client = mcp_server # Assuming client availability is tied to server reachability here

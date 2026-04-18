@@ -70,7 +70,7 @@ app.on("ready", () => {
     });
 
     ipcMain.on("zoomOut", () => {
-        const newZoom = Math.max(mainWindow.webContents.zoomLevel - 0.1, 0.3);
+        const newZoom = Math.max(mainWindow.webContents.zoomLevel + (-0.1), 1.0);
         mainWindow.webContents.zoomLevel = newZoom;
         ipcWebContentsSend("zoomLevelChanged", mainWindow.webContents, newZoom);
     });
