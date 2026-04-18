@@ -138,7 +138,9 @@ def _summarize_mcp_tool(tool: Any) -> str:
     description = " ".join(str(getattr(tool, "description", "")).split())
 
     args_schema = getattr(tool, "args_schema", None)
-    fields = list(getattr(args_schema, "model_fields", {}).keys()) if args_schema else []
+    fields = (
+        list(getattr(args_schema, "model_fields", {}).keys()) if args_schema else []
+    )
     if fields:
         input_text = ", ".join(fields)
         if description:
@@ -394,7 +396,9 @@ async def _process_turn(
     runtime_context = chat_service.get_thread_runtime_context(thread_id)
     workspace_id = str(runtime_context.get("workspace_id") or "").strip()
     connected_bucket_id = str(runtime_context.get("connected_bucket_id") or "").strip()
-    created_by = str(runtime_context.get("created_by") or "chat-user").strip() or "chat-user"
+    created_by = (
+        str(runtime_context.get("created_by") or "chat-user").strip() or "chat-user"
+    )
     user_name = str(runtime_context.get("user_name") or "").strip()
     user_location = str(runtime_context.get("user_location") or "").strip()
     workspace_name = str(runtime_context.get("workspace_name") or "").strip()
